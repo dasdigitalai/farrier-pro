@@ -2494,6 +2494,19 @@ function onLineHorseInput(idx) {
   const input = document.getElementById(`line-horse-input-${idx}`);
   const q = input.value.trim().toLowerCase();
   const matches = (state.customerHorses || []).filter(h => !q || (h.name || '').toLowerCase().includes(q));
+  // Typing a horse's full name counts as picking it, so the line keeps the horse even if
+  // the farrier moves on without tapping the suggestion.
+  const exact = q ? (state.customerHorses || []).filter(h => (h.name || '').trim().toLowerCase() === q) : [];
+  const line = state.invoiceLines[idx];
+  if (exact.length === 1 && line && line.horseId !== exact[0].id) {
+    line.horseId = exact[0].id;
+    line.horseName = exact[0].name;
+    line.qty = 1; line.note = '';
+    document.getElementById(`line-qty-${idx}`).value = 1;
+    document.getElementById(`line-note-${idx}`).value = '';
+    document.getElementById(`line-note-wrap-${idx}`).style.display = 'none';
+    updateLineTotalHint(idx);
+  }
   const list = document.getElementById(`line-horse-suggestions-${idx}`);
   // Plain onclick — hiding the list is handled by the document-level click-outside
   // listener below, not by input blur (blur-vs-click ordering isn't reliable across
