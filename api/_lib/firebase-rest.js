@@ -15,9 +15,36 @@ const DOCS = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databas
 const IDT = 'https://identitytoolkit.googleapis.com/v1';
 
 // ── Server identity ──
-let cached = null; // { idToken, uid, expiresAt }
+//
+// Firebase rate-limits password sign-ins (TOO_MANY_ATTEMPTS_TRY_LATER), and a failing server
+// login used to be retried by every request, which kept the limit in force. So: concurrent
+// callers share one sign-in, a refresh token renews the session without the password, and
+// after a failure the instance waits before trying again instead of hammering Firebase.
+const SIGN_IN_COOLDOWN_MS = 60_000;
+let cached = null; // { idToken, refreshToken, uid, expiresAt }
+let inflight = null;
+let failed = null; // { error, until }
 export async function serverAuth() {
   if (cached && cached.expiresAt > Date.now() + 60_000) return cached;
+  if (failed && failed.until > Date.now()) throw failed.error;
+  inflight ||= renewServerAuth()
+    .catch(err => { failed = { error: err, until: Date.now() + SIGN_IN_COOLDOWN_MS }; throw err; })
+    .finally(() => { inflight = null; });
+  return inflight;
+}
+async function renewServerAuth() {
+  if (cached?.refreshToken) {
+    const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${API_KEY}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: cached.refreshToken }).toString(),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      cached = { idToken: d.id_token, refreshToken: d.refresh_token || cached.refreshToken, uid: d.user_id || cached.uid,
+        expiresAt: Date.now() + Number(d.expires_in || 3600) * 1000 };
+      return cached;
+    }
+  }
   const email = process.env.SERVER_AUTH_EMAIL, password = process.env.SERVER_AUTH_PASSWORD;
   if (!email || !password) throw new Error('SERVER_AUTH_EMAIL / SERVER_AUTH_PASSWORD not configured');
   const r = await fetch(`${IDT}/accounts:signInWithPassword?key=${API_KEY}`, {
@@ -26,7 +53,8 @@ export async function serverAuth() {
   });
   const d = await r.json();
   if (!r.ok) throw new Error('Server sign-in failed: ' + (d.error?.message || r.status));
-  cached = { idToken: d.idToken, uid: d.localId, expiresAt: Date.now() + Number(d.expiresIn || 3600) * 1000 };
+  cached = { idToken: d.idToken, refreshToken: d.refreshToken, uid: d.localId, expiresAt: Date.now() + Number(d.expiresIn || 3600) * 1000 };
+  failed = null;
   return cached;
 }
 
@@ -123,6 +151,14 @@ export async function patchDoc(path, fields = {}, deleteFields = []) {
     body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(`Firestore write ${path} failed: ${r.status} (server uid ${cached?.uid}) ${await r.text()}`);
+  return true;
+}
+
+// Deletes a document (no error if it's already gone).
+export async function deleteDoc(path) {
+  const { idToken } = await serverAuth();
+  const r = await fetch(`${DOCS}/${path}`, { method: 'DELETE', headers: { Authorization: `Bearer ${idToken}` } });
+  if (!r.ok && r.status !== 404) throw new Error(`Firestore delete ${path} failed: ${r.status} (server uid ${cached?.uid}) ${await r.text()}`);
   return true;
 }
 
@@ -232,9 +268,34 @@ export async function setGoogleRefreshToken(farrierId, token) {
   await patchDoc(`farriers/${farrierId}`, {}, LEGACY_GOOGLE_FIELDS);
 }
 
+// FarriTech support staff (supportAdmins/{uid}, set by hand in the Firebase console).
+export async function isSupportAdmin(uid) {
+  if (!uid) return false;
+  const a = await getDoc(`supportAdmins/${uid}`);
+  return !!a && a.active !== false;
+}
+
+// Gate for endpoints that send messages: a signed-in farrier/team member, FarriTech support
+// staff, or the server itself. Returns { caller } or { status, error } with the reason —
+// a failed lookup (server sign-in, Firestore) is a 500, not a silent "not a farrier".
+export async function authorizeSender(req, tag) {
+  const caller = await callerFromRequest(req).catch(() => null);
+  if (!caller) return { status: 401, error: 'Please sign in again' };
+  let lookupError = null;
+  const check = (fn) => fn(caller.uid).catch(err => { lookupError = err; return false; });
+  if ((await check(isFarrier)) || (await check(isSupportAdmin))) return { caller };
+  if (lookupError) {
+    console.error(`${tag}: could not verify caller`, caller.uid, lookupError);
+    return { status: 500, error: 'Could not verify your account. Please try again.' };
+  }
+  console.warn(`${tag}: no farrier profile for`, caller.uid, caller.email);
+  return { status: 403, error: 'No farrier account found for this login' };
+}
+
 export async function isFarrier(uid) {
   if (!uid) return false;
   const { uid: serverUid } = await serverAuth();
   if (uid === serverUid) return true;
-  return !!(await getDoc(`farriers/${uid}`));
+  // A farrier with their own profile, or one who works in someone's business (_lib/team.js).
+  return !!(await getDoc(`farriers/${uid}`)) || !!(await getDoc(`businessMembers/${uid}`));
 }

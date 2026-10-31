@@ -8,7 +8,8 @@ import {
 } from './_lib/invoice-payments.js';
 import { payPage } from './_lib/pay-page.js';
 import { farrierWebhook, recordWebhookSession } from './_lib/farrier-webhook.js';
-import { closeIposPages, connectIpospays, createIposPage, disconnectIpospays, getIposCreds, iposCallback, refundIposPayment } from './_lib/ipospays.js';
+import { businessFor, requireRole, teamAccept, teamInvite, teamRemove, teamSetRole, teamStatus } from './_lib/team.js';
+import { closeIposPages, connectIpospays, createIposPage, disconnectIpospays, getIposCreds, iposCallback, refundIposPayment, syncIposPayment } from './_lib/ipospays.js';
 
 const P = globalThis.FarriPricing;
 const SECRET_KEY_RE = /^(sk|rk)_(live|test)_/;
@@ -32,12 +33,13 @@ export const config = { api: { bodyParser: false } };
 //   anyone                → confirm_session  (only marks paid after Stripe confirms the session)
 //   Stripe                → webhook          (legacy platform webhook, signature required; farriers'
 //                                               own accounts post to /api/stripe/webhook/{farrierId} → _lib/farrier-webhook.js)
-//   farrier (signed in)   → ipospays_connect, ipospays_disconnect, ipospays_status, ipospays_refund
+//   farrier (signed in)   → ipospays_connect, ipospays_disconnect, ipospays_status, ipospays_refund,
+//                           ipospays_keyed (card form to key a card into), ipospays_check (did it go through?)
+//   farrier (signed in)   → team_status, team_invite, team_remove, team_set_role, team_accept (_lib/team.js)
 //   iPOSpays              → /api/ipospays/callback/{invoiceId} → _lib/ipospays.js (re-checked with iPOSpays before recording)
 //
-// While a farrier has iPOSpays connected, payment_link / waive_card_price and the /pay page
-// use iPOSpays payment pages (refunded with ipospays_refund); keyed cards and the customer
-// portal stay on Stripe.
+// While a farrier has iPOSpays connected, payment_link / waive_card_price, keyed cards
+// (ipospays_keyed) and the /pay page use iPOSpays payment pages; the customer portal stays on Stripe.
 //
 // Amounts are always worked out here from the invoice (lib/pricing.js), never taken from
 // the browser — see api/_lib/invoice-payments.js for how payments are recorded.
@@ -208,8 +210,22 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true });
     }
 
-    // Everything below acts on the signed-in farrier's own payment accounts.
-    const farrierId = caller.uid;
+    // ── Team (multi-farrier businesses, _lib/team.js) ──
+    if (action === 'team_status') return res.status(200).json({ success: true, ...await teamStatus(caller) });
+    if (action === 'team_invite') return res.status(200).json({ success: true, ...await teamInvite(caller, body) });
+    if (action === 'team_remove') return res.status(200).json({ success: true, ...await teamRemove(caller, body) });
+    if (action === 'team_set_role') return res.status(200).json({ success: true, ...await teamSetRole(caller, body) });
+    if (action === 'team_accept') return res.status(200).json({ success: true, ...await teamAccept(caller) });
+
+    // Everything below acts on the payment accounts of the business the caller works in: their
+    // own (a farrier on their own, or a business owner) or the business they joined. Roles:
+    // owner → everything; manager → also refunds and card-price waivers; farrier → takes payments.
+    const biz = await businessFor(caller);
+    const farrierId = biz.businessId;
+    const OWNER_ONLY = ['ipospays_connect', 'ipospays_disconnect', 'connect', 'validate', 'disconnect', 'set_manager_password', 'deactivate_link'];
+    const MANAGERS = ['ipospays_refund', 'refund', 'waive_card_price'];
+    if (OWNER_ONLY.includes(action)) requireRole(biz, ['owner'], 'change payment settings');
+    if (MANAGERS.includes(action)) requireRole(biz, ['owner', 'manager'], action === 'waive_card_price' ? 'waive the card price' : 'issue refunds');
 
     // ── iPOSpays (Settings → iPOSpays Payments) ──
     if (action === 'ipospays_connect') {
@@ -231,6 +247,32 @@ export default async function handler(req, res) {
       const invoice = await ownInvoice(invoiceId, farrierId);
       const result = await refundIposPayment(ipos, invoiceId, invoice, Math.round(parseFloat(amount) * 100));
       return res.status(200).json({ success: true, recorded: true, ...result, amount: result.amountCents / 100 });
+    }
+    // Keyed card: an iPOSpays payment page for the farrier to type the card into (opened in a
+    // new tab by the app), for `applyAmount` of the cash-price balance (default: all of it).
+    // The app then asks ipospays_check until iPOSpays says it went through or was declined.
+    if (action === 'ipospays_keyed') {
+      const { invoiceId, applyAmount } = body;
+      const ipos = await getIposCreds(farrierId);
+      if (!ipos) return res.status(400).json({ success: false, error: 'iPOSpays isn’t connected. Connect it in Settings → iPOSpays Payments.' });
+      const invoice = await ownInvoice(invoiceId, farrierId);
+      if (invoice.status === 'paid' || invoice.status === 'cancelled') return res.status(400).json({ success: false, error: `This invoice is ${invoice.status}.` });
+      const applyCents = applyAmount ? P.toCents(applyAmount) : 0;
+      if (applyAmount && applyCents <= 0) return res.status(400).json({ success: false, error: 'Enter a valid amount.' });
+      const { url, ref, chargeCents } = await createIposPage(ipos, invoiceId, invoice, { method: 'card_keyed', applyCents });
+      return res.status(200).json({ success: true, url, ref, amount: chargeCents / 100 });
+    }
+    if (action === 'ipospays_check') {
+      const { invoiceId, ref } = body;
+      if (!/^[A-Za-z0-9]{1,20}$/.test(String(ref || ''))) return res.status(400).json({ success: false, error: 'Bad reference.' });
+      const ipos = await getIposCreds(farrierId);
+      if (!ipos) return res.status(400).json({ success: false, error: 'iPOSpays isn’t connected.' });
+      await ownInvoice(invoiceId, farrierId);
+      const result = await syncIposPayment(ipos, invoiceId, String(ref));
+      return res.status(200).json({
+        success: true, paid: !!result.paid, declined: !!result.declined, message: result.message || '',
+        amount: result.paid ? result.amountCents / 100 : 0, status: result.status || '',
+      });
     }
     if (action === 'ipospays_status') {
       const ipos = await getIposCreds(farrierId);

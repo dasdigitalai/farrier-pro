@@ -5,7 +5,7 @@
 // on that phone — showing the desktop dashboard inside the installed mobile app.
 // Same-origin cache-first is now scoped to the exact app-shell paths below, and the
 // version bump flushes any bad entries a phone may already have cached under v3.
-const CACHE_NAME = 'farritech-mobile-v8';
+const CACHE_NAME = 'farritech-mobile-v10';
 
 // The app shell: small set of files needed to boot the UI instantly on repeat opens.
 const APP_SHELL = [
@@ -15,6 +15,7 @@ const APP_SHELL = [
   '/inventory-catalog.js',
   '/api-auth.js',
   '/lib/pricing.js',
+  '/lib/owner-dashboard.js',
   '/supply-catalog.json',
 ];
 
@@ -24,7 +25,7 @@ const APP_SHELL_PATHS = new Set(APP_SHELL);
 // is only a fallback for offline use, never the default. Stale-while-revalidate
 // was showing the previous deploy's code until a second app open (or a forced
 // cache clear) caught up with the background refresh.
-const NETWORK_FIRST_PATHS = new Set(['/mobile', '/inventory-catalog.js', '/api-auth.js', '/lib/pricing.js', '/supply-catalog.json']);
+const NETWORK_FIRST_PATHS = new Set(['/mobile', '/inventory-catalog.js', '/api-auth.js', '/lib/pricing.js', '/lib/owner-dashboard.js', '/supply-catalog.json']);
 
 self.addEventListener('install', event => {
   event.waitUntil(

@@ -7,7 +7,19 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="shortcut icon" href="/favicon.svg" />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  
+  <script>
+    // Old Stripe Payment Links (sent before FarriTech used Checkout) send customers here after
+    // paying, with ?invoice_id=…&session_id=…. Send them to that invoice's pay page instead,
+    // which confirms the payment with Stripe and says "Payment received" — no portal sign-in.
+    (function () {
+      var q = new URLSearchParams(location.search);
+      var inv = q.get('invoice_id'), sid = q.get('session_id');
+      if (inv && sid && /^[A-Za-z0-9_-]{6,128}$/.test(inv) && /^cs_[A-Za-z0-9_]+$/.test(sid)) {
+        location.replace('/pay/' + inv + '?session_id=' + encodeURIComponent(sid));
+      }
+    })();
+  </script>
+
   <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
@@ -923,7 +935,8 @@
       doc.setFont("helvetica", "normal"); doc.setFontSize(10);
       const items = Array.isArray(invoice.items) && invoice.items.length > 0 ? invoice.items : [{ description: safeText_(invoice.services || invoice.service || "Service"), quantity: 1, unitPrice: Number(invoice.total || invoice.amount || 0) }];
       items.forEach(item => {
-        const desc = safeText_(item.description || item.name || "");
+        const horseLabel = FarriPricing.itemHorseLabel({ ...item, qty: 1 });
+        const desc = safeText_((item.description || item.name || "") + (horseLabel ? ` (${horseLabel})` : ""));
         const qty = Number(item.qty || item.quantity || 1);
         const rawPrice = item.unitPrice || item.unitPriceSnapshot || item.price || item.amount || 0;
         const price = Number(String(rawPrice).replace(/[^0-9.]/g, '')) || 0;
@@ -1666,7 +1679,7 @@
                       <div className="invoice-items">
                         {invoice.items.map((item, idx) => (
                           <div key={idx} className="invoice-item">
-                            <span>{item.description}</span>
+                            <span>{item.description}{FarriPricing.itemHorseLabel(item) ? ` (${FarriPricing.itemHorseLabel(item)})` : ''}</span>
                             <span>${parseFloat(item.amount || 0).toFixed(2)}</span>
                           </div>
                         ))}

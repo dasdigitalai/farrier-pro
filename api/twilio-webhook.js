@@ -1,9 +1,11 @@
 // Vercel serverless function - handles incoming SMS replies from customers
-// Processes CONFIRM (marks the next appointment customer-confirmed) and STOP/START (opt out/in)
+// Processes CONFIRM (marks the next appointment customer-confirmed) and STOP/START (opt out/in).
+// Any other text from a farrier with an open support ticket is logged onto that ticket (support.html).
 // api/twilio-webhook.js
 //
 // Runs as the server user (see _lib/firebase-rest.js), not as an anonymous caller.
 
+import { randomUUID } from 'crypto';
 import { queryIn, patchDoc } from './_lib/firebase-rest.js';
 
 // Phones are stored however they were typed ("561-444-7777", "(561) 444-7777", "+15614447777"…),
@@ -30,6 +32,25 @@ function fmtWhen(date, time) {
   if (!time) return day;
   const [h, m] = time.split(':').map(Number);
   return `${day} at ${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
+// A farrier replying to a support text: add the reply to their most recently active open
+// ticket and flag it unread. Returns true if it was logged.
+async function logSupportReply(from, body) {
+  const d = String(from || '').replace(/\D/g, '').slice(-10);
+  if (d.length !== 10 || !body) return false;
+  const ticket = (await queryIn('supportTickets', 'phoneDigits', [d]))
+    .filter(t => t.status !== 'closed')
+    .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))[0];
+  if (!ticket) return false;
+  const now = new Date();
+  await patchDoc(`supportTickets/${ticket.id}/messages/${randomUUID().replace(/-/g, '')}`, {
+    kind: 'sms', direction: 'in', body, from, createdAt: now,
+  });
+  await patchDoc(`supportTickets/${ticket.id}`, {
+    status: 'open', unread: true, updatedAt: now, lastMessageAt: now, lastMessagePreview: body.slice(0, 140),
+  });
+  return true;
 }
 
 async function setOptOut(phones, optOut) {
@@ -80,6 +101,7 @@ export default async function handler(req, res) {
       return res.status(200).send(twiml('FarriTech: For help contact support@farritech.app. Reply STOP to unsubscribe. Msg & Data rates may apply.'));
     }
 
+    await logSupportReply(From, (Body || '').trim());
     return res.status(200).send(twiml(''));
 
   } catch (err) {

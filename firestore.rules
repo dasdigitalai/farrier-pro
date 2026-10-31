@@ -10,9 +10,50 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // ── Multi-farrier businesses (api/_lib/team.js) ──
+    // A farrier who joined someone's business has businessMembers/{theirUid} = { businessId, role }.
+    // These rules only ADD access for them: everything a farrier on their own could do before
+    // is unchanged. A business's shared records carry farrierId = businessId (the owner's uid).
+    function isTeamOf(businessId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/businessMembers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/businessMembers/$(request.auth.uid)).data.businessId == businessId;
+    }
+    // Only the server writes memberships and invites; people can read their own.
+    match /businessMembers/{memberUid} {
+      allow read: if isSignedIn() && request.auth.uid == memberUid;
+      allow read, write: if isServer();
+      allow read, delete: if isSupportAdmin(); // support.html → Delete farrier
+    }
+    match /businessInvites/{inviteEmail} {
+      allow read: if isSignedIn() && request.auth.token.email != null
+        && request.auth.token.email.lower() == inviteEmail;
+      allow read, write: if isServer();
+      allow read, delete: if isSupportAdmin(); // support.html → Delete farrier
+    }
+
     match /supportAdmins/{uid} {
       allow read: if isSignedIn() && request.auth.uid == uid;
+      allow read: if isServer(); // api/send-sms lets support staff text farriers
       allow write: if false;
+    }
+
+    // ── FarriTech support desk (support.html) ──
+    // Support staff only (plus the server, which logs farriers' text replies onto tickets).
+    // Farriers can't read any of it: none of it is stored on their own farriers/{uid} profile.
+    function isSupportAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/supportAdmins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/supportAdmins/$(request.auth.uid)).data.get('active', true) != false;
+    }
+    match /supportFarriers/{recordId} {
+      allow read, write: if isSupportAdmin() || isServer();
+    }
+    match /supportTickets/{ticketId} {
+      allow read, write: if isSupportAdmin() || isServer();
+      match /messages/{messageId} {
+        allow read, write: if isSupportAdmin() || isServer();
+      }
     }
 match /sponsorBanners/{bannerId} {
   allow read: if true;
@@ -66,12 +107,16 @@ match /sponsorBanners/{bannerId} {
 
       // Only the owning farrier can update or delete
       allow update, delete: if isSignedIn() && request.auth.uid == resource.data.farrierId;
+      allow read, update, delete: if isTeamOf(resource.data.farrierId);
+      allow read, delete: if isSupportAdmin(); // support.html → Delete farrier
     }
 
     match /customers/{customerId} {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && request.auth.uid == resource.data.farrierId;
       allow create: if true;
+      allow update, delete: if isTeamOf(resource.data.farrierId);
+      allow delete: if isSupportAdmin(); // support.html → Delete farrier
     }
 function isServer() {
   return request.auth != null && request.auth.uid == '2kkfUU5dOvTRn1rWIaua38sgnNr1';
@@ -79,16 +124,21 @@ function isServer() {
 
 match /farrierSecrets/{farrierId} {
   allow read, write: if isServer();
+  // Support staff can delete (never read) a farrier's secrets when removing the account.
+  allow delete: if isSupportAdmin(); // support.html → Delete farrier
 }
     match /invoices/{invoiceId} {
       allow read, write: if isSignedIn() && request.auth.uid == resource.data.farrierId;
       allow create: if isSignedIn();
       allow read: if isSignedIn() && request.auth.token.email == resource.data.customerEmail;
       allow update: if isSignedIn() && request.auth.token.email == resource.data.customerEmail;
+      allow read, update, delete: if isTeamOf(resource.data.farrierId);
     }
     match /invoices/{invoiceId} {
       // The server (pay links, Stripe webhooks) records payments as the server user.
       allow read, update: if isServer();
+      // support.html → Delete farrier
+      allow read, delete: if isSupportAdmin();
       // FarriTech support staff working inside a farrier's account (support sessions).
       allow update: if isSignedIn()
         && exists(/databases/$(database)/documents/supportAdmins/$(request.auth.uid));
@@ -102,37 +152,51 @@ match /farrierSecrets/{farrierId} {
       // granted by the block above.
     }
 match /invoices/{invoiceId}/payments/{paymentId} {
-  allow read: if isServer() || (request.auth != null &&
-    get(/databases/$(database)/documents/invoices/$(invoiceId)).data.farrierId == request.auth.uid);
+  allow read: if isServer() || isSupportAdmin() || (request.auth != null &&
+    get(/databases/$(database)/documents/invoices/$(invoiceId)).data.farrierId == request.auth.uid)
+    || isTeamOf(get(/databases/$(database)/documents/invoices/$(invoiceId)).data.farrierId);
   allow create: if isServer();
-  allow update, delete: if false;
+  allow update: if false;
+  allow delete: if isSupportAdmin(); // support.html → Delete farrier
 }
     match /services/{serviceId} {
       allow read: if true;
       allow write: if isSignedIn() && request.auth.uid == resource.data.farrierId;
       allow create: if isSignedIn();
+      allow update, delete: if isTeamOf(resource.data.farrierId);
+      allow delete: if isSupportAdmin(); // support.html → Delete farrier
     }
       match /mileage_logs/{mileageId} {
       allow read: if isSignedIn() && request.auth.uid == resource.data.farrierId;
       allow create: if isSignedIn() && request.auth.uid == request.resource.data.farrierId;
       allow update, delete: if isSignedIn() && request.auth.uid == resource.data.farrierId;
+      allow read, delete: if isSupportAdmin(); // support.html → Delete farrier
     }
 
     match /horses/{horseId} {
       allow read: if isSignedIn() && request.auth.uid == resource.data.farrierId;
       allow create: if isSignedIn() && request.auth.uid == request.resource.data.farrierId;
       allow update, delete: if isSignedIn() && request.auth.uid == resource.data.farrierId;
+      allow read, update, delete: if isTeamOf(resource.data.farrierId);
+      allow create: if isTeamOf(request.resource.data.farrierId);
+      allow read, delete: if isSupportAdmin(); // support.html → Delete farrier
     }
      match /inventoryItems/{itemId} {
       allow create: if request.auth != null && request.resource.data.farrierId == request.auth.uid;
       allow read, update, delete: if request.auth != null &&
         resource.data.farrierId == request.auth.uid;
+      allow read, update, delete: if isTeamOf(resource.data.farrierId);
+      allow create: if isTeamOf(request.resource.data.farrierId);
+      allow read, delete: if isSupportAdmin(); // support.html → Delete farrier
     }
 
     match /inventoryTransactions/{transactionId} {
       allow create: if request.auth != null && request.resource.data.farrierId == request.auth.uid;
       allow read, update, delete: if request.auth != null &&
         resource.data.farrierId == request.auth.uid;
+      allow read, update, delete: if isTeamOf(resource.data.farrierId);
+      allow create: if isTeamOf(request.resource.data.farrierId);
+      allow read, delete: if isSupportAdmin(); // support.html → Delete farrier
     }
   }
 }

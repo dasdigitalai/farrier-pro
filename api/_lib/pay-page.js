@@ -42,20 +42,26 @@ export async function payPage(req, res) {
     const invoice = await getDoc(`invoices/${invoiceId}`);
     if (!invoice) return page(res, 404, 'Invoice not found', 'This payment link is not valid. Please contact your farrier.');
     const number = invoice.invoiceNumber || '';
-    const ipos = await getIposCreds(invoice.farrierId);
-    if (ipos) return await iposPayPage(req, res, invoiceId, invoice, ipos);
     const key = await getStripeSecretKey(invoice.farrierId);
 
-    // Back from Stripe Checkout
+    // Back from Stripe: a Checkout Session, or an old Stripe Payment Link (those redirected to
+    // the customer portal; customer-portal.html now sends them here). Checked before iPOSpays,
+    // so a farrier who has since switched to iPOSpays never offers a second payment page.
+    // recordCheckoutSession confirms the session with Stripe and works out its invoice.
     const sessionId = String(req.query?.session_id || '');
     if (sessionId && key) {
       const stripe = new Stripe(key);
       const session = await stripe.checkout.sessions.retrieve(sessionId).catch(() => null);
-      if (session && session.metadata?.invoiceId === invoiceId && session.payment_status === 'paid') {
-        await recordCheckoutSession(stripe, invoice.farrierId, session);
-        return page(res, 200, 'Payment received', `Thank you! Your payment of ${P.money(session.amount_total)} for Invoice #${number} has been received.`);
+      if (session?.payment_status === 'paid') {
+        const result = await recordCheckoutSession(stripe, invoice.farrierId, session).catch(() => null);
+        if (result?.invoiceId === invoiceId) {
+          return page(res, 200, 'Payment received', `Thank you! Your payment of ${P.money(session.amount_total)} for Invoice #${number} has been received.`);
+        }
       }
     }
+
+    const ipos = await getIposCreds(invoice.farrierId);
+    if (ipos) return await iposPayPage(req, res, invoiceId, invoice, ipos);
 
     if (invoice.status === 'paid') return page(res, 200, 'Invoice paid', `Invoice #${number} has already been paid. Thank you!`);
     if (invoice.status === 'cancelled') return page(res, 200, 'Invoice cancelled', `Invoice #${number} was cancelled. Please contact your farrier with any questions.`);

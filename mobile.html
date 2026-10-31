@@ -86,6 +86,7 @@
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-secondary { background: var(--bg); color: var(--text); border: 2px solid var(--border); border-radius: var(--radius-sm); padding: 13px 20px; font-family: 'Outfit', sans-serif; font-size: 1rem; font-weight: 600; cursor: pointer; width: 100%; transition: background 0.15s; display: flex; align-items: center; justify-content: center; gap: 8px; }
   .btn-secondary:active { background: var(--border); }
+  .btn-secondary.selected { border-color: var(--blue); background: #EBF4FF; color: var(--blue); }
   .btn-danger { background: var(--danger-bg); color: var(--danger); border: 2px solid #fca5a5; border-radius: var(--radius-sm); padding: 13px 20px; font-family: 'Outfit', sans-serif; font-size: 1rem; font-weight: 600; cursor: pointer; width: 100%; }
   .btn-sm { padding: 8px 14px; font-size: 0.85rem; border-radius: 8px; border: none; cursor: pointer; font-family: 'Outfit', sans-serif; font-weight: 600; }
   .btn-outline { background: transparent; border: 2px solid var(--blue); color: var(--blue); border-radius: var(--radius-sm); padding: 13px 20px; font-family: 'Outfit', sans-serif; font-size: 1rem; font-weight: 600; cursor: pointer; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; }
@@ -133,12 +134,6 @@
   .total-bar-amount { font-size: 1.6rem; font-weight: 800; }
 
   /* ── PAYMENT METHOD ── */
-  .pay-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
-  .pay-chip { padding: 16px 12px; border: 2px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; text-align: center; font-family: 'Outfit', sans-serif; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); background: var(--surface); transition: all 0.15s; }
-  .pay-chip:active { transform: scale(0.97); }
-  .pay-chip.selected { border-color: var(--blue); background: #EBF4FF; color: var(--blue); }
-  .pay-chip.chip-offline-disabled { opacity: 0.4; pointer-events: none; }
-  .pay-chip-icon { font-size: 1.5rem; display: block; margin-bottom: 6px; }
 
   /* ── INVOICE ROW ── */
   .invoice-row { padding: 14px 16px; background: var(--surface); border-radius: var(--radius-sm); margin-bottom: 8px; box-shadow: var(--shadow); cursor: pointer; border-left: 4px solid var(--border); }
@@ -148,12 +143,16 @@
   .invoice-row-num { font-weight: 700; font-size: 0.95rem; }
   .invoice-row-amount { font-weight: 800; font-size: 1rem; color: var(--blue); }
   .invoice-row-bottom { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+  .inv-filter { display: flex; gap: 6px; background: var(--surface); border-radius: var(--radius-sm); padding: 4px; margin-bottom: 10px; box-shadow: var(--shadow); }
+  .inv-filter button { flex: 1; border: none; background: none; border-radius: 8px; padding: 10px; font-weight: 700; font-size: 0.9rem; color: var(--text-muted); cursor: pointer; }
+  .inv-filter button.active { background: var(--blue); color: white; }
 
   /* ── BADGES ── */
   .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
   .badge-success { background: var(--success-bg); color: var(--success); }
   .badge-warning { background: var(--warning-bg); color: var(--warning); }
   .badge-danger { background: var(--danger-bg); color: var(--danger); }
+  .badge-muted { background: var(--border); color: var(--text-muted); }
   .badge-blue { background: #EBF4FF; color: var(--blue); }
 
   /* ── STAT ROW ── */
@@ -341,7 +340,7 @@
       <div style="font-size:1.4rem;">📶</div>
       <div style="flex:1;">
         <div style="font-weight:700; color:var(--blue); font-size:0.9rem;">You're Set for Offline</div>
-        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Opening the app with signal automatically syncs your customers and horses. For your full appointment list and outstanding invoices too, open Find Appointment and Open Invoices once while you have signal.</div>
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Opening the app with signal automatically syncs your customers and horses. For your full appointment list and outstanding invoices too, open Find Appointment and Invoices once while you have signal.</div>
       </div>
       <button onclick="dismissOfflineTip()" style="background:none; border:none; color:var(--text-muted); font-size:1.2rem; cursor:pointer; padding:4px; flex-shrink:0; line-height:1;">✕</button>
     </div>
@@ -357,6 +356,10 @@
 
     <div class="section-label">Actions</div>
     <div class="action-grid">
+      <button class="big-btn" onclick="startNewCustomer()">
+        <div class="big-btn-icon green">➕</div>
+        <div class="big-btn-label">New Customer</div>
+      </button>
       <button class="big-btn" onclick="goTo('screen-search')">
         <div class="big-btn-icon">🔍</div>
         <div class="big-btn-label">Find Customer</div>
@@ -365,17 +368,29 @@
         <div class="big-btn-icon" style="background:#92400E;">🐴</div>
         <div class="big-btn-label">Find Horse</div>
       </button>
-      <button class="big-btn" onclick="startNewCustomer()">
-        <div class="big-btn-icon green">➕</div>
-        <div class="big-btn-label">New Customer</div>
-      </button>
-      <button class="big-btn" onclick="goTo('screen-search'); setTimeout(()=>loadOpenInvoices(),300)">
-        <div class="big-btn-icon cyan">💰</div>
-        <div class="big-btn-label">Open Invoices</div>
-      </button>
       <button class="big-btn" onclick="goTo('screen-appt-search'); loadApptSearch()">
         <div class="big-btn-icon" style="background:#7C3AED;">📅</div>
         <div class="big-btn-label">Find Appointment</div>
+      </button>
+      <button class="big-btn" onclick="goTo('screen-invoices'); loadOpenInvoices()">
+        <div class="big-btn-icon cyan">💰</div>
+        <div class="big-btn-label">Invoices</div>
+      </button>
+      <button class="big-btn" onclick="openUpcomingService()">
+        <div class="big-btn-icon" style="background:#15803D;">🔔</div>
+        <div class="big-btn-label">Upcoming Service</div>
+      </button>
+      <button class="big-btn" onclick="goTo('screen-inventory'); loadInventoryList();">
+        <div class="big-btn-icon" style="background:#B45309;">📦</div>
+        <div class="big-btn-label">Inventory</div>
+      </button>
+      <button class="big-btn" onclick="goTo('screen-services-catalog'); loadServicesCatalog();">
+        <div class="big-btn-icon" style="background:#0369A1;">🧰</div>
+        <div class="big-btn-label">Services</div>
+      </button>
+      <button class="big-btn" id="home-business-btn" onclick="openBusinessDashboard()">
+        <div class="big-btn-icon" style="background:#1D4ED8;">📈</div>
+        <div class="big-btn-label">Business Dashboard</div>
       </button>
       <button class="big-btn" onclick="openDayRoute()">
         <div class="big-btn-icon" style="background:#EA580C;">🗺️</div>
@@ -384,14 +399,6 @@
       <button class="big-btn" onclick="goTo('screen-mileage'); loadMileageLog()">
         <div class="big-btn-icon" style="background:#0F766E;">🚗</div>
         <div class="big-btn-label">Mileage Log</div>
-      </button>
-      <button class="big-btn" onclick="goTo('screen-services-catalog'); loadServicesCatalog();">
-        <div class="big-btn-icon" style="background:#0369A1;">🧰</div>
-        <div class="big-btn-label">Services</div>
-      </button>
-      <button class="big-btn" onclick="goTo('screen-inventory'); loadInventoryList();">
-        <div class="big-btn-icon" style="background:#B45309;">📦</div>
-        <div class="big-btn-label">Inventory</div>
       </button>
       <button class="big-btn" onclick="goTo('screen-settings'); loadSettingsScreen();">
         <div class="big-btn-icon" style="background:#475569;">⚙️</div>
@@ -423,10 +430,25 @@
   <div class="scroll-body" style="padding-top:8px;">
     <div id="search-loading" class="loading-wrap"><div class="spinner"></div></div>
     <div id="search-results"></div>
-    <div id="open-invoices-section" style="display:none;">
-      <div class="section-label" style="margin-top:8px;">💰 Outstanding Invoices</div>
-      <div id="open-invoices-list"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- SCREEN: INVOICES (home card — Open / Paid) -->
+<!-- ══════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-invoices">
+  <div class="header">
+    <button class="back-btn" onclick="goBack()">‹</button>
+    <div class="header-title">Invoices</div>
+  </div>
+  <div style="padding:12px 16px 0; flex-shrink:0; background:var(--bg);">
+    <div class="inv-filter">
+      <button id="inv-filter-open" class="active" onclick="loadOpenInvoices('outstanding')">💰 Open</button>
+      <button id="inv-filter-paid" onclick="loadOpenInvoices('paid')">✅ Paid</button>
     </div>
+  </div>
+  <div class="scroll-body" style="padding-top:0;">
+    <div id="open-invoices-list"></div>
   </div>
 </div>
 
@@ -442,11 +464,34 @@
   <div style="padding:12px 16px 0; flex-shrink:0; background:var(--bg);">
     <div class="search-wrap" style="margin-bottom:8px;">
       <span class="search-icon">🔍</span>
-      <input class="search-input" id="horse-search-input" type="search" placeholder="Horse name…" oninput="filterHorses(this.value)" autocomplete="off">
+      <input class="search-input" id="horse-search-input" type="search" placeholder="Horse or customer name…" oninput="filterHorses(this.value)" autocomplete="off">
     </div>
   </div>
   <div class="scroll-body" style="padding-top:8px;">
     <div id="horse-search-results"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- SCREEN: UPCOMING SERVICE REPORT           -->
+<!-- ══════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-upcoming">
+  <div class="header">
+    <button class="back-btn" onclick="goBack()">‹</button>
+    <div class="header-title">Upcoming Service</div>
+  </div>
+  <div style="padding:12px 16px 0; flex-shrink:0; background:var(--bg);">
+    <div style="font-size:0.8rem; font-weight:700; color:var(--text-muted); margin-bottom:6px;">Horses due in the next…</div>
+    <div style="display:flex; gap:6px; margin-bottom:10px;" id="upcoming-weeks">
+      <button class="appt-filter-btn" data-weeks="1" onclick="setUpcomingWeeks(1)">1 wk</button>
+      <button class="appt-filter-btn" data-weeks="2" onclick="setUpcomingWeeks(2)">2 wks</button>
+      <button class="appt-filter-btn active" data-weeks="4" onclick="setUpcomingWeeks(4)">4 wks</button>
+      <button class="appt-filter-btn" data-weeks="6" onclick="setUpcomingWeeks(6)">6 wks</button>
+      <button class="appt-filter-btn" data-weeks="8" onclick="setUpcomingWeeks(8)">8 wks</button>
+    </div>
+  </div>
+  <div class="scroll-body" style="padding-top:0;">
+    <div id="upcoming-list"></div>
   </div>
 </div>
 
@@ -624,6 +669,38 @@
 <!-- ══════════════════════════════════════════ -->
 <!-- SCREEN 6: PAYMENT                         -->
 <!-- ══════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-business">
+  <div class="header">
+    <button class="back-btn" onclick="goBack()">‹</button>
+    <div class="header-title">Business Dashboard</div>
+    <button onclick="loadBusinessDashboard()" style="background:rgba(255,255,255,0.2);border:none;color:white;padding:6px 12px;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">↻</button>
+  </div>
+  <div class="scroll-body">
+    <div id="business-loading" class="loading-wrap"><div class="spinner"></div></div>
+    <div id="business-error" style="display:none; color:#dc2626; font-size:0.9rem; margin-bottom:12px;"></div>
+    <div id="business-dash"></div>
+  </div>
+</div>
+
+<div class="screen hidden" id="screen-refund">
+  <div class="header">
+    <button class="back-btn" onclick="goBack()">‹</button>
+    <div class="header-title">Refund Payment</div>
+  </div>
+  <div class="scroll-body">
+    <div class="card" style="text-align:center; padding:24px 20px;">
+      <div style="font-size:0.85rem; color:var(--text-muted); font-weight:600;" id="refund-invoice-num"></div>
+      <div style="font-size:0.85rem; color:var(--text-muted);" id="refund-customer-name"></div>
+      <div style="font-size:0.85rem; color:var(--text-muted); margin-top:8px;" id="refund-paid-text"></div>
+    </div>
+    <div class="field"><label>Refund amount</label><input type="number" id="refund-amount" step="0.01" min="0.01" inputmode="decimal"></div>
+    <div class="field"><label>Manager password</label><input type="password" id="refund-password" autocomplete="off"></div>
+    <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:14px;" id="refund-note"></div>
+    <div id="refund-error" style="color:#dc2626; font-size:0.85rem; margin-bottom:12px; display:none;"></div>
+    <button class="btn-danger" id="refund-btn" onclick="confirmRefund()">Refund</button>
+  </div>
+</div>
+
 <div class="screen hidden" id="screen-payment">
   <div class="header">
     <button class="back-btn" onclick="goBack()">‹</button>
@@ -638,41 +715,53 @@
       <button id="pay-edit-invoice-btn" onclick="startEditInvoice(state.currentInvoice)" style="background:none; border:2px solid var(--border); border-radius:8px; padding:8px 16px; font-weight:700; font-size:0.85rem; color:var(--text-muted); cursor:pointer;">✏️ Edit Invoice</button>
     </div>
 
-    <div class="section-label">Payment Method</div>
-    <div class="pay-grid" id="pay-method-grid">
-      <div class="pay-chip" onclick="selectPayMethod('cash', this)"><span class="pay-chip-icon">💵</span>Cash</div>
-      <div class="pay-chip" onclick="selectPayMethod('check', this)"><span class="pay-chip-icon">🧾</span>Check</div>
-      <div class="pay-chip" onclick="selectPayMethod('card', this)"><span class="pay-chip-icon">💳</span>Card</div>
-      <div class="pay-chip" onclick="selectPayMethod('link', this)"><span class="pay-chip-icon">📲</span>Pay Link</div>
-    </div>
-
-    <!-- Check number field -->
-    <div id="check-fields" style="display:none;">
-      <div class="field"><label>Check #</label><input type="text" id="check-number" placeholder="e.g. 1042" inputmode="numeric" style="letter-spacing:2px;"></div>
-    </div>
-
-    <!-- Stripe Elements card entry -->
-    <div id="card-fields" style="display:none;">
-      <div class="field">
-        <label>Card Details</label>
-        <div id="stripe-card-element" style="padding:14px; border:2px solid var(--border); border-radius:10px; background:var(--surface);"></div>
-        <div id="stripe-card-error" style="color:#dc2626; font-size:0.82rem; margin-top:6px; display:none;"></div>
+    <div id="pay-resend-section">
+      <div class="section-label">Resend Invoice</div>
+      <div class="row-btns" style="margin-bottom:8px;">
+        <button class="btn-secondary" id="resend-sms-btn" onclick="openResend('sms')">💬 Text</button>
+        <button class="btn-secondary" id="resend-email-btn" onclick="openResend('email')">✉️ Email</button>
+      </div>
+      <div id="resend-panel" class="card" style="display:none; margin-bottom:12px;">
+        <div class="field" style="margin-bottom:10px;">
+          <label id="resend-to-label">Send to</label>
+          <input id="resend-to-input" type="tel" autocomplete="off">
+        </div>
+        <div class="row-btns">
+          <button class="btn-primary" id="resend-send-btn" onclick="resendInvoice()">Send</button>
+          <button class="btn-secondary" onclick="closeResend()">Cancel</button>
+        </div>
       </div>
     </div>
 
-    <!-- Send link options -->
-    <div id="link-fields" style="display:none;">
-      <div class="card" style="background:#EBF4FF; border:2px solid #bfdbfe;">
-        <div style="font-weight:700; color:var(--blue); margin-bottom:8px;">📲 Send Payment Link</div>
-        <div style="font-size:0.85rem; color:var(--text-muted);">Customer will receive a link to pay online.</div>
-        <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
-          <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; font-weight:600; cursor:pointer;">
-            <input type="checkbox" id="send-sms-link" style="width:18px;height:18px;"> Send via SMS
-          </label>
-          <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; font-weight:600; cursor:pointer;">
-            <input type="checkbox" id="send-email-link" style="width:18px;height:18px;"> Send via Email
-          </label>
+    <div class="section-label">Payment Method</div>
+    <!-- Options are filled in by populatePayMethodOptions(): Card (charge now) plus every
+         FarriPricing.MANUAL_METHODS entry, the same list the desktop Record Payment dropdown shows. -->
+    <div class="field">
+      <select id="pay-method-select" onchange="selectPayMethod(this.value)"></select>
+    </div>
+
+    <!-- Check # / confirmation # / note for payments taken outside FarriTech -->
+    <div id="check-fields" style="display:none;">
+      <div class="field"><label id="check-number-label">Check #</label><input type="text" id="check-number" placeholder="e.g. 1042" inputmode="numeric" style="letter-spacing:2px;"></div>
+    </div>
+
+    <!-- Stripe Elements card entry (or, with iPOSpays connected, the iPOSpays card form) -->
+    <div id="card-fields" style="display:none;">
+      <div id="ipos-card-fields" style="display:none;">
+        <div class="card" style="background:#EBF4FF; border:2px solid #bfdbfe;">
+          <div id="ipos-card-msg" style="font-size:0.85rem; color:var(--text-muted);">Tap the Charge button.</div>
+          <iframe id="ipos-card-frame" title="iPOSpays card form" allow="payment" style="display:none; width:100%; height:640px; margin-top:12px; border:1px solid var(--border); border-radius:10px; background:#fff;"></iframe>
+          <div id="ipos-card-wait" style="display:none; margin-top:12px; gap:8px; flex-wrap:wrap;">
+            <a id="ipos-card-link" href="#" target="_blank" rel="noreferrer" class="btn btn-outline" style="flex:1; text-align:center;">Open in new tab</a>
+            <button type="button" class="btn btn-outline" style="flex:1;" onclick="iposKeyedCheckNow()">Check now</button>
+            <button type="button" class="btn btn-outline" style="flex:1;" onclick="iposKeyedStop()">Stop waiting</button>
+          </div>
         </div>
+      </div>
+      <div class="field" id="stripe-card-fields">
+        <label>Card Details</label>
+        <div id="stripe-card-element" style="padding:14px; border:2px solid var(--border); border-radius:10px; background:var(--surface);"></div>
+        <div id="stripe-card-error" style="color:#dc2626; font-size:0.82rem; margin-top:6px; display:none;"></div>
       </div>
     </div>
 
@@ -712,9 +801,17 @@
       </div>
     </div>
     <div class="field"><label>Horse Name(s) / Notes</label><textarea id="nc-notes" placeholder="Horse names, special instructions…"></textarea></div>
+    <!-- Other people to reach for this customer (customers/{id}.contacts) -->
+    <div class="field">
+      <label>Other Contacts <span style="font-weight:400; color:var(--text-muted);">(optional)</span></label>
+      <div id="nc-contacts"></div>
+      <button type="button" class="btn-sm" style="background:var(--bg); border:2px solid var(--border); color:var(--blue);" onclick="addNcContact()">+ Add contact</button>
+    </div>
     <button class="btn-primary" id="nc-save-btn" onclick="saveNewCustomer()">Save Customer</button>
     <div style="margin-top:8px;"></div>
     <button class="btn-secondary" onclick="goBack()">Cancel</button>
+    <!-- Edit mode only (see startEditCustomer / startNewCustomer) -->
+    <button class="btn-danger" id="nc-delete-btn" onclick="deleteCustomer()" style="display:none; margin-top:24px;">🗑️ Delete Customer</button>
   </div>
 </div>
 
@@ -789,6 +886,10 @@
     <div class="card">
       <div class="card-title">Profile</div>
       <div id="horse-detail-profile"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Service History</div>
+      <div id="horse-detail-history"></div>
     </div>
     <div class="card">
       <div class="card-title">Photos</div>
@@ -1049,6 +1150,13 @@
 
     <div id="settings-saved-banner" style="display:none; background:#f0fdf4; border:2px solid #86efac; border-radius:10px; padding:10px 14px; margin-bottom:14px; color:#16a34a; font-weight:700; font-size:0.88rem;">✅ Saved!</div>
 
+    <!-- Team members (api/_lib/team.js) see this instead of the business settings below. -->
+    <div class="card" id="settings-member-note" style="display:none;">
+      <div class="card-title">👥 <span id="settings-member-biz"></span></div>
+      <div style="font-size:0.9rem; color:var(--text-muted);">You're working in this business as a <strong id="settings-member-role"></strong>. Business settings, payment accounts and the team are managed by the owner.</div>
+    </div>
+
+    <div id="settings-owner-only">
     <div class="card">
       <div class="card-title">🏢 Business Profile</div>
       <div class="field"><label>Business Name *</label><input type="text" id="set-business-name" placeholder="John's Farrier Services"></div>
@@ -1123,7 +1231,7 @@
 
     <div class="card" style="margin-top:14px;">
       <div class="card-title">💳 iPOSpays Payments</div>
-      <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Take pay-link payments through your iPOSpays (Dejavoo) merchant account instead of Stripe. While connected, Pay Now links open an iPOSpays payment page. The Refund button on an invoice paid through iPOSpays voids or refunds it in iPOSpays.</div>
+      <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Take pay-link payments through your iPOSpays (Dejavoo) merchant account instead of Stripe. While connected, Pay Now links and Card payments open an iPOSpays payment page. Refund them from the customer's Invoice History.</div>
       <div id="ipos-status-banner" style="display:none;"></div>
       <div id="ipos-form">
         <div class="field"><label>Environment</label><select id="set-ipos-mode"><option value="sandbox">Sandbox (testing)</option><option value="production">Production (real payments)</option></select></div>
@@ -1143,6 +1251,7 @@
       <div id="availability-days"></div>
       <button class="btn-secondary" onclick="saveAvailability()" style="margin-top:8px;">Save Availability</button>
     </div>
+    </div><!-- /settings-owner-only -->
 
   </div>
 </div>
@@ -1185,6 +1294,8 @@
 <script src="/inventory-catalog.js"></script>
 <script src="/api-auth.js"></script>
 <script src="/lib/pricing.js"></script>
+<script src="/lib/owner-dashboard.js"></script>
+<script src="/lib/horse-history.js"></script>
 
 <script>
 // ── FIREBASE INIT ──
@@ -1266,7 +1377,7 @@ const state = {
   currentHorse: null,
   customerHorses: [],   // horses for state.customer, populated by loadCustomerDetail()
   allHorses: [],        // every horse for this farrier, populated by loadAllHorses() — powers Find Horse
-  invoiceLines: [], // [{horseId, horseName, serviceId, serviceName, price}] — one per "+ Add Line" on screen-services
+  invoiceLines: [], // [{horseId, horseName, serviceId, serviceName, price, qty, note}] — one per "+ Add Line" on screen-services
 };
 
 // ── NETWORK STATUS + WRITE QUEUE ──
@@ -1310,7 +1421,7 @@ window.addEventListener('offline', () => { netState.online = false; renderStatus
 // metadata on one lightweight always-open listener as a real reachability signal.
 function initConnectivityWatcher() {
   if (!state.user) return;
-  db.collection('farriers').doc(state.user.uid).onSnapshot({ includeMetadataChanges: true }, snap => {
+  db.collection('farriers').doc(bizId()).onSnapshot({ includeMetadataChanges: true }, snap => {
     const reachable = !snap.metadata.fromCache;
     if (reachable !== netState.online) {
       netState.online = reachable;
@@ -1365,6 +1476,8 @@ renderStatusBanner(); // reflect connectivity immediately, even before login
 
 // ── SCREEN NAVIGATION ──
 function goTo(screenId, pushHistory = true) {
+  // Leaving the payment screen stops waiting on an iPOSpays keyed card (see chargeCardViaIpos).
+  if (screenId !== 'screen-payment' && typeof _iposWait !== 'undefined' && _iposWait) _iposWait.stop();
   const current = document.querySelector('.screen:not(.hidden):not(.slide-left)');
   if (current && pushHistory) {
     state.screenHistory.push(current.id);
@@ -1477,6 +1590,42 @@ function showToast(msg, type = '') {
 // ── AUTH ──
 let loginInProgress = false;
 
+// ── TEAM (multi-farrier businesses, api/_lib/team.js) ──
+// A farrier on their own works in their own records (bizId() is their uid) and nothing changes
+// for them. A farrier who joined someone's business works in that business's records instead.
+// Mileage and horse photos stay under the farrier's own uid.
+const TEAM_KEY = 'farritech_team';
+function bizId() { return state.farrierId || state.user?.uid; }
+async function resolveBusiness(user) {
+  state.farrierId = user.uid; state.teamRole = 'owner'; state.teamMember = false;
+  const use = (businessId, role) => { state.farrierId = businessId; state.teamRole = role === 'manager' ? 'manager' : 'farrier'; state.teamMember = true; };
+  // Last known answer first, so an offline start still opens the right business.
+  try {
+    const c = JSON.parse(localStorage.getItem(TEAM_KEY) || 'null');
+    if (c && c.uid === user.uid && c.businessId) use(c.businessId, c.role);
+  } catch (e) { /* no cache */ }
+  try {
+    let m = await db.collection('businessMembers').doc(user.uid).get();
+    if (!m.exists && user.email && netState.online) {
+      const inv = await db.collection('businessInvites').doc(user.email.toLowerCase()).get().catch(() => null);
+      if (inv?.exists) {
+        const r = await fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'team_accept' }) })
+          .then(x => x.json()).catch(() => null);
+        if (r?.error) showToast(r.error, 'error');
+        if (r?.joined) m = await db.collection('businessMembers').doc(user.uid).get();
+      }
+    }
+    const md = m.exists ? m.data() : null;
+    if (md?.businessId && md.businessId !== user.uid) {
+      use(md.businessId, md.role);
+      try { localStorage.setItem(TEAM_KEY, JSON.stringify({ uid: user.uid, businessId: md.businessId, role: state.teamRole })); } catch (e) {}
+    } else if (!m.metadata.fromCache) {
+      state.farrierId = user.uid; state.teamRole = 'owner'; state.teamMember = false;
+      try { localStorage.removeItem(TEAM_KEY); } catch (e) {}
+    }
+  } catch (e) { console.warn('Team check skipped:', e.message); }
+}
+
 auth.onAuthStateChanged(async (user) => {
   dbg('onAuthStateChanged: ' + (user ? user.email : 'null'));
   if (user) {
@@ -1489,6 +1638,8 @@ auth.onAuthStateChanged(async (user) => {
     goTo('screen-dashboard', false);
     bootLoading = true;
     renderStatusBanner();
+    await resolveBusiness(user); // which business's records to load (own, or the team's)
+    document.getElementById('home-business-btn').style.display = state.teamRole === 'farrier' ? 'none' : '';
     await Promise.allSettled([loadUserProfile(), loadServices(), loadCustomers(), loadAllHorses()]);
     bootLoading = false;
     renderStatusBanner();
@@ -1498,6 +1649,7 @@ auth.onAuthStateChanged(async (user) => {
     loadDashboard();
   } else {
     state.user = null;
+    state.farrierId = null; state.teamRole = 'owner'; state.teamMember = false;
     document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
     document.getElementById('screen-login').classList.remove('hidden');
     // Only reset the button if we're NOT mid-login (prevents flickering after signout)
@@ -1565,7 +1717,7 @@ async function loadUserProfile() {
   if (!state.user) return;
   try {
     // Main app stores profiles in 'farriers' collection
-    const snap = await db.collection('farriers').doc(state.user.uid).get();
+    const snap = await db.collection('farriers').doc(bizId()).get();
     if (snap.exists) {
       state.userProfile = snap.data();
       // Older accounts kept the Stripe secret key on this profile; have the server move it
@@ -1576,7 +1728,7 @@ async function loadUserProfile() {
       }
       console.log('✅ Profile loaded, Stripe connected:', !!state.userProfile?.stripePublishableKey);
     } else {
-      console.warn('⚠️ No profile found in farriers collection for', state.user.uid);
+      console.warn('⚠️ No profile found in farriers collection for', bizId());
     }
   } catch(e) { console.warn('Profile load error:', e); }
 }
@@ -1585,7 +1737,7 @@ async function loadUserProfile() {
 async function loadServices() {
   if (!state.user) return;
   try {
-    const snap = await db.collection('services').where('farrierId', '==', state.user.uid).where('isActive', '==', true).get();
+    const snap = await db.collection('services').where('farrierId', '==', bizId()).where('isActive', '==', true).get();
     state.services = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (!state.services.length) {
       // Fallback only — matches seedDefaultServicesIfEmpty_ in index.html so a farrier
@@ -1623,9 +1775,9 @@ async function loadCustomers() {
   if (!state.user) return;
   try {
     // No orderBy to avoid needing a composite index
-    const snap = await db.collection('customers').where('farrierId', '==', state.user.uid).get();
+    const snap = await db.collection('customers').where('farrierId', '==', bizId()).get();
     state.customers = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.name||'').localeCompare(b.name||''));
-    console.log('✅ Loaded', state.customers.length, 'customers for', state.user.uid);
+    console.log('✅ Loaded', state.customers.length, 'customers for', bizId());
   } catch(e) {
     console.error('Customers load error:', e);
     // Offline with no cached copy yet looks identical to a real error here — the
@@ -1637,7 +1789,7 @@ async function loadCustomers() {
 async function loadAllHorses() {
   if (!state.user) return;
   try {
-    const snap = await db.collection('horses').where('farrierId', '==', state.user.uid).get();
+    const snap = await db.collection('horses').where('farrierId', '==', bizId()).get();
     state.allHorses = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.name||'').localeCompare(b.name||''));
   } catch(e) {
     console.error('Horses load error:', e);
@@ -1656,7 +1808,7 @@ async function loadDashboard() {
   const today = new Date().toISOString().split('T')[0];
   try {
     const snap = await db.collection('appointments')
-      .where('farrierId', '==', state.user.uid)
+      .where('farrierId', '==', bizId())
       .where('requestedDate', '==', today)
       .get();
     const appts = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.requestedTime||'').localeCompare(b.requestedTime||''));
@@ -1678,7 +1830,7 @@ async function loadDashboard() {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     const snap = await db.collection('invoices')
-      .where('farrierId', '==', state.user.uid)
+      .where('farrierId', '==', bizId())
       .where('status', '==', 'paid')
       .get();
     const monthTotal = snap.docs
@@ -1693,7 +1845,7 @@ async function loadDashboard() {
   // Low-stock inventory banner
   try {
     const snap = await db.collection('inventoryItems')
-      .where('farrierId', '==', state.user.uid)
+      .where('farrierId', '==', bizId())
       .where('isConsumable', '==', true)
       .get();
     const lowStock = snap.docs
@@ -1736,7 +1888,6 @@ function dismissOfflineTip() {
 
 // ── SEARCH ──
 async function filterCustomers(q) {
-  document.getElementById('open-invoices-section').style.display = 'none';
   document.getElementById('search-loading').style.display = 'none';
   const term = q.toLowerCase().trim();
   const filtered = term
@@ -1761,7 +1912,7 @@ async function filterCustomers(q) {
       <div class="avatar">${(c.name||'?')[0].toUpperCase()}</div>
       <div>
         <div class="customer-row-name">${c.name}</div>
-        <div class="customer-row-sub">${[c.farmName, c.phone].filter(Boolean).join(' · ') || 'No contact info'}</div>
+        <div class="customer-row-sub">${[c.farmName, c.phone && fmtPhoneDisplay(c.phone)].filter(Boolean).join(' · ') || 'No contact info'}</div>
       </div>
       <div class="customer-row-arrow">›</div>
     </div>
@@ -1804,11 +1955,17 @@ function goToHorseSearch() {
   filterHorses('');
 }
 
+// A horse's owner, from its customerId when the horse doc has no customerName saved.
+function horseOwner(h) {
+  const c = h.customerId ? (state.customers || []).find(x => x.id === h.customerId) : null;
+  return { name: h.customerName || c?.name || '', farm: c?.farmName || '' };
+}
+
 function filterHorses(q) {
   const term = q.toLowerCase().trim();
   const all = state.allHorses || [];
   const filtered = term
-    ? all.filter(h => (h.name||'').toLowerCase().includes(term) || (h.customerName||'').toLowerCase().includes(term))
+    ? all.filter(h => (h.name||'').toLowerCase().includes(term) || horseOwner(h).name.toLowerCase().includes(term))
     : all;
 
   const el = document.getElementById('horse-search-results');
@@ -1818,16 +1975,16 @@ function filterHorses(q) {
     el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🐴</div><div class="empty-state-text">No horses found</div><div class="empty-state-sub">Try a different name, or add a new horse</div></div>`;
     return;
   }
-  el.innerHTML = filtered.map(h => `
+  el.innerHTML = filtered.map(h => { const owner = horseOwner(h); return `
     <div class="horse-row" data-hid="${h.id}">
       <div class="horse-row-avatar">🐴</div>
       <div>
-        <div class="customer-row-name">${h.name || 'Unnamed'}</div>
-        <div class="customer-row-sub">${h.customerName || 'Unknown owner'}</div>
+        <div class="customer-row-name">${h.name || 'Unnamed'} <span style="font-weight:500; color:var(--text-muted);">· ${owner.name || 'Unknown owner'}</span></div>
+        <div class="customer-row-sub">Last service: ${h.lastServiceDate ? fmtDate(h.lastServiceDate) : 'none yet'}${owner.farm ? ' · ' + owner.farm : ''}</div>
       </div>
       <div class="customer-row-arrow">›</div>
     </div>
-  `).join('');
+  `; }).join('');
 
   // Event delegation — touchend for instant response on iPad, click as fallback
   el.onclick = (e) => {
@@ -1855,6 +2012,109 @@ function openHorseFromSearch(h) {
   openHorseDetail(h);
 }
 
+// ── UPCOMING SERVICE REPORT ──
+// Every horse whose next service (lib/horse-history.js: its next booked appointment, or
+// last service + shoeing cycle) falls within the chosen number of weeks.
+// Appointments and invoices are pulled once per visit, then switching weeks re-filters.
+let _upcomingData = null;
+
+async function openUpcomingService() {
+  goTo('screen-upcoming');
+  _upcomingData = null;
+  const list = document.getElementById('upcoming-list');
+  list.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
+  try {
+    if (!(state.allHorses || []).length) await loadAllHorses();
+    const [aSnap, iSnap] = await Promise.all([
+      db.collection('appointments').where('farrierId', '==', bizId()).get(),
+      db.collection('invoices').where('farrierId', '==', bizId()).get(),
+    ]);
+    const appts = aSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const invs = iSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    _upcomingData = (state.allHorses || []).map(h => ({ h, hist: FarriHorseHistory.build(h, appts, invs) }));
+    const active = document.querySelector('#upcoming-weeks .active');
+    renderUpcoming(Number(active?.dataset.weeks) || 4);
+  } catch (e) {
+    console.error('Upcoming service error:', e);
+    list.innerHTML = `<div class="empty-state"><div class="empty-state-text">Couldn't load horses${netState.online ? '' : ' while offline'}</div></div>`;
+  }
+}
+
+function setUpcomingWeeks(weeks) {
+  document.querySelectorAll('#upcoming-weeks .appt-filter-btn').forEach(b => b.classList.toggle('active', Number(b.dataset.weeks) === weeks));
+  if (_upcomingData) renderUpcoming(weeks);
+}
+
+// Grouped by owner/farm: a farm shows up when at least one of its horses is due, with
+// those horses first and the owner's other horses (not due yet) listed under them, so a
+// farm visit can cover everything there. Farms are ordered by their earliest due date.
+function renderUpcoming(weeks) {
+  const list = document.getElementById('upcoming-list');
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(today.getTime() + weeks * 7 * 86400e3);
+  const isDue = x => x.hist.nextService && x.hist.nextService.date < end;
+
+  const groups = {};
+  _upcomingData.forEach(x => {
+    const owner = horseOwner(x.h);
+    const key = x.h.customerId || owner.name || 'unknown';
+    (groups[key] = groups[key] || { owner, due: [], other: [] })[isDue(x) ? 'due' : 'other'].push(x);
+  });
+  const farms = Object.values(groups).filter(g => g.due.length);
+  const byNext = (a, b) => (a.hist.nextService?.date || Infinity) - (b.hist.nextService?.date || Infinity);
+  farms.forEach(g => { g.due.sort(byNext); g.other.sort(byNext); });
+  farms.sort((a, b) => a.due[0].hist.nextService.date - b.due[0].hist.nextService.date);
+
+  const dueCount = farms.reduce((n, g) => n + g.due.length, 0);
+  const overdue = farms.reduce((n, g) => n + g.due.filter(x => x.hist.nextService.overdue).length, 0);
+  const noDate = _upcomingData.filter(x => !x.hist.nextService).length;
+  const noDateNote = noDate
+    ? `<div style="font-size:0.8rem; color:var(--text-muted); text-align:center; margin:12px 0;">${noDate} horse${noDate === 1 ? ' has' : 's have'} no appointment or shoeing cycle, so no due date.</div>`
+    : '';
+  if (!farms.length) {
+    list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🐴</div><div class="empty-state-text">No horses due in the next ${weeks} week${weeks === 1 ? '' : 's'}</div></div>` + noDateNote;
+    return;
+  }
+
+  const horseRow = ({ h, hist }, muted) => {
+    const next = hist.nextService;
+    const badge = !next ? '<span class="badge badge-muted">no due date</span>'
+      : !next.estimated ? '<span class="badge badge-success">booked</span>'
+      : next.overdue ? '<span class="badge badge-danger">overdue</span>'
+      : (muted ? '<span class="badge badge-muted">next</span>' : '<span class="badge badge-warning">due</span>');
+    return `
+      <div class="horse-row" style="padding:10px 12px; margin-bottom:6px;${muted ? ' opacity:0.7; box-shadow:none;' : ''}" onclick="openUpcomingHorse('${escapeHtml(h.id)}')">
+        <div style="flex:1; min-width:0;">
+          <div class="customer-row-name" style="font-size:0.95rem;">🐴 ${escapeHtml(h.name || 'Unnamed')}</div>
+          <div class="customer-row-sub">${next ? fmtDate(next.date) + ' ' : ''}${badge}${hist.lastService ? ' · last ' + fmtDate(hist.lastService.date) : ''}</div>
+        </div>
+        <div class="customer-row-arrow">›</div>
+      </div>`;
+  };
+
+  list.innerHTML = `
+    <div class="card" style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+      <div style="font-weight:700;">${dueCount} horse${dueCount === 1 ? '' : 's'} due at ${farms.length} farm${farms.length === 1 ? '' : 's'}</div>
+      ${overdue ? `<span class="badge badge-danger">${overdue} overdue</span>` : ''}
+    </div>
+  ` + farms.map(g => `
+    <div class="card" style="margin-bottom:12px; padding:12px;">
+      <div style="font-weight:800; color:var(--blue);">${escapeHtml(g.owner.farm || g.owner.name || 'Unknown owner')}</div>
+      ${g.owner.farm && g.owner.name ? `<div style="font-size:0.82rem; color:var(--text-muted);">${escapeHtml(g.owner.name)}</div>` : ''}
+      <div style="margin-top:8px;">${g.due.map(x => horseRow(x, false)).join('')}</div>
+      ${g.other.length ? `
+        <div style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em; margin:10px 0 6px;">Also at this farm · not due yet</div>
+        ${g.other.map(x => horseRow(x, true)).join('')}` : ''}
+    </div>
+  `).join('') + noDateNote;
+}
+
+function openUpcomingHorse(id) {
+  const h = (state.allHorses || []).find(x => x.id === id);
+  if (h) openHorseFromSearch(h);
+}
+
 // New Invoice / New Appt, pre-filled for one specific horse — used by the horse detail
 // screen's action buttons (reached either via a customer's horse list or Find Horse).
 // Both reuse the exact same setup the customer-profile buttons use, then just apply the
@@ -1871,34 +2131,80 @@ function startAppointmentForHorse(h) {
   renderApptHorsePicker([h.id]);
 }
 
-async function loadOpenInvoices() {
-  document.getElementById('search-input').value = '';
-  document.getElementById('search-results').innerHTML = '';
-  const sec = document.getElementById('open-invoices-section');
-  sec.style.display = 'block';
+// Home "Invoices" card: Open (customers who owe money) or Paid, both grouped by customer.
+async function loadOpenInvoices(status = 'outstanding') {
+  document.getElementById('inv-filter-open').classList.toggle('active', status === 'outstanding');
+  document.getElementById('inv-filter-paid').classList.toggle('active', status === 'paid');
   const list = document.getElementById('open-invoices-list');
   list.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
   try {
     const snap = await db.collection('invoices')
-      .where('farrierId', '==', state.user.uid)
-      .where('status', '==', 'outstanding')
-      .orderBy('createdAt', 'desc')
+      .where('farrierId', '==', bizId())
+      .where('status', '==', status)
       .get();
-    const invs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Sorted here rather than with orderBy so the query needs no composite index
+    // (same approach as the customer screen's invoice query).
+    const invs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a,b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     if (!invs.length) {
-      list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🎉</div><div class="empty-state-text">No outstanding invoices</div></div>`;
+      list.innerHTML = status === 'paid'
+        ? `<div class="empty-state"><div class="empty-state-icon">🧾</div><div class="empty-state-text">No paid invoices yet</div></div>`
+        : `<div class="empty-state"><div class="empty-state-icon">🎉</div><div class="empty-state-text">No outstanding invoices</div></div>`;
       return;
     }
-    list.innerHTML = invs.map(inv => `
-      <div class="invoice-row outstanding" onclick="openInvoicePayment(${JSON.stringify(inv).replace(/"/g,'&quot;')})">
+    // One row per customer with their total (owed, or paid), biggest first. Tapping a
+    // customer shows their invoices; unpaid ones open the invoice (pay / resend).
+    // Refunds stay on the customer screen's Invoice History.
+    const paid = status === 'paid';
+    const byCust = {};
+    invs.forEach(inv => {
+      const key = inv.customerName || 'Unknown customer';
+      (byCust[key] = byCust[key] || { name: key, farm: inv.customerFarmName || '', total: 0, invs: [] });
+      byCust[key].total += inv.total || 0;
+      byCust[key].invs.push(inv);
+    });
+    const custs = Object.values(byCust).sort((a,b) => b.total - a.total);
+    const grand = custs.reduce((sum, c) => sum + c.total, 0);
+    const invRow = paid
+      ? inv => `
+          <div class="invoice-row paid">
+            <div class="invoice-row-top">
+              <div class="invoice-row-num">#${inv.invoiceNumber}</div>
+              <div class="invoice-row-amount">$${(inv.total||0).toFixed(2)}</div>
+            </div>
+            <div class="invoice-row-bottom">${fmtDate(inv.paidAt || inv.createdAt)} · <span class="badge badge-success">paid</span></div>
+          </div>`
+      : inv => `
+          <div class="invoice-row outstanding" onclick="openInvoicePayment(${JSON.stringify(inv).replace(/"/g,'&quot;')})">
+            <div class="invoice-row-top">
+              <div class="invoice-row-num">#${inv.invoiceNumber}</div>
+              <div class="invoice-row-amount">$${(inv.total||0).toFixed(2)}</div>
+            </div>
+            <div class="invoice-row-bottom">${fmtDate(inv.createdAt)} · Tap to view invoice</div>
+          </div>`;
+    list.innerHTML = `
+      <div class="card" style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+        <div style="font-weight:700;">${paid ? `Paid by ${custs.length} customer${custs.length === 1 ? '' : 's'}` : `${custs.length} customer${custs.length === 1 ? '' : 's'} owe you`}</div>
+        <div style="font-weight:800; font-size:1.15rem; color:${paid ? 'var(--success)' : 'var(--blue)'};">$${grand.toFixed(2)}</div>
+      </div>
+    ` + custs.map((c, i) => `
+      <div class="invoice-row ${paid ? 'paid' : 'outstanding'}" onclick="toggleOwingCustomer(${i})">
         <div class="invoice-row-top">
-          <div class="invoice-row-num">#${inv.invoiceNumber} · ${inv.customerName}</div>
-          <div class="invoice-row-amount">$${(inv.total||0).toFixed(2)}</div>
+          <div class="invoice-row-num">${c.name}</div>
+          <div class="invoice-row-amount">$${c.total.toFixed(2)}</div>
         </div>
-        <div class="invoice-row-bottom">${fmtDate(inv.createdAt)} · Tap to collect payment</div>
+        <div class="invoice-row-bottom">${c.farm ? c.farm + ' · ' : ''}${c.invs.length} ${paid ? 'paid' : 'unpaid'} invoice${c.invs.length === 1 ? '' : 's'} · ${paid ? 'latest ' + fmtDate(c.invs[0].paidAt || c.invs[0].createdAt) : 'oldest ' + fmtDate(c.invs[c.invs.length - 1].createdAt)}</div>
+      </div>
+      <div id="owing-cust-${i}" style="display:none; margin:-4px 0 10px 16px;">
+        ${c.invs.map(invRow).join('')}
       </div>
     `).join('');
-  } catch(e) { list.innerHTML = '<div class="empty-state"><div class="empty-state-text">Error loading invoices</div></div>'; }
+  } catch(e) { console.error('Invoices load error:', e); list.innerHTML = '<div class="empty-state"><div class="empty-state-text">Error loading invoices</div></div>'; }
+}
+
+function toggleOwingCustomer(i) {
+  const el = document.getElementById('owing-cust-' + i);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
 function selectCustomer(c) {
@@ -1946,16 +2252,17 @@ async function loadCustomerDetail(c) {
     </div>
     <div class="customer-hero-contact">
       ${c.managerContact ? `<div>👔 ${c.managerContact}</div>` : ''}
-      ${c.phone ? `<div>📞 ${c.phone}</div>` : ''}
+      ${c.phone ? `<div>📞 ${fmtPhoneDisplay(c.phone)}</div>` : ''}
       ${c.email ? `<div>✉️ ${c.email}</div>` : ''}
       ${c.notes ? `<div style="margin-top:4px; font-style:italic; opacity:0.8;">📝 ${c.notes}</div>` : ''}
+      ${(Array.isArray(c.contacts) ? c.contacts : []).map(k => `<div>👥 ${[k.name, k.role].filter(Boolean).join(' · ')}${k.phone ? ` · <a href="tel:${String(k.phone).replace(/\D/g, '')}" style="color:inherit;">${fmtPhoneDisplay(k.phone)}</a>` : ''}</div>`).join('')}
     </div>
   `;
 
   try {
     // Horses
     const hSnap = await db.collection('horses')
-      .where('farrierId', '==', state.user.uid)
+      .where('farrierId', '==', bizId())
       .where('customerId', '==', c.id)
       .get();
     const horses = hSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1977,7 +2284,7 @@ async function loadCustomerDetail(c) {
   try {
     // Appointments
     const aSnap = await db.collection('appointments')
-      .where('farrierId', '==', state.user.uid)
+      .where('farrierId', '==', bizId())
       .where('customerName', '==', c.name)
       .get();
     const appts = aSnap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -2004,7 +2311,7 @@ async function loadCustomerDetail(c) {
 
     // Invoices
     const iSnap = await db.collection('invoices')
-      .where('farrierId', '==', state.user.uid)
+      .where('farrierId', '==', bizId())
       .where('customerName', '==', c.name)
       .get();
     const invs = iSnap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -2020,20 +2327,24 @@ async function loadCustomerDetail(c) {
             <div class="invoice-row-num">#${inv.invoiceNumber}</div>
             <div class="invoice-row-amount">$${(inv.total||0).toFixed(2)}</div>
           </div>
-          <div class="invoice-row-bottom">${fmtDate(inv.createdAt)} · Tap to collect</div>
+          <div class="invoice-row-bottom">${fmtDate(inv.createdAt)} · Tap to view invoice</div>
         </div>
       `).join('');
     }
 
     if (all.length) {
       document.getElementById('cust-inv-section').style.display = 'block';
+      state.customerInvoices = Object.fromEntries(all.map(inv => [inv.id, inv]));
       document.getElementById('cust-inv-list').innerHTML = all.map(inv => `
         <div class="invoice-row ${inv.status}">
           <div class="invoice-row-top">
             <div class="invoice-row-num">#${inv.invoiceNumber}</div>
             <div class="invoice-row-amount">$${(inv.total||0).toFixed(2)}</div>
           </div>
-          <div class="invoice-row-bottom">${fmtDate(inv.createdAt)} · <span class="badge badge-${inv.status === 'paid' ? 'success' : 'warning'}">${inv.status}</span></div>
+          <div class="invoice-row-bottom" style="display:flex; align-items:center; gap:6px;">
+            <span>${fmtDate(inv.createdAt)} · <span class="badge badge-${inv.status === 'paid' ? 'success' : 'warning'}">${inv.status}</span></span>
+            ${canRefundInvoice(inv) ? `<button class="btn-sm" style="margin-left:auto; background:var(--danger-bg); color:var(--danger);" onclick="event.stopPropagation(); openRefund('${inv.id}')">↩️ Refund</button>` : ''}
+          </div>
         </div>
       `).join('');
     }
@@ -2049,7 +2360,8 @@ async function loadCustomerDetail(c) {
 // Horse" jumps out to create a horse record that isn't on file yet, then comes right
 // back with a fresh line pre-selecting it.
 function emptyInvoiceLine() {
-  return { horseId: '', horseName: '', serviceId: '', serviceName: '', price: 0 };
+  // price is per horse; qty is how many horses it covers (see FarriPricing.lineAmount)
+  return { horseId: '', horseName: '', serviceId: '', serviceName: '', price: 0, qty: 1, note: '' };
 }
 
 function startNewInvoice() {
@@ -2077,7 +2389,7 @@ function splitInvoiceItemsForEdit(items) {
   const customs = [];
   (items || []).forEach(i => {
     if (i.serviceId) {
-      lines.push({ horseId: i.horseId || '', horseName: i.horseName || '', serviceId: i.serviceId, serviceName: i.description || '', price: i.amount || 0 });
+      lines.push({ horseId: i.horseId || '', horseName: i.horseName || '', serviceId: i.serviceId, serviceName: i.description || '', price: FarriPricing.itemUnitPrice(i), qty: FarriPricing.itemQty(i), note: i.note || '' });
     } else {
       customs.push({ name: i.description || '', price: i.amount || 0 });
     }
@@ -2109,7 +2421,7 @@ function startEditInvoice(inv) {
   };
   state.customerHorses = [];
   if (found?.id) {
-    db.collection('horses').where('farrierId', '==', state.user.uid).where('customerId', '==', found.id).get()
+    db.collection('horses').where('farrierId', '==', bizId()).where('customerId', '==', found.id).get()
       .then(snap => { state.customerHorses = snap.docs.map(d => ({ id: d.id, ...d.data() })); })
       .catch(() => {});
   }
@@ -2148,7 +2460,13 @@ function renderInvoiceLines() {
       </select>
       <div class="horse-svc-price-wrap${line.serviceName ? ' show' : ''}" id="line-price-wrap-${idx}">
         <span style="font-weight:700; color:var(--text-muted);">$</span>
-        <input type="number" id="line-price-${idx}" min="0" step="0.01" value="${line.serviceName ? line.price.toFixed(2) : ''}" oninput="onLinePriceInput(${idx})">
+        <input type="number" id="line-price-${idx}" min="0" step="0.01" value="${line.serviceName ? line.price.toFixed(2) : ''}" oninput="onLinePriceInput(${idx})" aria-label="Price per horse">
+        <span style="font-weight:700; color:var(--text-muted);">×</span>
+        <input type="number" id="line-qty-${idx}" min="1" step="1" inputmode="numeric" value="${line.qty || 1}" oninput="onLineQtyInput(${idx})" aria-label="Quantity" style="flex:none; width:84px;">
+      </div>
+      <div id="line-total-hint-${idx}" style="font-size:0.8rem; color:var(--text-muted); margin-top:6px;"></div>
+      <div id="line-note-wrap-${idx}" style="display:${line.horseName === FarriPricing.MULTIPLE_HORSES ? 'block' : 'none'}; margin-top:8px;">
+        <input type="text" class="horse-svc-select" id="line-note-${idx}" placeholder="What are they? e.g. polo string, fronts only" autocomplete="off" oninput="onLineNoteInput(${idx})">
       </div>
     </div>
   `).join('');
@@ -2156,6 +2474,8 @@ function renderInvoiceLines() {
   // Re-apply each field's current value after the innerHTML rebuild.
   state.invoiceLines.forEach((line, idx) => {
     document.getElementById(`line-horse-input-${idx}`).value = line.horseName || '';
+    document.getElementById(`line-note-${idx}`).value = line.note || '';
+    updateLineTotalHint(idx);
     if (line.serviceName) {
       const i = state.services.findIndex(s => s.name === line.serviceName);
       if (i >= 0) document.getElementById(`line-service-${idx}`).value = i;
@@ -2178,7 +2498,8 @@ function onLineHorseInput(idx) {
   // Plain onclick — hiding the list is handled by the document-level click-outside
   // listener below, not by input blur (blur-vs-click ordering isn't reliable across
   // every input method, so selection could silently fail to register).
-  const generalRow = `<div class="horse-combo-suggestion" onclick="selectLineHorse(${idx}, '', '')">📋 General / Other</div>`;
+  const generalRow = `<div class="horse-combo-suggestion" onclick="selectLineHorse(${idx}, '', '')">📋 General / Other</div>`
+    + `<div class="horse-combo-suggestion" onclick="selectLineHorse(${idx}, '', '${FarriPricing.MULTIPLE_HORSES}')">👥 ${FarriPricing.MULTIPLE_HORSES}</div>`;
   // escapeHtml around the JSON.stringify'd name is essential — JSON.stringify uses
   // double quotes, which would otherwise terminate this double-quoted onclick attribute
   // early (silently truncating the handler) for any horse name once the browser parses it.
@@ -2193,6 +2514,15 @@ function selectLineHorse(idx, id, name) {
   line.horseName = name;
   document.getElementById(`line-horse-input-${idx}`).value = name;
   document.getElementById(`line-horse-suggestions-${idx}`).style.display = 'none';
+
+  // The note box is only for "Multiple horses" lines; picking anything else puts the
+  // quantity back to a single horse.
+  const isMultiple = name === FarriPricing.MULTIPLE_HORSES;
+  if (!isMultiple) { line.qty = 1; line.note = ''; }
+  document.getElementById(`line-qty-${idx}`).value = line.qty;
+  document.getElementById(`line-note-${idx}`).value = line.note;
+  document.getElementById(`line-note-wrap-${idx}`).style.display = isMultiple ? 'block' : 'none';
+  updateLineTotalHint(idx);
 
   // Default to this horse's last service (from its most recent invoice) so the farrier
   // just confirms/adjusts instead of picking from scratch every time — a real time
@@ -2211,7 +2541,7 @@ function selectLineHorse(idx, id, name) {
     serviceSelect.value = svcIdx;
     document.getElementById(`line-price-${idx}`).value = line.price ? line.price.toFixed(2) : '';
     document.getElementById(`line-price-wrap-${idx}`).classList.add('show');
-  } else if (!id) {
+  } else if (!id && !isMultiple) {
     // Switched to "General / Other" — no history to suggest from.
     line.serviceId = ''; line.serviceName = ''; line.price = 0;
     serviceSelect.value = '';
@@ -2252,12 +2582,36 @@ function onLineServiceChange(idx) {
     priceInput.value = line.price ? line.price.toFixed(2) : '';
     priceWrap.classList.add('show');
   }
+  updateLineTotalHint(idx);
   updateServiceTotal();
 }
 
 function onLinePriceInput(idx) {
   state.invoiceLines[idx].price = parseFloat(document.getElementById(`line-price-${idx}`).value) || 0;
+  updateLineTotalHint(idx);
   updateServiceTotal();
+}
+
+// Quantity is a whole number of horses, never below 1 (a blank box counts as 1 until typed over).
+function onLineQtyInput(idx) {
+  const n = Math.floor(parseFloat(document.getElementById(`line-qty-${idx}`).value));
+  state.invoiceLines[idx].qty = n >= 1 ? n : 1;
+  updateLineTotalHint(idx);
+  updateServiceTotal();
+}
+
+function onLineNoteInput(idx) {
+  state.invoiceLines[idx].note = document.getElementById(`line-note-${idx}`).value;
+}
+
+// "$150.00 each × 10 = $1,500.00" under a line whose quantity is more than 1.
+function updateLineTotalHint(idx) {
+  const line = state.invoiceLines[idx];
+  const el = document.getElementById(`line-total-hint-${idx}`);
+  if (!line || !el) return;
+  el.textContent = line.serviceName && line.qty > 1
+    ? `${FarriPricing.money(Math.round(line.price * 100))} each × ${line.qty} = ${FarriPricing.money(Math.round(FarriPricing.lineAmount(line.price, line.qty) * 100))}`
+    : '';
 }
 
 function addInvoiceLine() {
@@ -2327,7 +2681,7 @@ function addHorseFromAppointment() {
 }
 
 function updateServiceTotal() {
-  const lineTotal = (state.invoiceLines || []).filter(l => l.serviceName).reduce((s, l) => s + (l.price || 0), 0);
+  const lineTotal = (state.invoiceLines || []).filter(l => l.serviceName).reduce((s, l) => s + FarriPricing.lineAmount(l.price, l.qty), 0);
   const customTotal = state.customItems.reduce((s,ci) => s + ci.price, 0);
   const total = lineTotal + customTotal;
   document.getElementById('svc-total').textContent = '$' + total.toFixed(2);
@@ -2373,9 +2727,12 @@ function buildInvoiceItems() {
     .filter(l => l.serviceName)
     .map(l => ({
       description: l.serviceName,
-      amount: l.price || 0,
+      amount: FarriPricing.lineAmount(l.price, l.qty), // line total (price per horse × qty)
+      qty: FarriPricing.itemQty(l),
+      unitPrice: l.price || 0,
       horseId: l.horseId || '',
       horseName: l.horseName || '',
+      ...(l.horseName === FarriPricing.MULTIPLE_HORSES && String(l.note || '').trim() ? { note: String(l.note).trim() } : {}),
       serviceId: l.serviceId || '',
     }));
   const customLineItems = state.customItems.map(ci => ({
@@ -2396,7 +2753,7 @@ function continueToInvoiceReview() {
   document.getElementById('review-customer-farm').textContent = state.customer.farmName || '';
   document.getElementById('review-services-list').innerHTML = allItems.map(i => `
     <div class="info-row">
-      <div class="info-row-label">${escapeHtml(i.description)}${i.horseName ? ` <span style="color:var(--text-muted); font-weight:500;">(${escapeHtml(i.horseName)})</span>` : ''}</div>
+      <div class="info-row-label">${escapeHtml(i.description)}${FarriPricing.itemHorseLabel(i) ? ` <span style="color:var(--text-muted); font-weight:500;">(${escapeHtml(FarriPricing.itemHorseLabel(i))})</span>` : ''}</div>
       <div class="info-row-value">$${i.amount.toFixed(2)}</div>
     </div>
   `).join('');
@@ -2423,11 +2780,11 @@ async function loadApptSearch() {
     return;
   }
 
-  console.log('🔍 loadApptSearch: uid =', state.user.uid);
+  console.log('🔍 loadApptSearch: uid =', bizId());
 
   try {
     const snap = await db.collection('appointments')
-      .where('farrierId', '==', state.user.uid)
+      .where('farrierId', '==', bizId())
       .get();
     allAppts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (allAppts.length === 0) {
@@ -2440,7 +2797,7 @@ async function loadApptSearch() {
     resultsEl.innerHTML = `<div style="padding:16px;font-size:0.78rem;color:#c62828;background:#fff8f8;border-radius:8px;border:1px solid #fca5a5;word-break:break-all;">
       <strong>Error:</strong> ${e.code || 'unknown'}<br>
       <strong>Message:</strong> ${e.message || '—'}<br>
-      <strong>UID:</strong> ${state.user.uid}
+      <strong>UID:</strong> ${bizId()}
     </div>`;
   }
 }
@@ -2519,7 +2876,7 @@ async function loadRouteForDate() {
   document.getElementById('route-summary').textContent = '';
   try {
     const snap = await db.collection('appointments')
-      .where('farrierId', '==', state.user.uid)
+      .where('farrierId', '==', bizId())
       .where('requestedDate', '==', dateStr)
       .get();
     routeAppts = snap.docs
@@ -2839,7 +3196,7 @@ async function updateExistingInvoice(inv, allItems, total) {
     performWrite(() => db.collection('horses').doc(i.horseId).update({
       lastServiceId: i.serviceId || '',
       lastServiceName: i.description,
-      lastServicePrice: i.amount,
+      lastServicePrice: FarriPricing.itemUnitPrice(i),
       lastServiceDate: firebase.firestore.FieldValue.serverTimestamp(),
     }));
   });
@@ -2876,7 +3233,8 @@ async function createInvoice() {
   // other offline write.
   const docRef = db.collection('invoices').doc();
   const saved = performWrite(() => docRef.set({
-    farrierId: state.user.uid,
+    farrierId: bizId(),
+    performedBy: state.user.uid, // who did the work (per-farrier reports)
     customerName: c.name,
     customerFarmName: c.farmName || '',
     customerEmail: email,
@@ -2897,13 +3255,13 @@ async function createInvoice() {
     performWrite(() => db.collection('horses').doc(i.horseId).update({
       lastServiceId: i.serviceId || '',
       lastServiceName: i.description,
-      lastServicePrice: i.amount,
+      lastServicePrice: FarriPricing.itemUnitPrice(i),
       lastServiceDate: firebase.firestore.FieldValue.serverTimestamp(),
     }));
     // Keep the in-memory copy in sync too, so picking the same horse again on this
     // same invoice (another line, or after "+ Add Line") already reflects it.
     const h = state.customerHorses.find(x => x.id === i.horseId);
-    if (h) { h.lastServiceId = i.serviceId || ''; h.lastServiceName = i.description; h.lastServicePrice = i.amount; }
+    if (h) { h.lastServiceId = i.serviceId || ''; h.lastServiceName = i.description; h.lastServicePrice = FarriPricing.itemUnitPrice(i); }
   });
 
   // ── Write mileage log entry if miles were entered ──
@@ -2938,7 +3296,7 @@ async function createInvoice() {
   } else if (stripeConnected && total > 0) {
     try {
       // The server prices the link from the saved invoice, so wait for the save to land.
-      await Promise.race([saved, new Promise((_, reject) => setTimeout(() => reject(new Error('Invoice is still saving — try Pay Link again in a moment')), 10000))]);
+      await Promise.race([saved, new Promise((_, reject) => setTimeout(() => reject(new Error('Invoice is still saving — try Resend Invoice in a moment')), 10000))]);
       const plRes = await fetch('/api/stripe-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3081,7 +3439,7 @@ async function loadServicesCatalog() {
   document.getElementById('services-catalog-loading').style.display = 'flex';
   list.innerHTML = '';
   try {
-    const snap = await db.collection('services').where('farrierId', '==', state.user.uid).get();
+    const snap = await db.collection('services').where('farrierId', '==', bizId()).get();
     const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a,b) => (a.category || '').localeCompare(b.category || '') || (a.name || '').localeCompare(b.name || ''));
     document.getElementById('services-catalog-loading').style.display = 'none';
@@ -3155,7 +3513,7 @@ function saveServiceForm() {
     performWrite(() => db.collection('services').doc(editingId).update(fields));
   } else {
     performWrite(() => db.collection('services').add({
-      farrierId: state.user.uid,
+      farrierId: bizId(),
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       ...fields,
     }));
@@ -3183,8 +3541,8 @@ async function deleteServiceForm() {
   btn.disabled = true; btn.textContent = 'Checking history…';
   try {
     const [invSnap, apptSnap] = await Promise.all([
-      db.collection('invoices').where('farrierId', '==', state.user.uid).get(),
-      db.collection('appointments').where('farrierId', '==', state.user.uid).get(),
+      db.collection('invoices').where('farrierId', '==', bizId()).get(),
+      db.collection('appointments').where('farrierId', '==', bizId()).get(),
     ]);
     const usedOnInvoice = invSnap.docs.some(d => (d.data().items || []).some(i => i.serviceId ? i.serviceId === id : i.description === name));
     const usedOnAppt = apptSnap.docs.some(d => (d.data().services || []).includes(name));
@@ -3219,7 +3577,7 @@ async function loadInventoryList() {
   list.innerHTML = '';
   banner.style.display = 'none';
   try {
-    const snap = await db.collection('inventoryItems').where('farrierId', '==', state.user.uid).get();
+    const snap = await db.collection('inventoryItems').where('farrierId', '==', bizId()).get();
     const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a,b) => (a.category || '').localeCompare(b.category || '') || (a.name || '').localeCompare(b.name || ''));
     document.getElementById('inventory-loading').style.display = 'none';
@@ -3227,7 +3585,7 @@ async function loadInventoryList() {
       list.innerHTML = `
         <div class="card" style="border:2px solid #bfdbfe; background:#eff6ff;">
           <div style="font-weight:700; font-size:1rem; margin-bottom:6px;">📋 Build your inventory from our supply catalog?</div>
-          <div style="font-size:0.88rem; color:var(--text-muted); margin-bottom:14px;">Tick the shoes, nails, pads and tools you carry — brand, size, part number and list price come filled in. You just count what's on the truck.</div>
+          <div style="font-size:0.88rem; color:var(--text-muted); margin-bottom:14px;">Tick the shoes, nails, pads and tools you carry — brand, size and part number come filled in. You just count what's on the truck.</div>
           <button class="btn-primary" onclick="openInventoryCatalog()">Browse catalog</button>
           <div style="margin-top:8px;"></div>
           <button class="btn-secondary" onclick="startNewInventoryItem()">I'll add my own</button>
@@ -3282,7 +3640,7 @@ async function openInventoryCatalog() {
   goTo('screen-inventory-catalog');
   setCatalogTab('fd');
   try {
-    const snap = await db.collection('inventoryItems').where('farrierId', '==', state.user.uid).get();
+    const snap = await db.collection('inventoryItems').where('farrierId', '==', bizId()).get();
     state.catalogOwned = new Set(snap.docs.map(d => inventoryCatalogKey(d.data().name, d.data().size)));
   } catch(e) { /* offline with no cache — just don't grey anything out */ }
   try {
@@ -3306,11 +3664,11 @@ function setCatalogTab(tab) {
 function catalogCheckRow(key, owned, label, sub) {
   const checked = owned || state.catalogSelected.has(key);
   return `
-    <label class="horse-row" style="${owned ? 'opacity:0.5;' : ''}">
+    <label class="horse-row">
       <input type="checkbox" ${checked ? 'checked' : ''} ${owned ? 'disabled' : ''} onchange="toggleCatalogKey('${key}', this.checked)" style="width:20px;height:20px;flex-shrink:0;">
       <div style="flex:1; min-width:0;">
         <div class="customer-row-name">${label}</div>
-        <div class="customer-row-sub">${owned ? 'Already in your inventory' : sub}</div>
+        <div class="customer-row-sub" ${owned ? 'style="color:#22c55e;font-weight:600;"' : ''}>${owned ? '✓ In inventory' : sub}</div>
       </div>
     </label>`;
 }
@@ -3339,10 +3697,9 @@ function toggleCatalogSearchAll() {
 
 function renderFdProduct(p, pi) {
   const brand = p.b ? ` <span style="font-weight:400;color:var(--text-muted);">— ${escapeHtml(p.b)}</span>` : '';
-  const price = (v) => v[2] ? '$' + Number(v[2]).toFixed(2) : '';
   if (p.v.length === 1 && !p.v[0][0]) {
     return catalogCheckRow(`fd:${pi}:0`, state.catalogOwned.has(inventoryCatalogKey(p.t, '')),
-      escapeHtml(p.t) + brand, [price(p.v[0]), p.u !== 'each' ? 'per ' + escapeHtml(p.u) : ''].filter(Boolean).join(' · '));
+      escapeHtml(p.t) + brand, p.u !== 'each' ? 'per ' + escapeHtml(p.u) : '');
   }
   const selCount = p.v.filter((_, vi) => state.catalogSelected.has(`fd:${pi}:${vi}`)).length;
   const isOpen = state.catalogOpenProduct === pi;
@@ -3364,9 +3721,9 @@ function renderFdProduct(p, pi) {
       const key = `fd:${pi}:${vi}`;
       const owned = state.catalogOwned.has(inventoryCatalogKey(p.t, v[0]));
       const on = owned || state.catalogSelected.has(key);
-      return `<label style="display:inline-flex; align-items:center; gap:6px; padding:8px 12px; border-radius:999px; background:var(--surface); border:2px solid ${on ? 'var(--blue)' : 'var(--border)'}; font-size:0.85rem; font-weight:600; ${owned ? 'opacity:0.5;' : ''}">
+      return `<label style="display:inline-flex; align-items:center; gap:6px; padding:8px 12px; border-radius:999px; background:var(--surface); border:2px solid ${owned ? '#22c55e' : on ? 'var(--blue)' : 'var(--border)'}; font-size:0.85rem; font-weight:600;">
         <input type="checkbox" ${on ? 'checked' : ''} ${owned ? 'disabled' : ''} onchange="toggleCatalogKey('${key}', this.checked); renderInventoryCatalog();" style="margin:0;">
-        ${escapeHtml(v[0] || 'Standard')}${v[2] ? `<span style="font-weight:400;color:var(--text-muted);">${price(v)}</span>` : ''}
+        ${escapeHtml(v[0] || 'Standard')}${owned ? ' <span style="color:#22c55e;">✓</span>' : ''}
       </label>`;
     }).join('') + `</div>`;
   }
@@ -3408,7 +3765,7 @@ function renderInventoryCatalog() {
           </div>`;
         if (isOpen) html += `<div style="padding-left:12px;">${inCat.map(({ p, pi }) => renderFdProduct(p, pi)).join('')}</div>`;
       });
-      html += `<div class="customer-row-sub" style="padding:10px 4px;">List prices as of ${escapeHtml(fd.retrieved)} — edit any item to enter your actual cost.</div>`;
+      html += `<div class="customer-row-sub" style="padding:10px 4px;">Edit any item to enter your cost.</div>`;
     }
   } else {
     let lastCat = null;
@@ -3472,7 +3829,7 @@ function addSelectedCatalogItems() {
   picks.forEach(fields => {
     batch.set(db.collection('inventoryItems').doc(), {
       ...fields,
-      farrierId: state.user.uid,
+      farrierId: bizId(),
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
@@ -3541,7 +3898,7 @@ function saveInventoryItemForm() {
     performWrite(() => db.collection('inventoryItems').doc(editingId).update(fields));
   } else {
     performWrite(() => db.collection('inventoryItems').add({
-      farrierId: state.user.uid,
+      farrierId: bizId(),
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       ...fields,
     }));
@@ -3562,7 +3919,7 @@ function restockInventoryItem(item) {
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   }));
   performWrite(() => db.collection('inventoryTransactions').add({
-    farrierId: state.user.uid, itemId: item.id, qtyDelta: qty,
+    farrierId: bizId(), itemId: item.id, qtyDelta: qty,
     type: qty > 0 ? 'restock' : 'manual-adjust',
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   }));
@@ -3583,6 +3940,12 @@ function restockInventoryItem(item) {
 function loadSettingsScreen() {
   const p = state.userProfile || {};
   document.getElementById('settings-saved-banner').style.display = 'none';
+  document.getElementById('settings-member-note').style.display = state.teamMember ? 'block' : 'none';
+  document.getElementById('settings-owner-only').style.display = state.teamMember ? 'none' : 'block';
+  if (state.teamMember) {
+    document.getElementById('settings-member-biz').textContent = p.businessName || 'Your business';
+    document.getElementById('settings-member-role').textContent = state.teamRole;
+  }
 
   document.getElementById('set-business-name').value = p.businessName || '';
   document.getElementById('set-first-name').value = p.firstName || '';
@@ -3683,7 +4046,7 @@ function saveSettingsProfile() {
   const zelleContact = document.getElementById('set-zelle-contact').value.trim();
   const venmoHandle = document.getElementById('set-venmo-handle').value.trim().replace(/^@/, '');
   state.userProfile = { ...(state.userProfile || {}), zelleVenmoNote, zelleContact, venmoHandle };
-  performWrite(() => db.collection('farriers').doc(state.user.uid).set({
+  performWrite(() => db.collection('farriers').doc(bizId()).set({
     businessName,
     firstName,
     lastName,
@@ -3711,7 +4074,7 @@ function saveCardPricing() {
   const rate = Number.isFinite(percent) ? Math.round(percent * 100) / 10000 : FarriPricing.DEFAULT_CARD_PRICE_RATE;
   const suffix = netState.online ? '' : ' (will sync when back online)';
   state.userProfile = { ...(state.userProfile || {}), cardPricingEnabled: enabled, cardPriceRate: rate };
-  performWrite(() => db.collection('farriers').doc(state.user.uid).set({
+  performWrite(() => db.collection('farriers').doc(bizId()).set({
     cardPricingEnabled: enabled,
     cardPriceRate: rate,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -3722,7 +4085,7 @@ function saveCardPricing() {
 function saveSmsSetting() {
   const smsEnabled = document.getElementById('set-sms-enabled').checked;
   const suffix = netState.online ? '' : ' (will sync when back online)';
-  performWrite(() => db.collection('farriers').doc(state.user.uid).set({
+  performWrite(() => db.collection('farriers').doc(bizId()).set({
     smsEnabled,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   }, { merge: true }));
@@ -3731,7 +4094,7 @@ function saveSmsSetting() {
 
 function saveAvailability() {
   const suffix = netState.online ? '' : ' (will sync when back online)';
-  performWrite(() => db.collection('farriers').doc(state.user.uid).set({
+  performWrite(() => db.collection('farriers').doc(bizId()).set({
     availability: state.settingsAvailability || DEFAULT_AVAILABILITY,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   }, { merge: true }));
@@ -3781,7 +4144,7 @@ function renderIposStatus(p, message) {
 
 async function saveIposProfile(fields) {
   state.userProfile = { ...(state.userProfile || {}), ...fields };
-  await db.collection('farriers').doc(state.user.uid).set({ ...fields, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+  await db.collection('farriers').doc(bizId()).set({ ...fields, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
 }
 
 async function validateAndSaveIpos() {
@@ -3843,7 +4206,7 @@ async function validateAndSaveStripe() {
     });
     const data = await res.json();
     if (data.success) {
-      await db.collection('farriers').doc(state.user.uid).set({
+      await db.collection('farriers').doc(bizId()).set({
         stripePublishableKey: pk,
         stripeAccountName: data.accountName || '',
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -3871,7 +4234,7 @@ async function disconnectStripe() {
   } catch (e) { showToast('Could not disconnect Stripe — try again', 'error'); return; }
   const suffix = '';
   state.userProfile = { ...(state.userProfile || {}), stripePublishableKey: '', stripeAccountName: '' };
-  performWrite(() => db.collection('farriers').doc(state.user.uid).set({
+  performWrite(() => db.collection('farriers').doc(bizId()).set({
     stripePublishableKey: '',
     stripeAccountName: '',
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -3887,7 +4250,7 @@ function buildInvoiceEmail(inv, bizName, firstName, payUrl) {
   const total = (inv.total || 0).toFixed(2);
   const prices = FarriPricing.dualPrices(inv);
   const items = (inv.items || []).map(i =>
-    `<tr><td style="padding:6px 8px;font-size:14px;color:#374151;">${i.description||i.name||''}${i.horseName ? ` (${i.horseName})` : ''}</td><td style="padding:6px 8px;font-size:14px;color:#374151;text-align:right;">$${(i.amount||i.price||0).toFixed(2)}</td></tr>`
+    `<tr><td style="padding:6px 8px;font-size:14px;color:#374151;">${i.description||i.name||''}${FarriPricing.itemHorseLabel(i) ? ` (${FarriPricing.itemHorseLabel(i)})` : ''}</td><td style="padding:6px 8px;font-size:14px;color:#374151;text-align:right;">$${(i.amount||i.price||0).toFixed(2)}</td></tr>`
   ).join('');
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333;">
@@ -3921,6 +4284,128 @@ function buildInvoiceEmail(inv, bizName, firstName, payUrl) {
 </body></html>`;
 }
 
+// ── BUSINESS DASHBOARD ──
+// Owners and managers: the same numbers as the desktop Business tab (lib/owner-dashboard.js).
+function openBusinessDashboard() {
+  if (state.teamRole === 'farrier') return;
+  goTo('screen-business');
+  loadBusinessDashboard();
+}
+async function loadBusinessDashboard() {
+  const loading = document.getElementById('business-loading'), err = document.getElementById('business-error');
+  loading.style.display = 'flex'; err.style.display = 'none';
+  try {
+    const [invSnap, apptSnap, team] = await Promise.all([
+      db.collection('invoices').where('farrierId', '==', bizId()).get(),
+      db.collection('appointments').where('farrierId', '==', bizId()).get(),
+      netState.online
+        ? fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'team_status' }) }).then(r => r.json()).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    const names = { [bizId()]: 'Owner' };
+    for (const m of (team?.members || [])) names[m.uid] = m.name || m.email;
+    const stats = FarriOwnerDash.compute(
+      invSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      apptSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      { names, ownerId: bizId() });
+    FarriOwnerDash.render(document.getElementById('business-dash'), stats, { dark: false });
+    if (invSnap.metadata.fromCache) { err.textContent = 'Offline: showing what this phone last synced.'; err.style.display = 'block'; }
+  } catch (e) {
+    console.error('Business dashboard error:', e);
+    err.textContent = 'Couldn’t load the dashboard. Please try again.'; err.style.display = 'block';
+  }
+  loading.style.display = 'none';
+}
+
+// ── REFUNDS ──
+// Same rules as the desktop Refund button: card payments taken through Stripe (a pi_ id on the
+// invoice) or iPOSpays (an ipos_ payment) can be refunded, with the manager password. iPOSpays
+// voids it if it hasn't settled yet, otherwise refunds it, and records it on the invoice itself;
+// for Stripe the app records it, like desktop does.
+function invoiceStripePaymentId(inv) {
+  const id = inv.transactionId || inv.stripePaymentIntentId || '';
+  return String(id).startsWith('pi_') ? id : '';
+}
+function invoiceIposPaid(inv) {
+  return (inv.payments || []).some(p => String(p.paymentId || '').startsWith('ipos_'));
+}
+function invoiceRefundable(inv) {
+  const paid = inv.paidAmount || (inv.payments || []).reduce((s, p) => s + (p.amount || 0), 0) || inv.total || 0;
+  return Math.max(0, paid - (inv.refundedAmount || 0));
+}
+function canRefundInvoice(inv) {
+  return state.teamRole !== 'farrier' && (inv.status === 'paid' || inv.status === 'partial')
+    && Boolean(invoiceStripePaymentId(inv) || invoiceIposPaid(inv)) && invoiceRefundable(inv) > 0;
+}
+
+function openRefund(invoiceId) {
+  const inv = state.customerInvoices?.[invoiceId];
+  if (!inv) return;
+  if (!netState.online) { showToast('Refunds need an internet connection', 'error'); return; }
+  state.refundInvoice = inv;
+  const refundable = invoiceRefundable(inv);
+  const ipos = !invoiceStripePaymentId(inv) && invoiceIposPaid(inv);
+  document.getElementById('refund-invoice-num').textContent = '#' + (inv.invoiceNumber || '');
+  document.getElementById('refund-customer-name').textContent = inv.customerName || '';
+  document.getElementById('refund-paid-text').textContent = `Refundable: ${FarriPricing.money(Math.round(refundable * 100))}`;
+  document.getElementById('refund-amount').value = refundable.toFixed(2);
+  document.getElementById('refund-password').value = '';
+  document.getElementById('refund-note').textContent = ipos
+    ? "The money goes back to the customer's card through iPOSpays (voided if it hasn't settled yet). This can't be undone."
+    : "The money goes back to the customer's card through Stripe. This can't be undone.";
+  document.getElementById('refund-error').style.display = 'none';
+  const btn = document.getElementById('refund-btn');
+  btn.disabled = false; btn.textContent = 'Refund';
+  goTo('screen-refund');
+}
+
+async function confirmRefund() {
+  const inv = state.refundInvoice;
+  if (!inv) return;
+  const errEl = document.getElementById('refund-error');
+  const fail = (msg) => { errEl.textContent = msg; errEl.style.display = 'block'; };
+  const refundable = invoiceRefundable(inv);
+  const amt = parseFloat(document.getElementById('refund-amount').value);
+  const password = document.getElementById('refund-password').value;
+  if (!amt || amt <= 0) return fail('Enter a refund amount.');
+  if (amt > refundable + 0.001) return fail(`Refund can't be more than ${FarriPricing.money(Math.round(refundable * 100))}.`);
+  if (!password) return fail('Enter the manager password.');
+  if (!netState.online) return fail('Refunds need an internet connection.');
+  errEl.style.display = 'none';
+  const btn = document.getElementById('refund-btn');
+  btn.disabled = true; btn.textContent = 'Refunding…';
+  try {
+    const stripeId = invoiceStripePaymentId(inv);
+    const ipos = !stripeId && invoiceIposPaid(inv);
+    const res = await fetch('/api/stripe-payment', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ipos
+        ? { action: 'ipospays_refund', invoiceId: inv.id, amount: amt, refundPassword: password }
+        : { action: 'refund', transactionId: stripeId, amount: amt, refundPassword: password }),
+    });
+    const result = await res.json();
+    if (!result.success) { btn.disabled = false; btn.textContent = 'Refund'; return fail(result.error || 'Refund failed.'); }
+    if (!result.recorded) {
+      // Stripe: record it on the invoice, as the desktop app does.
+      const fresh = (await db.collection('invoices').doc(inv.id).get()).data() || {};
+      const refunds = [...(fresh.refunds || []), { amount: amt, refundId: result.refundId, transactionId: stripeId, date: new Date().toISOString() }];
+      const refundedAmount = refunds.reduce((s, r) => s + (r.amount || 0), 0);
+      const fully = refundedAmount >= invoiceRefundable({ ...fresh, refundedAmount: 0 }) - 0.001;
+      await db.collection('invoices').doc(inv.id).update({
+        refunds, refundedAmount,
+        ...(fully ? { status: 'refunded', refundedAt: firebase.firestore.FieldValue.serverTimestamp() } : {}),
+      });
+    }
+    state.refundInvoice = null;
+    showSuccess(result.kind === 'void' ? 'Payment Voided' : 'Payment Refunded',
+      `${FarriPricing.money(Math.round(amt * 100))} back to ${inv.customerName || 'the customer'}'s card · Invoice #${inv.invoiceNumber || ''}`, '↩️');
+  } catch (e) {
+    console.error('Refund error:', e);
+    btn.disabled = false; btn.textContent = 'Refund';
+    fail('Refund failed. Please try again.');
+  }
+}
+
 // ── PAYMENT ──
 function openInvoicePayment(inv) {
   state.currentInvoice = inv;
@@ -3931,42 +4416,149 @@ function openInvoicePayment(inv) {
   document.getElementById('pay-amount').textContent = FarriPricing.money(prices.cash);
   document.getElementById('pay-dual-price').textContent = prices.card !== null ? FarriPricing.dualPriceText(inv) : '';
   document.getElementById('pay-edit-invoice-btn').style.display = inv.status === 'outstanding' ? 'inline-block' : 'none';
+  document.getElementById('pay-resend-section').style.display = inv.status === 'paid' ? 'none' : 'block';
+  closeResend();
   document.getElementById('check-fields').style.display = 'none';
   document.getElementById('card-fields').style.display = 'none';
-  document.getElementById('link-fields').style.display = 'none';
   // Reset Stripe card element for fresh entry each time
   if (_stripeCard) { _stripeCard.destroy(); _stripeCard = null; }
   document.getElementById('confirm-pay-btn').disabled = true;
-  document.querySelectorAll('.pay-chip').forEach(c => c.classList.remove('selected'));
+  populatePayMethodOptions();
+  document.getElementById('check-number').value = '';
   document.getElementById('confirm-pay-btn').textContent = 'Confirm Payment';
-  updatePayMethodAvailability();
   goTo('screen-payment');
 }
 
-// Card and Pay Link both require network (a live Stripe charge, an emailed/texted
-// link) — grey them out while offline instead of letting the farrier tap one and
-// hit a confusing failure. Cash/Check stay available and queue like any other write.
+// "Resend Invoice" on the payment screen — Text/Email opens a panel pre-filled with the
+// invoice's phone/email so the farrier can check or change it, then Send texts or emails
+// the invoice with its pay link when online payments are connected (making one now if
+// it's missing). A new or changed number/email is saved back on the invoice.
+function openResend(channel) {
+  const inv = state.currentInvoice;
+  if (!inv) return;
+  const isSms = channel === 'sms';
+  state.resendChannel = channel;
+  document.getElementById('resend-panel').style.display = 'block';
+  document.getElementById('resend-to-label').textContent = isSms ? '💬 Text invoice to mobile number' : '✉️ Email invoice to';
+  const input = document.getElementById('resend-to-input');
+  input.type = isSms ? 'tel' : 'email';
+  input.placeholder = isSms ? '(555) 555-5555' : 'name@example.com';
+  input.value = (isSms ? inv.customerPhone : inv.customerEmail) || '';
+  document.getElementById('resend-sms-btn').classList.toggle('selected', isSms);
+  document.getElementById('resend-email-btn').classList.toggle('selected', !isSms);
+  input.focus();
+}
+
+function closeResend() {
+  state.resendChannel = null;
+  document.getElementById('resend-panel').style.display = 'none';
+}
+
+async function resendInvoice() {
+  const inv = state.currentInvoice;
+  const channel = state.resendChannel;
+  if (!inv || !channel) return;
+  if (!netState.online) { showToast('Sending needs an internet connection', 'error'); return; }
+  const isSms = channel === 'sms';
+  const field = isSms ? 'customerPhone' : 'customerEmail';
+  const to = document.getElementById('resend-to-input').value.trim();
+  if (!to) { showToast(isSms ? 'Enter a mobile number' : 'Enter an email address', 'error'); return; }
+  if (!isSms && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) { showToast('Enter a valid email address', 'error'); return; }
+  const btns = ['resend-sms-btn', 'resend-email-btn', 'resend-send-btn'].map(id => document.getElementById(id));
+  btns.forEach(b => b.disabled = true);
+  document.getElementById('resend-send-btn').textContent = 'Sending…';
+  try {
+    if (to !== (inv[field] || '') && inv.id) {
+      inv[field] = to;
+      performWrite(() => db.collection('invoices').doc(inv.id).update({ [field]: to }));
+    }
+    let payUrl = inv.paymentUrl || '';
+    if (!payUrl && onlinePayConnected() && inv.id) {
+      try {
+        const plRes = await fetch('/api/stripe-payment', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'payment_link', invoiceId: inv.id }),
+        });
+        const plData = await plRes.json();
+        if (plData.success && plData.paymentUrl) { payUrl = plData.paymentUrl; inv.paymentUrl = payUrl; }
+      } catch (e) { console.warn('Pay link not created:', e); }
+    }
+    const bizName = state.userProfile?.businessName || 'Your Farrier';
+    let ok, error;
+    if (isSms) {
+      const body = payUrl
+        ? `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for ${FarriPricing.dualPriceText(inv)} from ${bizName} is ready. Pay here: ${payUrl}${FarriPricing.altPaySms(state.userProfile, inv)} Reply STOP to opt out.`
+        : `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for ${FarriPricing.dualPriceText(inv)} from ${bizName} is ready. Reply STOP to opt out.`;
+      const data = await (await fetch('/api/send-sms', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, body }),
+      })).json();
+      ok = data.success; error = data.error;
+    } else {
+      const firstName = (inv.customerName || 'there').split(' ')[0];
+      const data = await (await fetch('/api/send-email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, subject: `Invoice #${inv.invoiceNumber} from ${bizName}`, html: buildInvoiceEmail(inv, bizName, firstName, payUrl) }),
+      })).json();
+      ok = data.ok; error = data.error;
+    }
+    if (ok) { showToast(`Invoice ${isSms ? 'texted' : 'emailed'} to ${to}`); closeResend(); }
+    else showToast(`${isSms ? 'Text' : 'Email'} failed: ${error || 'Unknown error'}`, 'error');
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+  btns.forEach(b => b.disabled = false);
+  document.getElementById('resend-send-btn').textContent = 'Send';
+}
+
+// Same methods as the desktop Record Payment dropdown, plus "Card (charge now)" for a live
+// charge. Card requires network, so it's disabled while offline instead of letting the farrier
+// pick it and hit a confusing failure. Everything else stays available and queues like any other write.
+const PAY_REFERENCE_FIELDS = {
+  check: { label: 'Check #', placeholder: 'e.g. 1042', numeric: true },
+  ach: { label: 'Confirmation #', placeholder: 'Confirmation #' },
+  zelle: { label: 'Confirmation #', placeholder: 'Confirmation #' },
+  venmo: { label: 'Venmo transaction ID', placeholder: 'Venmo transaction ID' },
+  card_terminal: { label: 'Last 4 or approval code', placeholder: 'Last 4 or approval code' },
+  other: { label: 'Note', placeholder: 'Optional note' },
+};
+
+function populatePayMethodOptions() {
+  const sel = document.getElementById('pay-method-select');
+  sel.innerHTML = '<option value="" disabled selected>Select payment method…</option>'
+    + '<option value="card">Card (charge now)</option>'
+    + Object.entries(FarriPricing.MANUAL_METHODS).map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+  updatePayMethodAvailability();
+}
+
 function updatePayMethodAvailability() {
-  document.querySelectorAll('#pay-method-grid .pay-chip').forEach(chip => {
-    const needsNetwork = /'card'|'link'/.test(chip.getAttribute('onclick') || '');
-    chip.classList.toggle('chip-offline-disabled', needsNetwork && !netState.online);
-  });
+  const opt = document.querySelector('#pay-method-select option[value="card"]');
+  if (opt) opt.disabled = !netState.online;
 }
 window.addEventListener('online', updatePayMethodAvailability);
 window.addEventListener('offline', updatePayMethodAvailability);
 
-function selectPayMethod(method, el) {
-  if ((method === 'card' || method === 'link') && !netState.online) {
+function selectPayMethod(method) {
+  if (method === 'card' && !netState.online) {
     showToast('Card payments require an internet connection', 'error');
+    document.getElementById('pay-method-select').value = state.selectedPayMethod || '';
     return;
   }
   state.selectedPayMethod = method;
-  document.querySelectorAll('.pay-chip').forEach(c => c.classList.remove('selected'));
-  el.classList.add('selected');
-  document.getElementById('check-fields').style.display = method === 'check' ? 'block' : 'none';
+  const ref = PAY_REFERENCE_FIELDS[method];
+  document.getElementById('check-fields').style.display = ref ? 'block' : 'none';
+  if (ref) {
+    const input = document.getElementById('check-number');
+    document.getElementById('check-number-label').textContent = ref.label;
+    input.placeholder = ref.placeholder;
+    input.inputMode = ref.numeric ? 'numeric' : 'text';
+    input.style.letterSpacing = ref.numeric ? '2px' : '';
+  }
   document.getElementById('card-fields').style.display  = method === 'card'  ? 'block' : 'none';
-  document.getElementById('link-fields').style.display  = method === 'link'  ? 'block' : 'none';
-  if (method === 'card') {
+  const iposCard = method === 'card' && Boolean(state.userProfile?.ipospaysConnected);
+  document.getElementById('ipos-card-fields').style.display = iposCard ? 'block' : 'none';
+  document.getElementById('stripe-card-fields').style.display = iposCard ? 'none' : 'block';
+  if (method === 'card' && !iposCard) {
     loadScriptOnce(STRIPE_SCRIPT_SRC)
       .then(() => setTimeout(initStripeElements, 50))
       .catch(() => showToast('Failed to load payment form', 'error'));
@@ -3974,9 +4566,8 @@ function selectPayMethod(method, el) {
   const btn = document.getElementById('confirm-pay-btn');
   btn.disabled = false;
   const inv = state.currentInvoice;
-  btn.textContent = method === 'link' ? '📲 Send Payment Link'
-    : method === 'card' ? `✓ Charge ${FarriPricing.money(FarriPricing.getChargeCents(inv, 'card_keyed'))}`
-    : `✓ Record ${FarriPricing.money(FarriPricing.getChargeCents(inv, method))} ${method === 'check' ? 'Check' : 'Cash'}`;
+  btn.textContent = method === 'card' ? `✓ Charge ${FarriPricing.money(FarriPricing.getChargeCents(inv, 'card_keyed'))}`
+    : `✓ Record ${FarriPricing.money(FarriPricing.getChargeCents(inv, method))} ${FarriPricing.MANUAL_METHODS[method]}`;
 }
 
 async function confirmPayment() {
@@ -3988,89 +4579,8 @@ async function confirmPayment() {
   document.getElementById('pay-saving').style.display = 'block';
 
   try {
-    if (method === 'link') {
-      // Send payment link via SMS/email
-      const sendSms = document.getElementById('send-sms-link')?.checked;
-      const sendEmail = document.getElementById('send-email-link')?.checked;
-      let payUrl = inv.paymentUrl || '';
-
-      // Must select at least one delivery method
-      if (!sendSms && !sendEmail) {
-        showToast('Please select SMS or Email to send the link', 'error');
-        document.getElementById('confirm-pay-btn').disabled = false;
-        document.getElementById('pay-saving').style.display = 'none';
-        return;
-      }
-
-      // No link yet (invoice made offline, or the link failed when it was saved) — make
-      // one now; the server builds it from the saved invoice.
-      let linkError = '';
-      if (!payUrl && netState.online && onlinePayConnected() && inv.id) {
-        try {
-          const plRes = await fetch('/api/stripe-payment', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'payment_link', invoiceId: inv.id }),
-          });
-          const plData = await plRes.json();
-          if (plData.success && plData.paymentUrl) {
-            payUrl = plData.paymentUrl;
-            inv.paymentUrl = payUrl;
-          } else {
-            linkError = plData.error || 'Stripe error';
-          }
-        } catch (e) {
-          linkError = e.message;
-        }
-      }
-
-      // Must have a payment URL
-      if (!payUrl) {
-        showToast(linkError ? 'No payment link: ' + linkError
-          : !netState.online ? 'No payment link — you are offline'
-          : 'No payment link available — check Stripe is connected in Settings', 'error');
-        document.getElementById('confirm-pay-btn').disabled = false;
-        document.getElementById('pay-saving').style.display = 'none';
-        return;
-      }
-
-      let sent = [];
-      if (sendSms && inv.customerPhone) {
-        await fetch('/api/send-sms', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ to: inv.customerPhone, body: `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for ${FarriPricing.dualPriceText(inv)} is ready. Pay here: ${payUrl}${FarriPricing.altPaySms(state.userProfile, inv)} Reply STOP to opt out.` })
-        });
-        sent.push('SMS');
-      } else if (sendSms && !inv.customerPhone) {
-        showToast('Customer has no phone number on file', 'error');
-        document.getElementById('confirm-pay-btn').disabled = false;
-        document.getElementById('pay-saving').style.display = 'none';
-        return;
-      }
-      if (sendEmail && inv.customerEmail) {
-        const bizName = state.userProfile?.businessName || 'Your Farrier';
-        const firstName = (inv.customerName || 'there').split(' ')[0];
-        const invoiceHtml = buildInvoiceEmail(inv, bizName, firstName, payUrl);
-        const emailRes = await fetch('/api/send-email', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: inv.customerEmail,
-            subject: `Invoice #${inv.invoiceNumber} from ${bizName}`,
-            html: invoiceHtml
-          })
-        });
-        const emailData = await emailRes.json();
-        console.log('📧 Email result:', emailData);
-        sent.push('Email');
-      } else if (sendEmail && !inv.customerEmail) {
-        showToast('Customer has no email on file', 'error');
-        document.getElementById('confirm-pay-btn').disabled = false;
-        document.getElementById('pay-saving').style.display = 'none';
-        return;
-      }
-      showSuccess('Link Sent!', `Payment link sent via ${sent.join(' & ')} to ${inv.customerName}`);
-    } else if (method === 'card') {
-      const charged = await chargeCardViaStripe(inv);
+    if (method === 'card') {
+      const charged = state.userProfile?.ipospaysConnected ? await chargeCardViaIpos(inv) : await chargeCardViaStripe(inv);
       if (!charged) {
         document.getElementById('confirm-pay-btn').disabled = false;
         document.getElementById('pay-saving').style.display = 'none';
@@ -4078,11 +4588,14 @@ async function confirmPayment() {
       }
       showSuccess('Payment Charged!', `$${Number(charged.amount).toFixed(2)} collected via card`);
     } else {
-      // Cash or check for the balance at the cash price. Online, the server records it and
-      // closes any open pay link so the customer can't also pay online. Offline, it's written
-      // straight to the invoice and syncs later (the pay link can't be closed until then).
-      const checkNumber = method === 'check' ? (document.getElementById('check-number')?.value.trim() || '') : '';
+      // Cash, check, ACH, Zelle, Venmo, an outside card terminal or other, for the balance (at the
+      // card price for an external card, the cash price otherwise). Online, the server records
+      // it and closes any open pay link so the customer can't also pay online. Offline, it's
+      // written straight to the invoice and syncs later (the pay link can't be closed until then).
+      const checkNumber = PAY_REFERENCE_FIELDS[method] ? (document.getElementById('check-number')?.value.trim() || '') : '';
       const amountCents = FarriPricing.getChargeCents(inv, method);
+      const methodLabel = FarriPricing.MANUAL_METHODS[method];
+      const isCard = FarriPricing.isCardMethod(method);
       if (netState.online) {
         const res = await fetch('/api/stripe-payment', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -4097,25 +4610,25 @@ async function confirmPayment() {
         }
       } else {
         const payment = {
-          amount: amountCents / 100, creditAmount: amountCents / 100, method,
-          memo: checkNumber || (method === 'check' ? 'Check' : 'Cash'), date: new Date().toISOString(),
+          amount: amountCents / 100, creditAmount: FarriPricing.balanceCents(inv) / 100, method: isCard ? 'credit_card' : method,
+          memo: checkNumber || methodLabel, date: new Date().toISOString(),
         };
         const payments = [...(inv.payments || []), payment];
         const paidAmount = payments.reduce((t, p) => t + (p.amount || 0), 0);
         const updateData = {
           status: 'paid',
           paidAt: firebase.firestore.FieldValue.serverTimestamp(),
-          paymentMethod: method,
+          paymentMethod: isCard ? 'card' : method,
           payments,
           paidAmount,
           amountPaidCents: Math.round(paidAmount * 100),
           balanceDue: 0,
-          priceApplied: 'cash',
+          priceApplied: isCard && FarriPricing.invoiceRate(inv) > 0 && !inv.cardFeeWaived ? 'card' : 'cash',
         };
         if (method === 'check') updateData.checkNumber = checkNumber;
         performWrite(() => db.collection('invoices').doc(inv.id).update(updateData));
       }
-      showSuccess('Payment Recorded!', `${FarriPricing.money(amountCents)} collected via ${method}` + (netState.online ? '' : ' (will sync when back online)'));
+      showSuccess('Payment Recorded!', `${FarriPricing.money(amountCents)} collected via ${methodLabel}` + (netState.online ? '' : ' (will sync when back online)'));
     }
   } catch(e) {
     showToast('Error: ' + e.message, 'error');
@@ -4125,11 +4638,46 @@ async function confirmPayment() {
 }
 
 // ── NEW / EDIT CUSTOMER ──
+// Other contacts on the customer form: [{ name, role, phone, email }].
+function readNcContacts() {
+  return Array.from(document.querySelectorAll('#nc-contacts .nc-contact')).map(row => ({
+    name: row.querySelector('.ncc-name').value.trim(),
+    role: row.querySelector('.ncc-role').value.trim(),
+    phone: row.querySelector('.ncc-phone').value.trim(),
+    email: row.querySelector('.ncc-email').value.trim(),
+  })).filter(c => c.name || c.phone || c.email);
+}
+function renderNcContacts() {
+  const esc = (v) => String(v || '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+  document.getElementById('nc-contacts').innerHTML = (state.ncContacts || []).map((c, i) => `
+    <div class="nc-contact" style="border:2px solid var(--border); border-radius:10px; padding:10px; margin-bottom:8px;">
+      <div style="display:flex; gap:8px;">
+        <input type="text" class="ncc-name" placeholder="Name" value="${esc(c.name)}" style="flex:1;">
+        <button type="button" onclick="removeNcContact(${i})" style="background:none; border:none; color:var(--danger); font-size:1.1rem; padding:0 6px;">✕</button>
+      </div>
+      <input type="text" class="ncc-role" placeholder="Role (e.g. Barn manager, Trainer, Vet)" value="${esc(c.role)}" style="margin-top:6px;">
+      <input type="tel" class="ncc-phone" placeholder="(555) 555-5555" inputmode="tel" value="${esc(c.phone)}" oninput="formatPhoneInput(this)" style="margin-top:6px;">
+      <input type="email" class="ncc-email" placeholder="Email (optional)" value="${esc(c.email)}" style="margin-top:6px;">
+    </div>`).join('');
+  document.querySelectorAll('#nc-contacts .ncc-phone').forEach(el => formatPhoneInput(el));
+}
+function addNcContact() { state.ncContacts = [...readNcContactsRaw(), { name: '', role: '', phone: '', email: '' }]; renderNcContacts(); }
+function removeNcContact(i) { state.ncContacts = readNcContactsRaw().filter((_, j) => j !== i); renderNcContacts(); }
+// Same as readNcContacts but keeps blank rows (while the farrier is still filling them in).
+function readNcContactsRaw() {
+  return Array.from(document.querySelectorAll('#nc-contacts .nc-contact')).map(row => ({
+    name: row.querySelector('.ncc-name').value, role: row.querySelector('.ncc-role').value,
+    phone: row.querySelector('.ncc-phone').value, email: row.querySelector('.ncc-email').value,
+  }));
+}
+
 function startNewCustomer() {
   state.editingCustomerId = null;
   document.getElementById('nc-form-title').textContent = 'New Customer';
   document.getElementById('nc-save-btn').textContent = 'Save Customer';
+  document.getElementById('nc-delete-btn').style.display = 'none';
   ['nc-name','nc-farm','nc-manager-contact','nc-phone','nc-email','nc-notes','nc-address','nc-city','nc-state','nc-zip'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  state.ncContacts = []; renderNcContacts();
   document.getElementById('nc-address').style.display = '';
   goTo('screen-new-customer');
   _custPac = null;
@@ -4144,12 +4692,15 @@ function startEditCustomer(c) {
   state.editingCustomerId = c.id;
   document.getElementById('nc-form-title').textContent = 'Edit Customer';
   document.getElementById('nc-save-btn').textContent = 'Save Changes';
+  document.getElementById('nc-delete-btn').style.display = '';
   document.getElementById('nc-name').value = c.name || '';
   document.getElementById('nc-farm').value = c.farmName || '';
   document.getElementById('nc-manager-contact').value = c.managerContact || '';
   document.getElementById('nc-phone').value = c.phone || '';
   formatPhoneInput(document.getElementById('nc-phone'));
   document.getElementById('nc-email').value = c.email || '';
+  state.ncContacts = Array.isArray(c.contacts) ? c.contacts.map(k => ({ name: k.name || '', role: k.role || '', phone: k.phone || '', email: k.email || '' })) : [];
+  renderNcContacts();
   document.getElementById('nc-notes').value = c.notes || '';
   document.getElementById('nc-address').value = c.address || '';
   document.getElementById('nc-city').value = c.city || '';
@@ -4183,6 +4734,7 @@ async function saveNewCustomer() {
     city: document.getElementById('nc-city').value.trim(),
     state: document.getElementById('nc-state').value.trim(),
     zip: document.getElementById('nc-zip').value.trim(),
+    contacts: readNcContacts(),
   };
   // Doc IDs are generated client-side (synchronously) so we can update local state and
   // navigate right away — performWrite queues the actual write and syncs in the
@@ -4199,7 +4751,7 @@ async function saveNewCustomer() {
   } else {
     const docRef = db.collection('customers').doc();
     performWrite(() => docRef.set({
-      farrierId: state.user.uid,
+      farrierId: bizId(),
       ...fields,
       source: 'mobile_app',
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -4210,6 +4762,64 @@ async function saveNewCustomer() {
     selectCustomer(newCustomer);
   }
   btn.disabled = false; btn.textContent = editingId ? 'Save Changes' : 'Save Customer';
+}
+
+// Deletes the customer record only. If the customer has horses, invoices or appointments the
+// farrier is told how many and has to confirm before it goes through. Looked up the same way the
+// customer screen lists them (horses by customerId, invoices/appointments by customerName).
+async function deleteCustomer() {
+  const id = state.editingCustomerId;
+  const c = state.customers.find(x => x.id === id);
+  if (!id || !c) return;
+  if (!netState.online) {
+    showToast("Can't check this customer's history while offline — try again when you're back online.", 'error');
+    return;
+  }
+
+  const btn = document.getElementById('nc-delete-btn');
+  btn.disabled = true; btn.textContent = 'Checking history…';
+  let horses, appts, invs;
+  try {
+    const [hSnap, aSnap, iSnap] = await Promise.all([
+      db.collection('horses').where('farrierId', '==', bizId()).where('customerId', '==', id).get(),
+      db.collection('appointments').where('farrierId', '==', bizId()).where('customerName', '==', c.name).get(),
+      db.collection('invoices').where('farrierId', '==', bizId()).where('customerName', '==', c.name).get(),
+    ]);
+    horses = hSnap.size;
+    appts = aSnap.size;
+    invs = iSnap.docs.map(d => d.data());
+  } catch (e) {
+    console.error('Customer history lookup error:', e);
+    showToast('Error checking history: ' + e.message, 'error');
+    return;
+  } finally {
+    btn.disabled = false; btn.textContent = '🗑️ Delete Customer';
+  }
+
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  // Paid (or part-paid) invoices are billing records, so they block the delete outright.
+  const paid = invs.filter(i => i.status === 'paid' || i.status === 'partial').length;
+  if (paid) {
+    showToast(`Can't delete ${c.name} — ${plural(paid, 'invoice')} ${paid === 1 ? 'has' : 'have'} been paid.`, 'error');
+    return;
+  }
+  const history = [horses && plural(horses, 'horse'), invs.length && plural(invs.length, 'invoice'), appts && plural(appts, 'appointment')].filter(Boolean);
+  const outstanding = invs.filter(i => i.status === 'outstanding').length;
+  const message = history.length
+    ? `${c.name} has ${history.length > 1 ? history.slice(0, -1).join(', ') + ' and ' + history[history.length - 1] : history[0]}.\n\n`
+      + 'Deleting removes the customer record only. Those horses, invoices and appointments stay in your account but will no longer be tied to a customer.\n\n'
+      + (outstanding ? `⚠️ ${plural(outstanding, 'invoice')} still outstanding.\n\n` : '')
+      + `Delete ${c.name} anyway?`
+    : `Delete ${c.name}? This cannot be undone.`;
+  if (!confirm(message)) return;
+
+  performWrite(() => db.collection('customers').doc(id).delete());
+  state.customers = state.customers.filter(x => x.id !== id);
+  state.customer = null;
+  state.editingCustomerId = null;
+  showToast(`${c.name} deleted.`, 'success');
+  goBack(); // edit form → customer screen
+  goBack(); // customer screen → wherever the farrier came from
 }
 
 // ── HORSES ──
@@ -4293,7 +4903,7 @@ async function saveHorse() {
   } else {
     const docRef = db.collection('horses').doc();
     const newFields = {
-      farrierId: state.user.uid,
+      farrierId: bizId(),
       customerId: c.id,
       customerName: c.name,
       photos: [],
@@ -4353,6 +4963,63 @@ function openHorseDetail(h) {
   renderHorseProfileCard(h);
   renderHorsePhotoGrid();
   goTo('screen-horse-detail');
+  loadHorseHistory(h);
+}
+
+// Last/next service plus every appointment and invoice line for this horse
+// (lib/horse-history.js decides what belongs to it). Same pull-and-filter as
+// deleteHorse() below; offline it reads whatever the Firestore cache holds.
+async function loadHorseHistory(h) {
+  const el = document.getElementById('horse-detail-history');
+  el.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
+  const esc = (v) => String(v ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+  try {
+    const [aSnap, iSnap] = await Promise.all([
+      db.collection('appointments').where('farrierId', '==', bizId()).get(),
+      db.collection('invoices').where('farrierId', '==', bizId()).get(),
+    ]);
+    if (state.currentHorse?.id !== h.id) return; // moved on to another horse meanwhile
+    const allInvs = iSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Unpaid rows open the invoice (pay / resend) via openHorseInvoice().
+    state.horseInvoices = Object.fromEntries(allInvs.map(inv => [inv.id, inv]));
+    const hist = FarriHorseHistory.build(h,
+      aSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      allInvs);
+    const last = hist.lastService, next = hist.nextService;
+    const nextLabel = next ? (next.estimated ? (next.overdue ? 'Next Service (overdue)' : 'Next Service (est.)') : 'Next Service') : 'Next Service';
+    const rows = [
+      ['Last Service', last ? `${fmtDate(last.date)}${last.label ? ' · ' + esc(last.label) : ''}` : 'None yet'],
+      [nextLabel, next ? `${next.overdue ? '<span style="color:var(--danger);font-weight:700;">' : ''}${fmtDate(next.date)}${next.overdue ? '</span>' : ''}${next.label ? ' · ' + esc(next.label) : ''}`
+        : (h.shoeingCycleWeeks ? 'Not scheduled' : 'Not scheduled — set a shoeing cycle to estimate')],
+      ['Billed', `$${hist.totalBilled.toFixed(2)} on ${hist.invoices.length} invoice${hist.invoices.length === 1 ? '' : 's'}`],
+    ];
+    const apptHtml = hist.appointments.map(a => `
+      <div class="appt-row">
+        <div class="appt-row-top">${a.date ? fmtDate(a.date) : esc(a.requestedDate)} ${a.requestedTime ? '@ ' + fmtTime(a.requestedTime) : ''} <span class="badge badge-${a.status === 'cancelled' ? 'danger' : a.status === 'confirmed' ? 'success' : 'warning'}">${esc(a.status || 'pending')}</span></div>
+        <div class="appt-row-bottom">${esc(a.horseServices.join(', ')) || '—'}</div>
+      </div>`).join('');
+    const invHtml = hist.invoices.map(inv => `
+      <div class="invoice-row ${esc(inv.status)}"${inv.status === 'outstanding' ? ` onclick="openHorseInvoice('${esc(inv.id)}')"` : ''}>
+        <div class="invoice-row-top">
+          <div class="invoice-row-num">#${esc(inv.invoiceNumber || inv.id.slice(-6).toUpperCase())}</div>
+          <div class="invoice-row-amount">$${inv.horseTotal.toFixed(2)}</div>
+        </div>
+        <div class="invoice-row-bottom">${fmtDate(inv.date)} · ${esc(inv.horseLines.map(l => l.description).filter(Boolean).join(', ') || 'Service')} · <span class="badge badge-${inv.status === 'paid' ? 'success' : 'warning'}">${esc(inv.status || 'outstanding')}</span>${inv.status === 'outstanding' ? ' · Tap to view invoice' : ''}</div>
+      </div>`).join('');
+    el.innerHTML = rows.map(([label, v]) => `<div class="info-row"><div class="info-row-label">${label}</div><div class="info-row-value">${v}</div></div>`).join('')
+      + `<div class="section-label" style="margin-top:12px;">📋 Appointments (${hist.appointments.length})</div>`
+      + (apptHtml || '<div style="color:var(--text-muted); font-size:0.85rem;">No appointments for this horse yet</div>')
+      + `<div class="section-label" style="margin-top:12px;">📑 Invoices (${hist.invoices.length})</div>`
+      + (invHtml || '<div style="color:var(--text-muted); font-size:0.85rem;">No invoices for this horse yet</div>');
+  } catch (e) {
+    console.error('Horse history error:', e);
+    el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem;">Couldn't load history${netState.online ? '' : ' while offline'}.</div>`;
+  }
+}
+
+function openHorseInvoice(id) {
+  const inv = state.horseInvoices?.[id];
+  if (inv) openInvoicePayment(inv);
 }
 
 // A horse that's appeared on a real invoice or appointment is service/billing
@@ -4374,8 +5041,8 @@ async function deleteHorse() {
   btn.disabled = true; btn.textContent = 'Checking history…';
   try {
     const [invSnap, apptSnap] = await Promise.all([
-      db.collection('invoices').where('farrierId', '==', state.user.uid).get(),
-      db.collection('appointments').where('farrierId', '==', state.user.uid).get(),
+      db.collection('invoices').where('farrierId', '==', bizId()).get(),
+      db.collection('appointments').where('farrierId', '==', bizId()).get(),
     ]);
     const usedOnInvoice = invSnap.docs.some(d => (d.data().items || []).some(i => i.horseId === h.id));
     const usedOnAppt = apptSnap.docs.some(d => (d.data().horseIds || []).includes(h.id));
@@ -4838,7 +5505,7 @@ async function onApptDateChange(preselectTime = null) {
   let bookedTimes = [];
   try {
     const snap = await db.collection('appointments')
-      .where('farrierId', '==', state.user.uid)
+      .where('farrierId', '==', bizId())
       .where('requestedDate', '==', dateStr)
       .get();
     bookedTimes = snap.docs
@@ -4919,7 +5586,7 @@ function startEditAppointment(appt) {
   renderApptHorsePicker(appt.horseIds || []);
   if (state.customer.id) {
     db.collection('horses')
-      .where('farrierId', '==', state.user.uid)
+      .where('farrierId', '==', bizId())
       .where('customerId', '==', state.customer.id)
       .get()
       .then(hSnap => {
@@ -4983,7 +5650,8 @@ async function saveNewAppointment() {
   } else {
     const docRef = db.collection('appointments').doc();
     performWrite(() => docRef.set({
-      farrierId: state.user.uid,
+      farrierId: bizId(),
+      performedBy: state.user.uid, // who booked it (per-farrier views)
       customerName: state.customer.name,
       customerId: state.customer.id || '',
       farmName: state.customer.farmName || '',
@@ -5082,6 +5750,74 @@ async function chargeCardViaStripe(inv) {
   return result;
 }
 
+// ── iPOSPAYS KEYED CARD ──
+// With iPOSpays connected the farrier types the card into an iPOSpays payment page shown in
+// a frame on the payment screen (the card number never touches FarriTech; iPOSpays lets its
+// page be framed — no X-Frame-Options / frame-ancestors, 2026-10-13). We then ask the server every few
+// seconds, and whenever the app comes back into view, until iPOSpays says it went through
+// or was declined. Resolves with { amount } when paid, false otherwise.
+let _iposWait = null;
+
+function chargeCardViaIpos(inv) {
+  if (!netState.online) { showToast('Card payments require an internet connection', 'error'); return Promise.resolve(false); }
+  return new Promise(async (resolve) => {
+    let res;
+    try {
+      res = await (await fetch('/api/stripe-payment', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ipospays_keyed', invoiceId: inv.id }),
+      })).json();
+    } catch (e) { res = { success: false, error: 'Could not reach the server.' }; }
+    if (!res.success) {
+      showToast(res.error || 'Could not open the iPOSpays card form', 'error');
+      return resolve(false);
+    }
+    const msg = document.getElementById('ipos-card-msg');
+    const wait = document.getElementById('ipos-card-wait');
+    const frame = document.getElementById('ipos-card-frame');
+    msg.textContent = `Type the card into the form below and press Pay Now ($${Number(res.amount).toFixed(2)}). This updates by itself when it goes through.`;
+    document.getElementById('ipos-card-link').href = res.url;
+    frame.src = res.url;
+    frame.style.display = 'block';
+    wait.style.display = 'flex';
+    frame.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const started = Date.now();
+    const finish = (result) => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      _iposWait = null;
+      wait.style.display = 'none';
+      frame.style.display = 'none';
+      frame.src = 'about:blank';
+      msg.textContent = 'Tap the Charge button.';
+      resolve(result);
+    };
+    const check = async (manual) => {
+      if (!_iposWait) return;
+      try {
+        const r = await (await fetch('/api/stripe-payment', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'ipospays_check', invoiceId: inv.id, ref: res.ref }),
+        })).json();
+        if (!_iposWait) return;
+        if (r.success && r.paid) return finish({ amount: r.amount });
+        if (r.success && r.declined) {
+          showToast(`The card didn't go through${r.message ? ` (${r.message})` : ''}`, 'error');
+          return finish(false);
+        }
+        if (manual) showToast(r.success ? "iPOSpays hasn't confirmed it yet — check again in a moment" : (r.error || 'Could not check the payment'), 'error');
+      } catch (e) { if (manual) showToast('Could not reach the server', 'error'); }
+    };
+    const timer = setInterval(() => { if (Date.now() - started < 15 * 60e3) check(false); }, 4000);
+    const onVisible = () => { if (document.visibilityState === 'visible') check(false); };
+    document.addEventListener('visibilitychange', onVisible);
+    _iposWait = { check, stop: () => finish(false) };
+  });
+}
+function iposKeyedCheckNow() { _iposWait?.check(true); }
+// The payment can still go through after this; it's recorded when iPOSpays reports it.
+function iposKeyedStop() { _iposWait?.stop(); }
+
 // ── CARD PAYMENT RECONCILIATION ──
 // The server now records keyed card payments itself, in the same request as the charge;
 // nothing adds to this list any more. It stays so entries saved by older versions of the
@@ -5165,7 +5901,6 @@ document.getElementById('screen-search').addEventListener('transitionend', funct
   if (e.target !== this) return;
   if (!this.classList.contains('hidden') && !this.classList.contains('slide-left')) {
     document.getElementById('search-loading').style.display = 'none';
-    document.getElementById('open-invoices-section').style.display = 'none';
     filterCustomers('');
     setTimeout(() => document.getElementById('search-input').focus(), 100);
   }
