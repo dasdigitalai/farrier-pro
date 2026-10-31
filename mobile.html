@@ -3382,8 +3382,8 @@ async function saveAndSendSms() {
     state.editingInvoice = null;
     const bizName = state.userProfile?.businessName || 'Your Farrier';
     const msg = inv.paymentUrl
-      ? `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for $${inv.total.toFixed(2)} from ${bizName} is ready. Pay here: ${inv.paymentUrl}${FarriPricing.altPaySms(state.userProfile, inv)} Reply STOP to opt out.`
-      : `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for $${inv.total.toFixed(2)} from ${bizName} has been created. Reply STOP to opt out.`;
+      ? `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for $${inv.total.toFixed(2)} from ${bizName} is ready.${(FarriPricing.itemsSmsText?.(inv) || '')} Pay here: ${inv.paymentUrl}${FarriPricing.altPaySms(state.userProfile, inv)} Reply STOP to opt out.`
+      : `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for $${inv.total.toFixed(2)} from ${bizName} has been created.${(FarriPricing.itemsSmsText?.(inv) || '')} Reply STOP to opt out.`;
     const res = await fetch('/api/send-sms', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -4503,8 +4503,8 @@ async function resendInvoice() {
     let ok, error;
     if (isSms) {
       const body = payUrl
-        ? `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for ${FarriPricing.dualPriceText(inv)} from ${bizName} is ready. Pay here: ${payUrl}${FarriPricing.altPaySms(state.userProfile, inv)} Reply STOP to opt out.`
-        : `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for ${FarriPricing.dualPriceText(inv)} from ${bizName} is ready. Reply STOP to opt out.`;
+        ? `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for ${FarriPricing.dualPriceText(inv)} from ${bizName} is ready.${(FarriPricing.itemsSmsText?.(inv) || '')} Pay here: ${payUrl}${FarriPricing.altPaySms(state.userProfile, inv)} Reply STOP to opt out.`
+        : `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for ${FarriPricing.dualPriceText(inv)} from ${bizName} is ready.${(FarriPricing.itemsSmsText?.(inv) || '')} Reply STOP to opt out.`;
       const data = await (await fetch('/api/send-sms', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ to, body }),

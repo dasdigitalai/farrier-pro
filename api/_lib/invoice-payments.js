@@ -308,7 +308,7 @@ export async function sendUpdatedPayLink(invoice, invoiceId, amountCents) {
     const r = await fetch(`${APP_URL}/api/send-sms`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ to: invoice.customerPhone, body: `Hi ${name}, here is your updated payment link for Invoice #${number} from ${biz}: ${amount}. Pay here: ${url}${altPaySms} Reply STOP to opt out.` }),
+      body: JSON.stringify({ to: invoice.customerPhone, body: `Hi ${name}, here is your updated payment link for Invoice #${number} from ${biz}: ${amount}.${P.itemsSmsText(invoice)} Pay here: ${url}${altPaySms} Reply STOP to opt out.` }),
     }).catch(() => null);
     if (r?.ok) sent.push('text');
   }

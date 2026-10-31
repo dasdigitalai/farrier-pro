@@ -13040,7 +13040,7 @@ function CalendarView({ userId }) {
                               {invoice.customerPhone && item('📱 SMS', async () => {
                                 const bizName = userProfile?.businessName || 'Your Farrier';
                                 const payLink = invoice.paymentUrl || '';
-                                const msg = `Hi ${invoice.customerName}, you have invoice #${invoice.invoiceNumber} for ${FarriPricing.dualPriceText(invoice)} from ${bizName}.${payLink ? ` Pay here: ${payLink}` : ''}${payLink ? FarriPricing.altPaySms(userProfile, invoice) : ''} Reply STOP to opt out.`;
+                                const msg = `Hi ${invoice.customerName}, you have invoice #${invoice.invoiceNumber} for ${FarriPricing.dualPriceText(invoice)} from ${bizName}.${(FarriPricing.itemsSmsText?.(invoice) || '')}${payLink ? ` Pay here: ${payLink}` : ''}${payLink ? FarriPricing.altPaySms(userProfile, invoice) : ''} Reply STOP to opt out.`;
                                 try {
                                   const res = await fetch('/api/send-sms', {
                                     method: 'POST',
@@ -14303,7 +14303,7 @@ useEffect(() => {
               } else {
                 try {
                   const bizName = userProfile?.businessName || 'Your Farrier';
-                  const msg = `Hi ${customerName}, your invoice #${editingInvoice.invoiceNumber} for ${FarriPricing.dualPriceText(updatedInvoice)} from ${bizName} has been updated.${paymentUrl ? ` Pay here: ${paymentUrl}` : ''}${paymentUrl ? FarriPricing.altPaySms(userProfile, updatedInvoice) : ''} Reply STOP to opt out.`;
+                  const msg = `Hi ${customerName}, your invoice #${editingInvoice.invoiceNumber} for ${FarriPricing.dualPriceText(updatedInvoice)} from ${bizName} has been updated.${(FarriPricing.itemsSmsText?.(updatedInvoice) || '')}${paymentUrl ? ` Pay here: ${paymentUrl}` : ''}${paymentUrl ? FarriPricing.altPaySms(userProfile, updatedInvoice) : ''} Reply STOP to opt out.`;
                   await fetch('/api/send-sms', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -14543,7 +14543,7 @@ useEffect(() => {
               } else {
                 try {
                   const bizName = userProfile?.businessName || 'Your Farrier';
-                  const msg = `Hi ${customerName}, you have a new invoice #${invoiceNumber} for ${FarriPricing.dualPriceText(createdInvoice)} from ${bizName}.${paymentUrl ? ` Pay here: ${paymentUrl}` : ''}${paymentUrl ? FarriPricing.altPaySms(userProfile, createdInvoice) : ''} Reply STOP to opt out.`;
+                  const msg = `Hi ${customerName}, you have a new invoice #${invoiceNumber} for ${FarriPricing.dualPriceText(createdInvoice)} from ${bizName}.${(FarriPricing.itemsSmsText?.(createdInvoice) || '')}${paymentUrl ? ` Pay here: ${paymentUrl}` : ''}${paymentUrl ? FarriPricing.altPaySms(userProfile, createdInvoice) : ''} Reply STOP to opt out.`;
                   await fetch('/api/send-sms', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
