@@ -1629,6 +1629,23 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         return "";
       };
 
+      // horseId → name for invoice lines saved with only a horseId (no horseName).
+      const resolveHorseNames_ = async (items) => {
+        const names = {};
+        const missing = [...new Set((items || []).filter(it => it.horseId && !safeText_(it.horseName)).map(it => it.horseId))];
+        await Promise.all(missing.map(async (id) => {
+          try {
+            const snap = await db.collection('horses').doc(id).get();
+            if (snap.exists) names[id] = safeText_(snap.data()?.name);
+          } catch (e) { /* no access or offline: leave it blank */ }
+        }));
+        return names;
+      };
+
+      // The horse cell for an invoice line: name, or "Multiple horses — note" (qty has its own column).
+      const lineHorseLabel_ = (it, names) =>
+        safeText_(FarriPricing.itemHorseLabel({ ...it, horseName: safeText_(it.horseName) || names[it.horseId] || '', qty: 1 }));
+
       async function generateInvoicePdfBlobUrl(invoice, farrierProfile) {
         if (!window.jspdf?.jsPDF) throw new Error("jsPDF not loaded");
         const { jsPDF } = window.jspdf;
@@ -1786,14 +1803,7 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         const lineH = 14;
 
         // Lines saved with only a horseId (no name) get the name from the horse record.
-        const horseNames = {};
-        const missing = [...new Set(items.filter(it => it.horseId && !safeText_(it.horseName)).map(it => it.horseId))];
-        await Promise.all(missing.map(async (id) => {
-          try {
-            const snap = await db.collection('horses').doc(id).get();
-            if (snap.exists) horseNames[id] = safeText_(snap.data()?.name);
-          } catch (e) { /* no access or offline: leave it blank */ }
-        }));
+        const horseNames = await resolveHorseNames_(items);
 
         // `amount` is the line total (rate × qty); the rate is the per-horse price.
         const computeTotal = () => items.reduce((sum, it) => sum + Number(it.amount ?? it.unitPriceSnapshot ?? 0), 0);
@@ -1801,7 +1811,7 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         for (const it of items) {
           const rawDesc = safeText_(it.serviceNameSnapshot || it.description || "");
           const desc = rawDesc === 'Custom Service (enter manually)' ? 'Custom Service' : rawDesc;
-          const horse = safeText_(FarriPricing.itemHorseLabel({ ...it, horseName: safeText_(it.horseName) || horseNames[it.horseId] || '', qty: 1 }));
+          const horse = lineHorseLabel_(it, horseNames);
           const qty = FarriPricing.itemQty(it);
           const lineTotal = Number(it.amount ?? it.unitPriceSnapshot ?? 0);
           const rate = FarriPricing.itemUnitPrice(it);
@@ -2024,13 +2034,19 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         const takesOnline = !!(_userProfile?.stripePublishableKey || _userProfile?.ipospaysConnected);
         const payUrl = buildInvoicePayUrl_(invoice) || (takesOnline && invoice.id ? `${window.location.origin}/pay/${invoice.id}` : "");
 
-        // Build services list
-        const serviceLines = (invoice.lineItems || invoice.services || []).map(item => {
-          const desc = item.description || item.name || item;
-          const qty = item.quantity || 1;
-          const price = item.unitPrice || item.price || 0;
+        // Build services list from the invoice's lines (items[]), one row per line with its horse.
+        const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+        const items = Array.isArray(invoice.items) ? invoice.items : [];
+        const horseNames = await resolveHorseNames_(items);
+        const serviceLines = items.map(item => {
+          const rawDesc = safeText_(item.serviceNameSnapshot || item.description || "");
+          const desc = rawDesc === 'Custom Service (enter manually)' ? 'Custom Service' : rawDesc;
+          const horse = lineHorseLabel_(item, horseNames);
+          const qty = FarriPricing.itemQty(item);
+          const price = FarriPricing.itemUnitPrice(item);
           return `<tr>
-            <td style="padding:6px 8px;font-size:14px;color:#374151;">${desc}</td>
+            <td style="padding:6px 8px;font-size:14px;color:#374151;font-weight:600;">${esc(horse)}</td>
+            <td style="padding:6px 8px;font-size:14px;color:#374151;">${esc(desc)}</td>
             <td style="padding:6px 8px;font-size:14px;color:#374151;text-align:center;">${qty}</td>
             <td style="padding:6px 8px;font-size:14px;color:#374151;text-align:right;">$${Number(price).toFixed(2)}</td>
           </tr>`;
@@ -2062,6 +2078,7 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
       ${serviceLines ? `
       <table style="width:100%;border-collapse:collapse;margin-top:12px;border-top:1px solid #e2e8f0;">
         <thead><tr style="background:#f1f5f9;">
+          <th style="padding:8px;font-size:12px;color:#6b7280;text-align:left;font-weight:600;">Horse</th>
           <th style="padding:8px;font-size:12px;color:#6b7280;text-align:left;font-weight:600;">Service</th>
           <th style="padding:8px;font-size:12px;color:#6b7280;text-align:center;font-weight:600;">Qty</th>
           <th style="padding:8px;font-size:12px;color:#6b7280;text-align:right;font-weight:600;">Price</th>
