@@ -15636,9 +15636,10 @@ useEffect(() => {
                 <button
                   className="btn btn-outline"
                   onClick={async () => {
-                    if (!confirm('Disconnect iPOSpays? Pay Now links will go back to Stripe (if connected).')) return;
+                    if (!confirm('Disconnect iPOSpays? Payment pages your customers haven\'t paid yet will be closed, and Pay Now links will go back to Stripe (if connected).')) return;
                     const res = await fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'ipospays_disconnect' }) });
-                    if (!(await res.json()).success) { alert('Could not disconnect iPOSpays — please try again.'); return; }
+                    const result = await res.json().catch(() => ({}));
+                    if (!result.success) { alert(result.error || 'Could not disconnect iPOSpays — please try again.'); return; }
                     const cleared = { ipospaysConnected: false, ipospaysMode: '', ipospaysTpnLast4: '' };
                     await db.collection('farriers').doc(safeFarrierId).set({ ...cleared, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
                     setUserProfile(prev => ({ ...prev, ...cleared }));

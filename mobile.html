@@ -4172,12 +4172,14 @@ async function validateAndSaveIpos() {
 }
 
 async function disconnectIpos() {
-  if (!confirm('Disconnect iPOSpays? Pay Now links will go back to Stripe (if connected).')) return;
+  if (!confirm('Disconnect iPOSpays? Payment pages your customers haven\'t paid yet will be closed, and Pay Now links will go back to Stripe (if connected).')) return;
   if (!netState.online) { showToast('Disconnecting iPOSpays requires an internet connection', 'error'); return; }
+  let result = {};
   try {
     const res = await fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'ipospays_disconnect' }) });
-    if (!(await res.json()).success) throw new Error('disconnect failed');
-  } catch (e) { showToast('Could not disconnect iPOSpays — try again', 'error'); return; }
+    result = await res.json().catch(() => ({}));
+  } catch (e) { /* offline or server unreachable */ }
+  if (!result.success) { showToast(result.error || 'Could not disconnect iPOSpays — try again', 'error'); return; }
   await saveIposProfile({ ipospaysConnected: false, ipospaysMode: '', ipospaysTpnLast4: '' });
   renderIposStatus(state.userProfile);
   showToast('iPOSpays disconnected', 'success');

@@ -1,13 +1,13 @@
 import Stripe from 'stripe';
 import crypto from 'crypto';
 import '../lib/pricing.js';
-import { callerFromRequest, getDoc, patchDoc, listDocs, getStripeSecretKey, setStripeSecretKey, getGoogleRefreshToken, serverAuth } from './_lib/firebase-rest.js';
+import { callerFromRequest, getDoc, patchDoc, listDocs, getStripeSecretKey, setStripeSecretKey, getGoogleRefreshToken } from './_lib/firebase-rest.js';
 import {
   applyPayment, cardDetails, closeOnlinePayment, createCheckoutSession, recordCheckoutSession,
   removeWebhook, sendUpdatedPayLink, setupWebhook, PaymentError,
 } from './_lib/invoice-payments.js';
 import { payPage } from './_lib/pay-page.js';
-import { farrierWebhook } from './_lib/farrier-webhook.js';
+import { farrierWebhook, recordWebhookSession } from './_lib/farrier-webhook.js';
 import { businessFor, requireRole, teamAccept, teamInvite, teamRemove, teamSetRole, teamStatus } from './_lib/team.js';
 import { closeIposPages, connectIpospays, createIposPage, disconnectIpospays, getIposCreds, iposCallback, refundIposPayment, syncIposPayment } from './_lib/ipospays.js';
 
@@ -60,19 +60,6 @@ async function ownInvoice(invoiceId, farrierId) {
   return invoice;
 }
 
-async function markInvoicePaid(invoiceId, details) {
-  await patchDoc(`invoices/${invoiceId}`, {
-    status: 'paid',
-    paidAt: new Date(),
-    paymentMethod: 'card',
-    ...(details.paymentIntentId ? { stripePaymentIntentId: details.paymentIntentId, transactionId: details.paymentIntentId } : {}),
-    ...(details.sessionId ? { stripeSessionId: details.sessionId } : {}),
-    cardLast4: details.last4 || '',
-    cardType: details.brand || '',
-    ...(details.paidVia ? { paidVia: details.paidVia } : {}),
-  });
-}
-
 // Manager password is stored as "scrypt$<salt>$<hash>" in farrierSecrets/{uid}.
 function hashManagerPassword(password) {
   const salt = crypto.randomBytes(16);
@@ -83,18 +70,6 @@ function checkManagerPassword(password, stored) {
   if (scheme !== 'scrypt' || !saltHex || !hashHex) return false;
   const actual = crypto.scryptSync(String(password || ''), Buffer.from(saltHex, 'hex'), 32);
   return crypto.timingSafeEqual(actual, Buffer.from(hashHex, 'hex'));
-}
-
-async function sendPaidSms(to, name, amount, invoiceNumber) {
-  if (!to) return;
-  try {
-    const { idToken } = await serverAuth();
-    await fetch('https://app.farritech.com/api/send-sms', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ to, body: `Hi ${name || 'there'}, your payment of $${amount} for invoice #${invoiceNumber} has been received. Thank you! Reply STOP to opt out.` }),
-    });
-  } catch (e) { console.warn('Confirmation SMS error:', e.message); }
 }
 
 async function handleWebhook(req, res, rawBody) {
@@ -109,23 +84,18 @@ async function handleWebhook(req, res, rawBody) {
   }
   console.log('📥 Stripe webhook:', event.type);
 
+  // Only checkout sessions from FarriTech's own Stripe account arrive here (a farrier whose
+  // keys are for that account, e.g. in testing); farriers' own accounts use the per-farrier
+  // webhook. Record them the same way, so a payment the per-farrier webhook or the return
+  // to /pay already recorded isn't logged a second time. Keyed and customer-portal charges
+  // are recorded when they're taken, so payment_intent.succeeded needs nothing here.
   try {
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object;
       const invoiceId = session.metadata?.invoiceId || '';
-      if (invoiceId && session.payment_status === 'paid') {
-        await markInvoicePaid(invoiceId, { paymentIntentId: session.payment_intent || '', sessionId: session.id, paidVia: 'stripe_link' });
-        console.log('✅ Invoice', invoiceId, 'marked paid via checkout webhook');
-        await sendPaidSms(session.customer_details?.phone, session.customer_details?.name,
-          ((session.amount_total || 0) / 100).toFixed(2), session.metadata?.invoiceNumber || '');
-      }
-    }
-    if (event.type === 'payment_intent.succeeded') {
-      const pi = event.data.object;
-      const invoiceIds = (pi.metadata?.invoiceId || '').split(',').filter(Boolean);
-      for (const id of invoiceIds) {
-        await markInvoicePaid(id, { paymentIntentId: pi.id, paidVia: 'stripe_card' });
-      }
+      const invoice = invoiceId ? await getDoc(`invoices/${invoiceId}`) : null;
+      const key = invoice?.farrierId ? await getStripeSecretKey(invoice.farrierId) : null;
+      if (key) await recordWebhookSession(new Stripe(key), invoice.farrierId, session);
     }
     return res.status(200).json({ received: true });
   } catch (err) {
@@ -264,8 +234,8 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, ...result });
     }
     if (action === 'ipospays_disconnect') {
-      await disconnectIpospays(farrierId);
-      return res.status(200).json({ success: true });
+      const result = await disconnectIpospays(farrierId);
+      return res.status(200).json({ success: true, ...result });
     }
     if (action === 'ipospays_refund') {
       const { invoiceId, amount, refundPassword } = body;

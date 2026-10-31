@@ -26,7 +26,10 @@ account instead of Stripe, using the iPOSpays **Hosted Payment Page** (HPP).
   the customer's open pay-link page (a new one is made when they next open the link).
 - **Still Stripe only:** the customer portal.
 
-Disconnecting iPOSpays sends pay links back to Stripe.
+Disconnecting iPOSpays sends pay links back to Stripe. It first closes every iPOSpays payment
+page still on offer (recording any a customer has just paid), because a page paid after the keys
+are gone could never be confirmed or refunded from FarriTech. If iPOSpays can't be reached to
+close one, iPOSpays stays connected and the farrier is asked to try again.
 
 ## What the farrier needs (iPOSpays portal, Merchant Admin login)
 
@@ -60,6 +63,9 @@ just triggers Query Payment Status, and only an approved status is recorded. Cod
 only 12 functions.
 
 `.tech` hosts = sandbox, `.com` hosts = production, chosen per farrier by the Environment setting.
+
+Sandbox test cards and the amounts that trigger declines are in
+[IPOSPAYS-SANDBOX-CARDS.md](IPOSPAYS-SANDBOX-CARDS.md).
 
 ## What the first sandbox test showed (2026-10-08)
 
