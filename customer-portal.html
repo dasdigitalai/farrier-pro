@@ -927,7 +927,8 @@
       }
       let y = 270;
       doc.setFont("helvetica", "bold"); doc.setFontSize(10);
-      doc.text("DESCRIPTION", 48, y);
+      doc.text("HORSE", 48, y);
+      doc.text("DESCRIPTION", 178, y);
       doc.text("QTY", pageW - 220, y, { align: "right" });
       doc.text("UNIT PRICE", pageW - 140, y, { align: "right" });
       doc.text("TOTAL", pageW - 48, y, { align: "right" });
@@ -935,17 +936,24 @@
       doc.setFont("helvetica", "normal"); doc.setFontSize(10);
       const items = Array.isArray(invoice.items) && invoice.items.length > 0 ? invoice.items : [{ description: safeText_(invoice.services || invoice.service || "Service"), quantity: 1, unitPrice: Number(invoice.total || invoice.amount || 0) }];
       items.forEach(item => {
-        const horseLabel = FarriPricing.itemHorseLabel({ ...item, qty: 1 });
-        const desc = safeText_((item.description || item.name || "") + (horseLabel ? ` (${horseLabel})` : ""));
+        const horseLabel = safeText_(FarriPricing.itemHorseLabel({ ...item, qty: 1 }));
+        const desc = safeText_(item.description || item.name || "");
         const qty = Number(item.qty || item.quantity || 1);
         const rawPrice = item.unitPrice || item.unitPriceSnapshot || item.price || item.amount || 0;
         const price = Number(String(rawPrice).replace(/[^0-9.]/g, '')) || 0;
         const lineTotal = qty * price;
-        y = pdfWrapText_(doc, desc, 48, y, 260, 14);
-        doc.text(String(qty), pageW - 220, y - 14, { align: "right" });
-        doc.text("$" + price.toFixed(2), pageW - 140, y - 14, { align: "right" });
-        doc.text("$" + lineTotal.toFixed(2), pageW - 48, y - 14, { align: "right" });
-        y += 4;
+        const top = y;
+        let yH = top;
+        if (horseLabel) {
+          doc.setFont("helvetica", "bold");
+          yH = pdfWrapText_(doc, horseLabel, 48, top, 120, 14);
+          doc.setFont("helvetica", "normal");
+        }
+        const yD = pdfWrapText_(doc, desc, 178, top, pageW - 178 - 240, 14);
+        doc.text(String(qty), pageW - 220, top, { align: "right" });
+        doc.text("$" + price.toFixed(2), pageW - 140, top, { align: "right" });
+        doc.text("$" + lineTotal.toFixed(2), pageW - 48, top, { align: "right" });
+        y = Math.max(yH, yD, top + 14) + 4;
       });
       y += 10; doc.setLineWidth(0.5); doc.setDrawColor(180); doc.line(pageW - 200, y, pageW - 48, y); y += 16;
       doc.setFont("helvetica", "bold"); doc.setFontSize(12);
