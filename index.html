@@ -1767,7 +1767,8 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         let y = 270;
         doc.setFont("helvetica", "bold");
         doc.setFontSize(10);
-        doc.text("DESCRIPTION", 48, y);
+        doc.text("HORSE", 48, y);
+        doc.text("DESCRIPTION", 178, y);
         doc.text("QTY", pageW - 220, y, { align: "right" });
         doc.text("RATE", pageW - 140, y, { align: "right" });
         doc.text("AMOUNT", pageW - 48, y, { align: "right" });
@@ -1780,8 +1781,19 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         doc.setFontSize(10);
 
         const items = Array.isArray(invoice.items) ? invoice.items : [];
-        const maxDescW = pageW - 48 - 240; // leave room for qty/rate/amount
+        const horseW = 120;                 // HORSE column, x 48–168
+        const maxDescW = pageW - 178 - 240; // DESCRIPTION from x 178, leaving room for qty/rate/amount
         const lineH = 14;
+
+        // Lines saved with only a horseId (no name) get the name from the horse record.
+        const horseNames = {};
+        const missing = [...new Set(items.filter(it => it.horseId && !safeText_(it.horseName)).map(it => it.horseId))];
+        await Promise.all(missing.map(async (id) => {
+          try {
+            const snap = await db.collection('horses').doc(id).get();
+            if (snap.exists) horseNames[id] = safeText_(snap.data()?.name);
+          } catch (e) { /* no access or offline: leave it blank */ }
+        }));
 
         // `amount` is the line total (rate × qty); the rate is the per-horse price.
         const computeTotal = () => items.reduce((sum, it) => sum + Number(it.amount ?? it.unitPriceSnapshot ?? 0), 0);
@@ -1789,7 +1801,7 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         for (const it of items) {
           const rawDesc = safeText_(it.serviceNameSnapshot || it.description || "");
           const desc = rawDesc === 'Custom Service (enter manually)' ? 'Custom Service' : rawDesc;
-          const horse = safeText_(FarriPricing.itemHorseLabel({ ...it, qty: 1 }));
+          const horse = safeText_(FarriPricing.itemHorseLabel({ ...it, horseName: safeText_(it.horseName) || horseNames[it.horseId] || '', qty: 1 }));
           const qty = FarriPricing.itemQty(it);
           const lineTotal = Number(it.amount ?? it.unitPriceSnapshot ?? 0);
           const rate = FarriPricing.itemUnitPrice(it);
@@ -1800,13 +1812,14 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
             y = 72;
           }
 
-          // Description + optional horse/comment
-          let yAfter = pdfWrapText_(doc, desc, 48, y, maxDescW, lineH);
+          // Horse (with "× qty — note" for a Multiple horses line), then the service
+          let yAfter = y;
           if (horse) {
-            doc.setTextColor(90);
-            yAfter = pdfWrapText_(doc, `Horse/Comment: ${horse}`, 48, yAfter, maxDescW, lineH);
-            doc.setTextColor(0);
+            doc.setFont("helvetica", "bold");
+            yAfter = pdfWrapText_(doc, horse, 48, y, horseW, lineH);
+            doc.setFont("helvetica", "normal");
           }
+          yAfter = Math.max(yAfter, pdfWrapText_(doc, desc, 178, y, maxDescW, lineH));
 
           // Numbers aligned to first line y
           doc.text(String(qty), pageW - 220, y, { align: "right" });
