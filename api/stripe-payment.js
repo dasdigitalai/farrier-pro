@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import '../lib/pricing.js';
 import { callerFromRequest, getDoc, patchDoc, listDocs, getStripeSecretKey, setStripeSecretKey, getGoogleRefreshToken } from './_lib/firebase-rest.js';
 import {
-  applyPayment, cardDetails, closeOnlinePayment, createCheckoutSession, recordCheckoutSession,
+  applyPayment, cardDetails, closeOnlinePayment, closeStripeCheckouts, createCheckoutSession, recordCheckoutSession,
   removeWebhook, sendUpdatedPayLink, setupWebhook, PaymentError,
 } from './_lib/invoice-payments.js';
 import { payPage } from './_lib/pay-page.js';
@@ -13,6 +13,10 @@ import { closeIposPages, connectIpospays, createIposPage, disconnectIpospays, ge
 
 const P = globalThis.FarriPricing;
 const SECRET_KEY_RE = /^(sk|rk)_(live|test)_/;
+// A farrier takes card payments through one processor at a time, so a payment can't be
+// split across two or left on one they've stopped watching.
+const ONE_PROCESSOR = (connected, wanted) =>
+  `FarriTech takes card payments through one processor at a time. Disconnect ${connected} in Settings first, then connect ${wanted}.`;
 
 // May run one-off maintenance actions (same list as the sponsorBanners rule).
 const ADMIN_EMAILS = ['david@dasconsulting.com', 'david@dasdigitalai.com'];
@@ -38,8 +42,11 @@ export const config = { api: { bodyParser: false } };
 //   farrier (signed in)   → team_status, team_invite, team_remove, team_set_role, team_accept (_lib/team.js)
 //   iPOSpays              → /api/ipospays/callback/{invoiceId} → _lib/ipospays.js (re-checked with iPOSpays before recording)
 //
-// While a farrier has iPOSpays connected, payment_link / waive_card_price, keyed cards
-// (ipospays_keyed) and the /pay page use iPOSpays payment pages; the customer portal stays on Stripe.
+// A farrier connects Stripe or iPOSpays, not both (connect / ipospays_connect refuse while the
+// other is connected; each disconnect closes that processor's open payment pages first).
+// With iPOSpays, payment_link / waive_card_price, keyed cards (ipospays_keyed) and the /pay
+// page use iPOSpays payment pages (refunded with ipospays_refund). The customer portal's card
+// payments need Stripe.
 //
 // Amounts are always worked out here from the invoice (lib/pricing.js), never taken from
 // the browser — see api/_lib/invoice-payments.js for how payments are recorded.
@@ -229,6 +236,7 @@ export default async function handler(req, res) {
 
     // ── iPOSpays (Settings → iPOSpays Payments) ──
     if (action === 'ipospays_connect') {
+      if (await getStripeSecretKey(farrierId)) throw new PaymentError(ONE_PROCESSOR('Stripe', 'iPOSpays'), 409);
       const { tpn, apiKey, secretKey, ecomToken, mode } = body;
       const result = await connectIpospays(farrierId, { tpn, apiKey, secretKey, ecomToken, mode });
       return res.status(200).json({ success: true, ...result });
@@ -305,6 +313,7 @@ export default async function handler(req, res) {
     if (action === 'connect' || action === 'validate') {
       const { stripeSecretKey } = body;
       if (!stripeSecretKey || !SECRET_KEY_RE.test(stripeSecretKey)) return res.status(400).json({ success: false, error: 'Secret key must start with sk_live_, sk_test_, rk_live_ or rk_test_' });
+      if (await getIposCreds(farrierId)) throw new PaymentError(ONE_PROCESSOR('iPOSpays', 'Stripe'), 409);
       const stripe = new Stripe(stripeSecretKey);
       let accountName = 'Stripe Account';
       try {
@@ -323,9 +332,11 @@ export default async function handler(req, res) {
     }
     if (action === 'disconnect') {
       const oldKey = await getStripeSecretKey(farrierId);
-      await removeWebhook(oldKey ? new Stripe(oldKey) : null, farrierId);
+      const oldStripe = oldKey ? new Stripe(oldKey) : null;
+      const result = oldStripe ? await closeStripeCheckouts(oldStripe, farrierId) : {};
+      await removeWebhook(oldStripe, farrierId);
       await setStripeSecretKey(farrierId, '');
-      return res.status(200).json({ success: true });
+      return res.status(200).json({ success: true, ...result });
     }
     if (action === 'status') {
       const key = await getStripeSecretKey(farrierId); // also migrates a legacy key off the profile

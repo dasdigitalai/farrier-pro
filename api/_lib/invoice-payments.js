@@ -133,6 +133,42 @@ export async function closeOnlinePayment(stripe, invoice) {
   return session;
 }
 
+// Before Stripe is disconnected: closes every Checkout Session the farrier's customers could
+// still pay, and records any that a customer has just paid. Once the key is gone a payment on
+// one could never be recorded or refunded here. Throws PaymentError naming the invoices it
+// couldn't check, so the caller can keep Stripe connected. A key Stripe no longer accepts
+// can't close anything, so that doesn't block.
+export async function closeStripeCheckouts(stripe, farrierId) {
+  const open = (await queryIn('invoices', 'farrierId', [farrierId]))
+    .filter(inv => inv.checkoutSessionId && inv.status !== 'paid' && inv.status !== 'cancelled');
+  const failed = [];
+  let closed = 0, paid = 0;
+  const closeOne = async (inv) => {
+    let session;
+    try {
+      session = await stripe.checkout.sessions.retrieve(inv.checkoutSessionId);
+      if (session.status === 'open') {
+        try { await stripe.checkout.sessions.expire(session.id); closed++; return; }
+        // Can't expire a session that was paid a moment ago — look once more.
+        catch (e) { session = await stripe.checkout.sessions.retrieve(session.id); }
+      }
+      if (session.status === 'complete' && session.payment_status === 'paid') {
+        await recordCheckoutSession(stripe, farrierId, session);
+        paid++;
+      }
+    } catch (e) {
+      if (e.type === 'StripeAuthenticationError' || e.code === 'resource_missing') return;
+      console.error('Stripe disconnect: could not close checkout', inv.id, e.message);
+      failed.push(inv.invoiceNumber || inv.id);
+    }
+  };
+  for (let i = 0; i < open.length; i += 5) await Promise.all(open.slice(i, i + 5).map(closeOne));
+  if (failed.length) {
+    throw new PaymentError(`Stripe is still connected: couldn’t close the payment page for invoice${failed.length > 1 ? 's' : ''} #${failed.join(', #')}. Try again in a minute.`, 502);
+  }
+  return { closed, paid };
+}
+
 // Creates a Checkout Session for what's still owed on the invoice (card price unless
 // waived) and saves it on the invoice. Expires the previous session first.
 export async function createCheckoutSession(stripe, invoiceId, invoice) {

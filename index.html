@@ -13643,9 +13643,9 @@ function CalendarView({ userId }) {
             ) : !hasStripe ? (
               <div style={{background: '#fff7ed', border: '1px solid #fdba74', borderRadius: '8px', padding: '1rem', textAlign: 'center'}}>
                 <div style={{fontSize: '1.5rem', marginBottom: '0.5rem'}}>⚠️</div>
-                <strong>Stripe not connected</strong>
+                <strong>No card processor connected</strong>
                 <p style={{fontSize: '0.875rem', color: '#666', marginTop: '0.5rem'}}>
-                  Go to <strong>Settings → Stripe Payments</strong> and add your Stripe keys to accept card payments.
+                  Go to <strong>Settings</strong> and connect Stripe or iPOSpays to accept card payments.
                 </p>
               </div>
             ) : (
@@ -15495,7 +15495,7 @@ useEffect(() => {
           <div className="card" style={{marginTop: '1.5rem'}}>
             <h2>💳 Stripe Payments</h2>
             <p style={{color: 'var(--text-muted)', marginBottom: '1rem', fontSize: '0.9rem'}}>
-              Connect your Stripe account to accept credit card payments on invoices. Your keys are stored securely and never shared.
+              Connect your Stripe account to accept credit card payments on invoices. Your keys are stored securely and never shared. Connect Stripe or iPOSpays, not both.
             </p>
 
             {stripeStatus === 'connected' && (
@@ -15592,13 +15592,14 @@ useEffect(() => {
                 <button
                   className="btn btn-outline"
                   onClick={async () => {
-                    if (!confirm('Remove your Stripe connection?')) return;
+                    if (!confirm('Remove your Stripe connection? Stripe payment pages your customers haven\'t paid yet will be closed.')) return;
                     const res = await fetch('/api/stripe-payment', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ action: 'disconnect' })
                     });
-                    if (!(await res.json()).success) { alert('Could not disconnect Stripe — please try again.'); return; }
+                    const result = await res.json().catch(() => ({}));
+                    if (!result.success) { alert(result.error || 'Could not disconnect Stripe — please try again.'); return; }
                     await ensureFarriTechfile_(safeFarrierId, { stripePublishableKey: '', stripeAccountName: '' });
                     setUserProfile(prev => ({ ...prev, stripePublishableKey: '', stripeAccountName: '' }));
                     setStripePublishableKey('');
@@ -15622,7 +15623,7 @@ useEffect(() => {
           <div className="card" style={{marginTop: '1.5rem'}}>
             <h2>💳 iPOSpays Payments</h2>
             <p style={{color: 'var(--text-muted)', marginBottom: '1rem', fontSize: '0.9rem'}}>
-              Take payments through your iPOSpays (Dejavoo) merchant account instead of Stripe. While iPOSpays is connected, the Pay Now links you text and email, and cards you key in, open an iPOSpays payment page. The Refund button on an invoice paid through iPOSpays voids or refunds it in iPOSpays.
+              Take payments through your iPOSpays (Dejavoo) merchant account instead of Stripe. Connect one or the other, not both. While iPOSpays is connected, the Pay Now links you text and email, and cards you key in, open an iPOSpays payment page. The Refund button on an invoice paid through iPOSpays voids or refunds it in iPOSpays.
             </p>
 
             {userProfile?.ipospaysConnected ? (
@@ -15633,6 +15634,11 @@ useEffect(() => {
                     iPOSpays connected — TPN ending {userProfile.ipospaysTpnLast4 || '••••'}{userProfile.ipospaysMode === 'production' ? '' : ' (sandbox — test payments only)'}
                   </span>
                 </div>
+                {userProfile?.stripePublishableKey && (
+                  <div style={{background: '#fff7ed', border: '1px solid #fdba74', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.875rem'}}>
+                    ⚠️ Stripe is connected too. Card payments go through iPOSpays while it's connected. Disconnect one of them so customers are only ever charged through one.
+                  </div>
+                )}
                 <button
                   className="btn btn-outline"
                   onClick={async () => {

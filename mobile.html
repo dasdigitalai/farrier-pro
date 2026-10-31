@@ -1219,7 +1219,7 @@
 
     <div class="card" style="margin-top:14px;">
       <div class="card-title">💳 Stripe Payments</div>
-      <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Connect Stripe to accept card payments on invoices. Your keys are stored securely.</div>
+      <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Connect Stripe to accept card payments on invoices. Your keys are stored securely. Connect Stripe or iPOSpays, not both.</div>
       <div id="stripe-status-banner" style="display:none;"></div>
       <div class="field"><label>Publishable Key <span style="font-weight:400; color:var(--text-muted);">(starts with pk_)</span></label><input type="text" id="set-stripe-pk" placeholder="pk_live_…" style="font-family:monospace; font-size:0.82rem;"></div>
       <div class="field"><label>Secret Key <span style="font-weight:400; color:var(--text-muted);">(starts with rk_ or sk_)</span></label><input type="password" id="set-stripe-sk" placeholder="rk_live_…" style="font-family:monospace; font-size:0.82rem;"></div>
@@ -1231,7 +1231,7 @@
 
     <div class="card" style="margin-top:14px;">
       <div class="card-title">💳 iPOSpays Payments</div>
-      <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Take pay-link payments through your iPOSpays (Dejavoo) merchant account instead of Stripe. While connected, Pay Now links and Card payments open an iPOSpays payment page. Refund them from the customer's Invoice History.</div>
+      <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Take pay-link payments through your iPOSpays (Dejavoo) merchant account instead of Stripe. Connect one or the other, not both. While connected, Pay Now links and Card payments open an iPOSpays payment page. Refund them from the customer's Invoice History.</div>
       <div id="ipos-status-banner" style="display:none;"></div>
       <div id="ipos-form">
         <div class="field"><label>Environment</label><select id="set-ipos-mode"><option value="sandbox">Sandbox (testing)</option><option value="production">Production (real payments)</option></select></div>
@@ -4132,7 +4132,8 @@ function renderIposStatus(p, message) {
   document.getElementById('ipos-disconnect-btn').style.display = connected ? 'block' : 'none';
   if (connected) {
     el.style.cssText = 'display:block; background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:10px 12px; margin-bottom:12px; color:#16a34a; font-weight:600; font-size:0.88rem;';
-    el.textContent = `✅ iPOSpays connected — TPN ending ${p.ipospaysTpnLast4 || '••••'}${p.ipospaysMode === 'production' ? '' : ' (sandbox — test payments only)'}`;
+    el.textContent = `✅ iPOSpays connected — TPN ending ${p.ipospaysTpnLast4 || '••••'}${p.ipospaysMode === 'production' ? '' : ' (sandbox — test payments only)'}`
+      + (p.stripePublishableKey ? '. Stripe is connected too: card payments go through iPOSpays. Disconnect one of them.' : '');
   } else if (message) {
     el.style.cssText = 'display:block; background:#fef2f2; border:1px solid #fca5a5; border-radius:8px; padding:10px 12px; margin-bottom:12px; color:#dc2626; font-weight:600; font-size:0.88rem;';
     el.textContent = '❌ ' + message;
@@ -4225,13 +4226,15 @@ async function validateAndSaveStripe() {
 }
 
 async function disconnectStripe() {
-  if (!confirm('Remove your Stripe connection? Pay Now links will stop working until you reconnect.')) return;
+  if (!confirm('Remove your Stripe connection? Stripe payment pages your customers haven\'t paid yet will be closed, and Pay Now links will stop working until you connect a processor.')) return;
   // The key has to be removed on the server, so this needs signal.
   if (!netState.online) { showToast('Disconnecting Stripe requires an internet connection', 'error'); return; }
+  let result = {};
   try {
     const res = await fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disconnect' }) });
-    if (!(await res.json()).success) throw new Error('disconnect failed');
-  } catch (e) { showToast('Could not disconnect Stripe — try again', 'error'); return; }
+    result = await res.json().catch(() => ({}));
+  } catch (e) { /* offline or server unreachable */ }
+  if (!result.success) { showToast(result.error || 'Could not disconnect Stripe — try again', 'error'); return; }
   const suffix = '';
   state.userProfile = { ...(state.userProfile || {}), stripePublishableKey: '', stripeAccountName: '' };
   performWrite(() => db.collection('farriers').doc(bizId()).set({
