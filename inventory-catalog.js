@@ -179,10 +179,10 @@ window.inventoryItemFromCatalog = (entry) => ({
 // ── Supply catalog ──
 // supply-catalog.json holds public product facts from a farrier supply retailer
 // (built by scripts/supply-catalog/). The supplier is deliberately not named in the app
-// (names, brands, category paths, sizes, part numbers, list prices — no descriptions
-// or images). ~230 KB, so it's fetched only when the picker opens, then memoized.
+// (names, brands, category paths, sizes, part numbers — no prices, descriptions or
+// images; farriers enter their own cost). ~230 KB, so it's fetched only when the picker opens, then memoized.
 // Shape: { retrieved, products: [{ t: title, b: brand, c: 'Top > Sub', u: unit,
-//          tool?: 1, v: [[size, partNumber, listPrice], ...] }] }
+//          tool?: 1, v: [[size, partNumber], ...] }] }
 let supplyCatalogPromise = null;
 window.loadSupplyCatalog = () => {
   if (!supplyCatalogPromise) {
@@ -198,13 +198,13 @@ window.supplyCatalogProductMatches = (product, q) =>
   !q || (product.t + ' ' + product.b + ' ' + product.c + ' ' + product.v.map(v => v[1]).join(' '))
     .toLowerCase().includes(q);
 
-// Firestore fields for one supply-catalog size. The list price is only a starting
-// cost — farriers can edit it (many get trade pricing).
+// Firestore fields for one supply-catalog size. Cost starts at 0 — the catalog carries
+// no prices; farriers enter what they actually pay.
 window.inventoryItemFromSupplyCatalog = (product, variant) => {
-  const [size, partNumber, price] = variant;
+  const [size, partNumber] = variant;
   return {
     name: product.t, category: product.c.split(' > ')[0], brand: product.b || '', size: size || '',
-    unit: product.u || 'each', quantityOnHand: 0, reorderThreshold: 0, costPerUnit: Number(price) || 0,
+    unit: product.u || 'each', quantityOnHand: 0, reorderThreshold: 0, costPerUnit: 0,
     isConsumable: !product.tool, isActive: true,
     notes: partNumber ? `Part #${partNumber}` : '',
     supplierSku: partNumber || '', source: 'supply-catalog',

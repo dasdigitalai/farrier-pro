@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FarriTech Seminar · Sat, Nov 14 · Palm Beach Farrier Supply</title>
+  <meta name="description" content="Free class for farriers: FarriTech Seminar, Saturday Nov 14, 9–10 am at Palm Beach Farrier Supply, Wellington FL. Coffee, donuts and connections.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <!-- Temporary sign-up page for the Nov 14 seminar (served at /seminar via vercel.json).
+       Each sign-up is emailed to the FarriTech owner by api/send-email.js
+       (action: 'seminar-signup'), which also emails the attendee a confirmation. -->
+  <style>
+    :root { --blue: #1d5fd6; --navy: #13233f; --orange: #ea6a12; --cream: #f6efe2; --brown: #6b4a2f; --muted: #5b6475; --border: #e2d6c2; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--cream); color: var(--navy); }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+    .frame { background: #fffaf2; border: 3px solid var(--brown); border-radius: 18px; padding: 28px 24px; box-shadow: 0 6px 24px rgba(60,40,20,0.12); }
+    .top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .top img { height: 64px; }
+    .kicker { color: var(--blue); font-weight: 800; letter-spacing: 0.04em; font-size: 0.95rem; }
+    h1 { margin: 4px 0 0; font-size: clamp(2rem, 7vw, 3.2rem); line-height: 1; font-weight: 800; }
+    h1 .b { color: var(--blue); display: block; }
+    .lead { font-size: 1.1rem; margin: 20px 0 6px; font-weight: 700; }
+    .sub { margin: 0; color: var(--muted); font-size: 1.05rem; }
+    .pills { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 0; }
+    .pill { background: #fde7d6; color: #8a3a06; border-radius: 999px; padding: 6px 14px; font-weight: 700; font-size: 0.9rem; }
+    .pill.orange { background: var(--orange); color: #fff; }
+    .details { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; background: #efe5d3; border-radius: 12px; margin: 22px 0; }
+    .details div { padding: 14px 16px; border-left: 1px solid var(--border); }
+    .details div:first-child { border-left: none; }
+    .details small { display: block; color: var(--brown); font-weight: 800; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 4px; }
+    .details b { font-size: 1rem; }
+    @media (max-width: 600px) { .details { grid-template-columns: 1fr; } .details div { border-left: none; border-top: 1px solid var(--border); } .details div:first-child { border-top: none; } }
+    .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 18px; margin: 8px 0 4px; }
+    @media (max-width: 600px) { .features { grid-template-columns: 1fr 1fr; } }
+    .features h3 { margin: 0; color: var(--blue); font-size: 1rem; }
+    .features p { margin: 2px 0 0; color: var(--muted); font-size: 0.88rem; }
+    form { background: var(--blue); color: #fff; border-radius: 14px; padding: 22px 20px; margin-top: 24px; }
+    form h2 { margin: 0 0 4px; font-size: 1.6rem; }
+    form p.note { margin: 0 0 16px; opacity: 0.9; font-size: 0.92rem; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 600px) { .row { grid-template-columns: 1fr; } }
+    label { display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 4px; }
+    input, select { width: 100%; padding: 12px; border-radius: 8px; border: none; font: inherit; font-size: 1rem; color: var(--navy); }
+    .field { margin-bottom: 12px; }
+    button { width: 100%; padding: 14px; border: none; border-radius: 10px; background: var(--orange); color: #fff; font: inherit; font-size: 1.15rem; font-weight: 800; cursor: pointer; margin-top: 4px; }
+    button:disabled { opacity: 0.7; cursor: default; }
+    .err { background: #fee2e2; color: #991b1b; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; display: none; font-weight: 600; }
+    .done { display: none; text-align: center; padding: 10px 0; }
+    .done .big { font-size: 2.6rem; }
+    .foot { text-align: center; margin-top: 18px; color: var(--muted); font-size: 0.9rem; }
+    .foot a { color: var(--blue); font-weight: 700; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="frame">
+      <div class="top">
+        <img src="/new_farritech_logo.png" alt="FarriTech">
+        <div>
+          <div class="kicker">FREE CLASS FOR FARRIERS</div>
+          <h1><span class="b">FARRITECH</span>SEMINAR</h1>
+        </div>
+      </div>
+
+      <p class="lead">What would one extra appointment per horse mean to you?</p>
+      <p class="sub">Get more business without more paperwork. We'll show you how in one morning.</p>
+      <div class="pills">
+        <span class="pill">☕ Coffee, donuts &amp; connections!</span>
+        <span class="pill orange">Special rate for everyone at the class</span>
+      </div>
+
+      <div class="details">
+        <div><small>When</small><b>Saturday, Nov. 14<br>9:00 – 10:00 am</b></div>
+        <div><small>Where</small><b>Palm Beach<br>Farrier Supply</b></div>
+        <div><small>Address</small><b><a href="https://maps.google.com/?q=3500+Fairlane+Farms+Rd+Suite+13+Wellington+FL+33414" target="_blank" rel="noopener" style="color:inherit;">3500 Fairlane Farms Rd, Suite 13<br>Wellington, FL 33414</a></b></div>
+      </div>
+
+      <div class="features">
+        <div><h3>Book Online</h3><p>Clients set up their own visits from their phone.</p></div>
+        <div><h3>Your Schedule</h3><p>See every job in one place. No double-booking.</p></div>
+        <div><h3>Reminders</h3><p>Clients get a reminder, so fewer no-shows.</p></div>
+        <div><h3>Get Paid Faster</h3><p>Send a bill in seconds. Clients pay online.</p></div>
+        <div><h3>Works in the Barn</h3><p>Use it on your phone, right by the horse.</p></div>
+        <div><h3>All in One Place</h3><p>Clients, horses, supplies and money on one screen.</p></div>
+      </div>
+
+      <form id="signup" novalidate>
+        <div id="form-body">
+          <h2>Save your seat</h2>
+          <p class="note">It's free. Let us know you're coming so we have enough coffee and donuts.</p>
+          <div class="err" id="err"></div>
+          <div class="field"><label for="name">Your name *</label><input id="name" autocomplete="name" required></div>
+          <div class="row">
+            <div class="field"><label for="phone">Mobile number</label><input id="phone" type="tel" autocomplete="tel" placeholder="(555) 555-5555"></div>
+            <div class="field"><label for="email">Email</label><input id="email" type="email" autocomplete="email" placeholder="you@example.com"></div>
+          </div>
+          <div class="row">
+            <div class="field"><label for="business">Business name (optional)</label><input id="business" autocomplete="organization"></div>
+            <div class="field"><label for="guests">How many coming?</label>
+              <select id="guests"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select>
+            </div>
+          </div>
+          <input id="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute; left:-9999px; width:1px; height:1px;">
+          <button type="submit" id="submit">I'll be there!</button>
+        </div>
+        <div class="done" id="done">
+          <div class="big">🐴🎉</div>
+          <h2>You're signed up!</h2>
+          <p class="note" id="done-msg">See you Saturday, Nov. 14 at 9:00 am at Palm Beach Farrier Supply.</p>
+        </div>
+      </form>
+
+      <div class="foot">Try FarriTech free for 30 days · <a href="/">www.farritech.com</a></div>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('signup').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const v = id => document.getElementById(id).value.trim();
+      const err = document.getElementById('err');
+      const showErr = msg => { err.textContent = msg; err.style.display = 'block'; };
+      err.style.display = 'none';
+      const name = v('name'), phone = v('phone'), email = v('email');
+      if (!name) return showErr('Please enter your name.');
+      if (!phone && !email) return showErr('Please add a mobile number or an email so we can reach you.');
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showErr('That email address doesn\'t look right.');
+      const btn = document.getElementById('submit');
+      btn.disabled = true; btn.textContent = 'Saving your seat…';
+      try {
+        const res = await fetch('/api/send-email', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'seminar-signup', name, phone, email, business: v('business'), guests: v('guests'), website: v('website') }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Something went wrong.');
+        document.getElementById('form-body').style.display = 'none';
+        document.getElementById('done').style.display = 'block';
+        if (email) document.getElementById('done-msg').textContent += ' We emailed the details to ' + email + '.';
+      } catch (ex) {
+        showErr('Sorry, that didn\'t go through. Please try again, or just come by!');
+        btn.disabled = false; btn.textContent = "I'll be there!";
+      }
+    });
+  </script>
+</body>
+</html>

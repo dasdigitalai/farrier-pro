@@ -26,6 +26,8 @@
   <script src="/inventory-catalog.js"></script>
   <script src="/api-auth.js"></script>
   <script src="/lib/pricing.js"></script>
+  <script src="/lib/owner-dashboard.js"></script>
+  <script src="/lib/horse-history.js"></script>
   
   <!-- Google API for Calendar -->
   <script src="https://apis.google.com/js/api.js"></script>
@@ -711,6 +713,11 @@
       color: var(--text);
       border-color: rgba(38,131,251,0.45);
     }
+    /* Placeholder text readable on the dark inputs (the browser default nearly vanishes),
+       and on the white pop-ups. The booking page and sign-in screen set their own. */
+    input::placeholder, textarea::placeholder { color: #A9BDD6; opacity: 1; }
+    .modal input::placeholder, .modal textarea::placeholder,
+    .modal-content input::placeholder, .modal-content textarea::placeholder { color: #66788F; }
     input[type="date"] { color-scheme: dark; }
     input[type="date"]::-webkit-calendar-picker-indicator {
       filter: invert(1) opacity(1) brightness(1.5);
@@ -1495,6 +1502,71 @@
     0 18px 46px rgba(14,165,233,0.3) !important;
   transform: translateY(-2px) !important;
 }
+
+/* ── Desktop light theme ──
+   The signed-in desktop app (FarrierDashboard → .ft-desktop) is light. Everything else on
+   this page keeps its own look: the sign-in screen (.ft-auth-shell), the customer booking
+   page (.booking-page). The mobile app (mobile.html) and support desk are separate pages.
+   The rules above were written for the old dark theme; these override them inside .ft-desktop. */
+body:has(.ft-desktop) { background: #f1f5f9; }
+.ft-desktop {
+  --bg: #f1f5f9;
+  --surface: #ffffff;
+  --text: #1e293b;
+  --text-muted: #64748b;
+  --border: #cbd5e1;
+  --secondary: #e2e8f0;
+  --primary-light: #1d4ed8; /* was a pale cyan, too faint as text on white */
+  --accent: #2563eb;
+  background: var(--bg);
+  color: var(--text);
+}
+.ft-desktop .card,
+.ft-desktop .stat-card,
+.ft-desktop .calendar,
+.ft-desktop .appointment-item {
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.05);
+}
+.ft-desktop .appointment-item:hover { border-color: #93c5fd; box-shadow: 0 4px 16px rgba(38,131,251,0.15); }
+.ft-desktop .card .appointment-item { background: #f8fafc; }
+.ft-desktop .card h3,
+.ft-desktop .card h4 { color: #1d4ed8; }
+.ft-desktop .stat-label { color: #64748b; }
+.ft-desktop .tab.active { text-shadow: none; }
+.ft-desktop .btn-primary:hover { border-color: var(--primary-light); }
+.ft-desktop .btn-secondary { color: #1e293b; }
+
+/* Inputs: white with a gray border instead of dark fills */
+.ft-desktop input[type="date"], .ft-desktop input[type="time"], .ft-desktop input[type="number"],
+.ft-desktop input[type="text"], .ft-desktop input[type="email"], .ft-desktop input[type="tel"],
+.ft-desktop input[type="search"], .ft-desktop input[type="password"], .ft-desktop input:not([type]),
+.ft-desktop textarea, .ft-desktop select,
+.ft-desktop .form-group input, .ft-desktop .form-group textarea, .ft-desktop .form-group select {
+  background: #ffffff;
+  color: #1e293b;
+  border-color: #cbd5e1;
+}
+.ft-desktop input::placeholder, .ft-desktop textarea::placeholder { color: #94a3b8; }
+.ft-desktop input:disabled, .ft-desktop textarea:disabled, .ft-desktop select:disabled { background: #f1f5f9; color: #64748b; -webkit-text-fill-color: #64748b; opacity: 1; }
+.ft-desktop input[type="date"] { color-scheme: light; }
+.ft-desktop input[type="date"]::-webkit-calendar-picker-indicator { filter: none; opacity: 0.6; }
+
+/* Calendar */
+.ft-desktop .calendar-grid,
+.ft-desktop .calendar-day { border-color: #e2e8f0; }
+.ft-desktop .calendar-day.header { color: #1d4ed8; background: #eff6ff; }
+.ft-desktop .calendar-day:not(.header):hover { background: #eff6ff; }
+.ft-desktop .calendar-day.has-appointment { background: #dbeafe; color: #1d4ed8; }
+.ft-desktop .calendar-day.today { background: var(--primary); color: #fff; }
+
+/* Status badges and messages: light tints */
+.ft-desktop .badge-success { background: #dcfce7; color: #166534; border-color: #86efac; }
+.ft-desktop .badge-warning { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+.ft-desktop .badge-secondary { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+.ft-desktop .badge-pending { background: #ede9fe; color: #5b21b6; border-color: #c4b5fd; }
+.ft-desktop .success-message { background: #f0fdf4; color: #166534; border-color: #86efac; }
+.ft-desktop .error-message { background: #fef2f2; }
 </style>
 
   <!-- Google Places Autocomplete (Address accuracy for Smart Route) -->
@@ -1711,19 +1783,16 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         const maxDescW = pageW - 48 - 240; // leave room for qty/rate/amount
         const lineH = 14;
 
-        const computeTotal = () => items.reduce((sum, it) => {
-          const qty = Number(it.qty || 1);
-          const rate = Number(it.amount ?? it.unitPriceSnapshot ?? 0);
-          return sum + (qty * rate);
-        }, 0);
+        // `amount` is the line total (rate × qty); the rate is the per-horse price.
+        const computeTotal = () => items.reduce((sum, it) => sum + Number(it.amount ?? it.unitPriceSnapshot ?? 0), 0);
 
         for (const it of items) {
           const rawDesc = safeText_(it.serviceNameSnapshot || it.description || "");
           const desc = rawDesc === 'Custom Service (enter manually)' ? 'Custom Service' : rawDesc;
-          const horse = safeText_(it.horseName || "");
-          const qty = Number(it.qty || 1);
-          const rate = Number(it.amount ?? it.unitPriceSnapshot ?? 0);
-          const lineTotal = qty * rate;
+          const horse = safeText_(FarriPricing.itemHorseLabel({ ...it, qty: 1 }));
+          const qty = FarriPricing.itemQty(it);
+          const lineTotal = Number(it.amount ?? it.unitPriceSnapshot ?? 0);
+          const rate = FarriPricing.itemUnitPrice(it);
 
           // Page break
           if (y > pageH - 140) {
@@ -1936,9 +2005,11 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         const isPaid = parseFloat(balanceDue) <= 0;
         const prices = FarriPricing.dualPrices(invoice);
 
-        // Portal pay link — direct to customer portal (they log in and see this invoice)
-        const portalUrl = `${window.location.origin}/customer-portal.html`;
-        const payUrl = buildInvoicePayUrl_(invoice) || portalUrl;
+        // The invoice's own pay link (/pay/{id}). Without a saved one, /pay/{id} still works when
+        // the farrier takes online payments: it opens a fresh Stripe or iPOSpays page. Never the
+        // customer portal (that needs a sign-in). No online payments → no Pay button.
+        const takesOnline = !!(_userProfile?.stripePublishableKey || _userProfile?.ipospaysConnected);
+        const payUrl = buildInvoicePayUrl_(invoice) || (takesOnline && invoice.id ? `${window.location.origin}/pay/${invoice.id}` : "");
 
         // Build services list
         const serviceLines = (invoice.lineItems || invoice.services || []).map(item => {
@@ -1963,7 +2034,7 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
 
   <div style="background:#fff;padding:32px 30px;border:1px solid #e5e7eb;border-top:none;">
     <p style="font-size:16px;color:#374151;">Hi ${firstName},</p>
-    <p style="font-size:15px;color:#4b5563;">Here is your invoice from <strong>${safeText_(_userProfile?.businessName || "your farrier")}</strong>. You can view and pay it online using the button below.</p>
+    <p style="font-size:15px;color:#4b5563;">Here is your invoice from <strong>${safeText_(_userProfile?.businessName || "your farrier")}</strong>. ${payUrl && !isPaid ? "You can view and pay it online using the button below." : "Your invoice details are below."}</p>
 
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin:24px 0;">
       <table style="width:100%;border-collapse:collapse;font-size:14px;color:#374151;margin-bottom:12px;">
@@ -1986,17 +2057,16 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
       </table>` : ""}
     </div>
 
-    ${!isPaid ? `
+    ${!isPaid && payUrl ? `
     <div style="text-align:center;margin:28px 0;">
       <a href="${payUrl}" style="background:linear-gradient(135deg,#10b981 0%,#059669 100%);color:#fff;padding:14px 36px;text-decoration:none;border-radius:8px;font-weight:700;display:inline-block;font-size:16px;letter-spacing:0.3px;">
         💳 Pay Invoice — ${prices.card !== null ? FarriPricing.money(prices.card) : "$" + balanceDue}
       </a>
-      <p style="color:#9ca3af;font-size:12px;margin-top:12px;">Or visit: <a href="${portalUrl}" style="color:#6b7280;">${portalUrl}</a></p>
       ${FarriPricing.altPayHtml(_userProfile, invoice)}
-    </div>` : `
+    </div>` : isPaid ? `
     <div style="background:#f0fdf4;border:1px solid #10b981;border-radius:8px;padding:16px;text-align:center;margin:24px 0;">
       <p style="color:#065f46;font-weight:600;margin:0;">✅ This invoice has been paid in full. Thank you!</p>
-    </div>`}
+    </div>` : FarriPricing.altPayHtml(_userProfile, invoice)}
 
     <p style="color:#6b7280;font-size:13px;">Questions? Reply to this email or contact us directly.</p>
   </div>
@@ -2119,6 +2189,18 @@ async function seedDefaultServicesIfEmpty_(userId) {
   console.log("✅ Default services seeded");
 }
 
+// Tells the server a new farrier account was just created so it can text the FarriTech
+// owner (api/notify-signup). Fire-and-forget — never blocks or fails a signup.
+function notifySignup_(user) {
+  if (!user) return;
+  user.getIdToken().then(token => fetch('/api/notify-signup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: '{}',
+    keepalive: true, // the signup screen redirects right away
+  })).catch(e => console.warn('Signup alert failed', e));
+}
+
 // Ensures the farrier profile doc exists and surfaces permission/config errors clearly
 async function ensureFarriTechfile_(uid, profile) {
   if (!db || !uid) throw new Error("Firestore is not initialized.");
@@ -2230,7 +2312,7 @@ async function ensureFarriTechfile_(uid, profile) {
 
 👤 CUSTOMER INFORMATION:
  Name: ${appointment.customerName}${appointment.farmName ? `\n   Farm/Business: ${appointment.farmName}` : ''}
- Phone: ${appointment.phone}
+ Phone: ${fmtPhone(appointment.phone)}
 ${appointment.email ? `   Email: ${appointment.email}` : ''}
 
 🔧 SERVICES REQUESTED:
@@ -2502,7 +2584,7 @@ ${appointment.comments ? `   ${appointment.comments}` : '   (None)'}
   const [needsSetupWizard, setNeedsSetupWizard] = useState(null);
   useEffect(() => {
     if (!user || !userProfile) { setNeedsSetupWizard(null); return; }
-    if (userProfile.setupCompleted) { setNeedsSetupWizard(false); return; }
+    if (userProfile.setupCompleted || window.FarriTeam?.member) { setNeedsSetupWizard(false); return; }
     (async () => {
       try {
         // Grandfather in any account that already has services configured —
@@ -2530,25 +2612,6 @@ ${appointment.comments ? `   ${appointment.comments}` : '   (None)'}
   const finishSignup = urlParams.get("finishSignup") === "1" || urlParams.has("leadId") || urlParams.has("lead") || urlParams.has("lid");
 
 
-  // Support admin gate (must be outside conditional renders)
-  const [isAdmin, setIsAdmin] = useState(null);
-
-  useEffect(() => {
-    // Only check admin access when support mode is enabled and a user is signed in
-    if (!support || !user) {
-      setIsAdmin(null);
-      return;
-    }
-    (async () => {
-      try {
-        const doc = await db.collection("supportAdmins").doc(user.uid).get();
-        setIsAdmin(doc.exists && (doc.data()?.active !== false));
-      } catch (e) {
-        console.error("Admin check failed", e);
-        setIsAdmin(false);
-      }
-    })();
-  }, [support, user?.uid]);
   const clearSupportSession = async () => {
     try {
       if (supportSessionId && db) {
@@ -2620,6 +2683,29 @@ ${appointment.comments ? `   ${appointment.comments}` : '   (None)'}
         // Default to the signed-in farrier
         let farrierIdToUse = u.uid;
         let supportSessionData = null;
+
+        // Works in someone else's business? (api/_lib/team.js) A farrier on their own has no
+        // membership and nothing changes for them; any failure here falls back to that too.
+        window.FarriTeam = { businessId: u.uid, role: 'owner', member: false };
+        if (!supportSessionId && db) {
+          try {
+            let m = await db.collection('businessMembers').doc(u.uid).get();
+            if (!m.exists && u.email) {
+              const inv = await db.collection('businessInvites').doc(u.email.toLowerCase()).get().catch(() => null);
+              if (inv?.exists) {
+                const r = await fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'team_accept' }) })
+                  .then(x => x.json()).catch(() => null);
+                if (r?.error) alert(r.error);
+                if (r?.joined) m = await db.collection('businessMembers').doc(u.uid).get();
+              }
+            }
+            const md = m.exists ? m.data() : null;
+            if (md?.businessId && md.businessId !== u.uid) {
+              window.FarriTeam = { businessId: md.businessId, role: md.role === 'manager' ? 'manager' : 'farrier', member: true, name: md.name || '' };
+              farrierIdToUse = md.businessId;
+            }
+          } catch (e) { console.warn('Team check skipped:', e.message); }
+        }
 
         // If a support session is present, validate it and switch context
         if (supportSessionId && db) {
@@ -2767,34 +2853,10 @@ ${appointment.comments ? `   ${appointment.comments}` : '   (None)'}
     return <CustomerBookingView farrierId={farrierIdParam} />;
   }
 
-  // Support portal view
+  // Support portal view — moved to its own page, support.html (/support).
 if (support) {
-  if (!user) return <AuthView />;
-
-  // Firestore-based admin gate (easy + no custom claims)
-  if (isAdmin === null) {
-    return (
-      <div className="page">
-        <div className="card">
-          <h2>Checking access…</h2>
-          <p>Loading support portal…</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <div className="page">
-        <div className="card">
-          <h2>Access denied</h2>
-          <p>This account is not allowed to access the support portal.</p>
-        </div>
-      </div>
-    );
-  }
-
-  return <SupportPortal user={user} />;
+  window.location.replace('/support');
+  return null;
   }
 
   // Finish signup (post-billing activation)
@@ -2836,10 +2898,10 @@ if (support) {
       {/* Inactivity Warning Modal */}
       {showInactivityWarning && (
         <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:99999, display:'flex', alignItems:'center', justifyContent:'center'}}>
-          <div style={{background:'var(--surface)', color:'var(--text)', borderRadius:'12px', padding:'2rem', maxWidth:'420px', width:'90%', textAlign:'center', border:'2px solid rgba(38,131,251,0.45)', boxShadow:'0 20px 60px rgba(0,0,0,0.6)'}}>
+          <div style={{background:'var(--surface)', color:'var(--text)', borderRadius:'12px', padding:'2rem', maxWidth:'420px', width:'90%', textAlign:'center', border:'1px solid #cbd5e1', boxShadow:'0 20px 60px rgba(0,0,0,0.6)'}}>
             <div style={{fontSize:'3rem', marginBottom:'1rem'}}>⏱️</div>
-            <h2 style={{marginBottom:'0.75rem', color:'#1a1a1a'}}>Still there?</h2>
-            <p style={{color:'#666', marginBottom:'1.5rem'}}>
+            <h2 style={{marginBottom:'0.75rem', color:'var(--text)'}}>Still there?</h2>
+            <p style={{color:'var(--text-muted)', marginBottom:'1.5rem'}}>
               You've been inactive for 30 minutes. For your security, you'll be logged out in:
             </p>
             <div style={{fontSize:'3rem', fontWeight:'700', color:'#ef4444', marginBottom:'1.5rem'}}>
@@ -3001,6 +3063,7 @@ const [loading, setLoading] = useState(false);
               googleCalendarConnected: false,
               bookingUrl: window.location.origin + '?farrier=' + user.uid
             });
+            notifySignup_(user);
 }
 
           // User will be automatically logged in by Firebase
@@ -3056,6 +3119,7 @@ const [loading, setLoading] = useState(false);
       googleCalendarConnected: false,
       bookingUrl: window.location.origin + '?farrier=' + user.uid
     });
+    notifySignup_(user);
 
     // Services are no longer auto-seeded here — the first-time setup wizard
     // (SetupWizardView) is now how a new farrier adds their own real services
@@ -3078,6 +3142,14 @@ return (
             <div className="auth-container ft-auth-container" style={{marginTop:'-24px'}}>
             <div className="auth-card">
              <img className="ft-card-logo" src="/new_farritech_logo_light_letters.png" alt="FarriTech" />
+              {/* Temporary: Nov 14 seminar sign-up (seminar.html). Hides itself after the class. */}
+              {new Date() < new Date('2026-11-15T00:00:00') && (
+                <a href="/seminar" style={{ display: 'block', textDecoration: 'none', background: 'linear-gradient(135deg,#ea6a12,#f59e0b)', color: '#fff', borderRadius: 12, padding: '12px 16px', margin: '0 0 16px', textAlign: 'center', boxShadow: '0 4px 14px rgba(234,106,18,0.35)' }}>
+                  <div style={{ fontWeight: 800, fontSize: '1.05rem' }}>🐴 FREE Farrier Seminar · Sat, Nov 14</div>
+                  <div style={{ fontSize: '0.85rem', opacity: 0.95 }}>9–10 am · Palm Beach Farrier Supply, Wellington</div>
+                  <div style={{ marginTop: 8, display: 'inline-block', background: '#fff', color: '#c2410c', fontWeight: 800, borderRadius: 8, padding: '6px 16px' }}>Sign up →</div>
+                </a>
+              )}
               <div className="auth-header">
                 <h1>Welcome Back</h1>
                 <p>Manage your farrier business with ease</p>
@@ -3460,6 +3532,7 @@ console.log("✅ Writing farrier doc, UID:", uid, "farrierId:", farrierDoc?.farr
       try {
         await ensureFarriTechfile_(uid, farrierDoc);
         console.log("✅ Farrier profile written successfully");
+        notifySignup_(newUser);
       } catch (writeErr) {
         console.error("❌ ensureFarriTechfile_ failed:", writeErr?.code, writeErr?.message);
         throw writeErr;
@@ -3534,6 +3607,7 @@ console.log("✅ Writing farrier doc, UID:", uid, "farrierId:", farrierDoc?.farr
           };
 
           await ensureFarriTechfile_(recoveryUid, recoveryDoc);
+          notifySignup_(existingUser);
           if (leadId) {
             try {
               await db.collection("leads").doc(leadId).set({
@@ -3670,105 +3744,20 @@ console.log("✅ Writing farrier doc, UID:", uid, "farrierId:", farrierDoc?.farr
 }
 
 
-   function SupportPortal({ user }) {
-  const [q, setQ] = useState('');
-  const [farriers, setFarriers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [reason, setReason] = useState('Troubleshooting');
-
-  useEffect(() => {
-    (async () => {
-      if (!db) return;
-      const snap = await db.collection('farriers').get();
-      setFarriers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
-    })();
-  }, []);
-
-  const filtered = farriers.filter(f => {
-    const s = (q || '').toLowerCase();
-    return (
-      (f.businessName || '').toLowerCase().includes(s) ||
-      (f.email || '').toLowerCase().includes(s) ||
-      (f.phone || '').toLowerCase().includes(s)
-    );
-  });
-
-  const startSession = async (targetFarrierId) => {
-    const expires = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
-
-    const docRef = await db.collection('supportSessions').add({
-      supportAgentUid: user.uid,
-      targetFarrierId,
-      reason,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      expiresAt: firebase.firestore.Timestamp.fromDate(expires),
-      endedAt: null
-    });
-
-    // Redirect into the normal app in support mode
-    const u = new URL(window.location.href);
-    u.searchParams.delete('support');
-    u.searchParams.set('supportSession', docRef.id);
-    window.location.href = u.toString();
-  };
-
-  return (
-    <div className="app-container">
-      <header className="app-header">
-        <div className="header-content">
-          <div className="logo">
-            <span className="logo-icon">🐴</span>
-            <span>Support Portal</span>
-          </div>
-        </div>
-      </header>
-
-      <div className="auth-container">
-        <div className="card">
-          <h2>Impersonate a Farrier</h2>
-
-          <div className="form-group">
-            <label>Search</label>
-            <input value={q} onChange={(e)=>setQ(e.target.value)} placeholder="business, email, phone..." />
-          </div>
-
-          <div className="form-group">
-            <label>Reason (required)</label>
-            <input value={reason} onChange={(e)=>setReason(e.target.value)} />
-          </div>
-
-          {loading ? (
-            <p>Loading…</p>
-          ) : (
-            <div style={{marginTop:'12px'}}>
-              {filtered.map(f => (
-                <div key={f.id} className="card" style={{marginBottom:'10px'}}>
-                  <div><strong>{f.businessName || '(no business name)'}</strong></div>
-                  <div style={{color:'var(--text-muted)'}}>{f.email || ''} {f.phone ? `• ${f.phone}` : ''}</div>
-                  <div style={{marginTop:'8px'}}>
-                    <button className="btn btn-primary" onClick={()=>startSession(f.id)}>
-                      Login as this Farrier
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {filtered.length === 0 && <p style={{color:'var(--text-muted)'}}>No matches.</p>}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
 // Emails allowed to manage sponsor banners on the customer portal (FarriTech support/admins only — not farrier accounts)
 const SPONSOR_ADMIN_EMAILS = ['david@dasconsulting.com', 'david@dasdigitalai.com', 'eaven777@gmail.com'];
 
 function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupportMode, supportSession, clearSupportSession }) {
 
       const isSponsorAdmin = SPONSOR_ADMIN_EMAILS.includes((user?.email || '').toLowerCase());
+      // FarriTech support staff get a button to the support desk (support.html).
+      const [isSupportStaff, setIsSupportStaff] = useState(false);
+      useEffect(() => {
+        if (!user?.uid || !db) return;
+        db.collection('supportAdmins').doc(user.uid).get()
+          .then(d => setIsSupportStaff(d.exists && d.data()?.active !== false))
+          .catch(() => setIsSupportStaff(false));
+      }, [user?.uid]);
       const [tab, setTab] = useState('qrcode');
       const [openNavGroup, setOpenNavGroup] = useState(null);
 
@@ -3848,12 +3837,17 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
       const tabs = [
         { id: 'qrcode', label: 'My QR Code', icon: '📱' },
         { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+        // Owner dashboard: owners and managers (not a team member with the farrier role).
+        ...(window.FarriTeam?.role === 'farrier' ? [] : [{ id: 'business', label: 'Business', icon: '📈' }]),
         { id: 'calendar', label: 'Calendar', icon: '📅' },
         { id: 'appointments', label: 'Appointments', icon: '📋' },
         { id: 'invoices', label: 'Invoices', icon: '💰' },
         { id: 'customers', label: 'Customers', icon: '👥' },
+        { id: 'horses', label: 'Horses', icon: '🐴' },
+        { id: 'upcoming', label: 'Upcoming Service', icon: '🔔' },
         { id: 'services', label: 'Services', icon: '🧾' },
-        { id: 'reports', label: 'Reports', icon: '📈' },
+        // Business-wide revenue: not for a team member with the farrier role (api/_lib/team.js).
+        ...(window.FarriTeam?.role === 'farrier' ? [] : [{ id: 'reports', label: 'Reports', icon: '📈' }]),
         { id: 'mileage', label: 'Mileage Log', icon: '🚗' },
         { id: 'route', label: 'Route Sheet', icon: '🗺️' },
         { id: 'settings', label: 'Settings', icon: '⚙️' },
@@ -3861,7 +3855,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
       ];
 
       return (
-        <div className="app-container">
+        <div className="app-container ft-desktop">
           <header style={{
             backgroundColor: '#2683FB',
             position: 'sticky',
@@ -3889,6 +3883,24 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                   Logged in as {user.email}
                 </div>
               </div>
+              {isSupportStaff && !isSupportMode && (
+                <a
+                  href="/support"
+                  style={{
+                    padding: '0.5rem 1rem',
+                    background: 'rgba(255,255,255,0.18)',
+                    border: '1px solid rgba(255,255,255,0.4)',
+                    color: 'white',
+                    borderRadius: '8px',
+                    fontSize: '0.9rem',
+                    fontWeight: '600',
+                    textDecoration: 'none',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  🛟 Support
+                </a>
+              )}
               <button
                 onClick={handleLogout}
                 style={{
@@ -3915,17 +3927,18 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
           </header>
 
           <nav style={{
-            backgroundColor: '#0D1320',
-            borderBottom: '1px solid rgba(255,255,255,0.08)',
+            backgroundColor: '#ffffff',
+            borderBottom: '1px solid #e2e8f0',
             position: 'sticky',
             top: '80px',
             zIndex: 99,
-            boxShadow: '0 2px 12px rgba(0,0,0,0.3)'
+            boxShadow: '0 1px 4px rgba(15,23,42,0.06)'
           }}>
             {(() => {
               const navGroups = [
                 { label: '📊 Overview', items: [
                   { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+                  ...(window.FarriTeam?.role === 'farrier' ? [] : [{ id: 'business', label: 'Business Dashboard', icon: '📈' }]),
                   { id: 'qrcode', label: 'My QR Code', icon: '📱' },
                   { id: 'about', label: 'About', icon: 'ℹ️' },
                 ]},
@@ -3934,13 +3947,15 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                   { id: 'appointments', label: 'Appointments', icon: '📋' },
                   { id: 'route', label: 'Route Sheet', icon: '🗺️' },
                 ]},
-                { label: '💰 Finance', items: [
+                { label: '💰 Billing', items: [
                   { id: 'invoices', label: 'Invoices', icon: '💰' },
-                  { id: 'reports', label: 'Reports', icon: '📈' },
+                  ...(window.FarriTeam?.role === 'farrier' ? [] : [{ id: 'reports', label: 'Reports', icon: '📈' }]),
                   { id: 'mileage', label: 'Mileage Log', icon: '🚗' },
                 ]},
                 { label: '👥 Clients', items: [
                   { id: 'customers', label: 'Customers', icon: '👥' },
+                  { id: 'horses', label: 'Horses', icon: '🐴' },
+                  { id: 'upcoming', label: 'Upcoming Service', icon: '🔔' },
                 ]},
                 { label: '⚙️ Manage', items: [
                   { id: 'services', label: 'Services', icon: '🧾' },
@@ -3986,13 +4001,13 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                             gap: '0.4rem',
                             fontSize: '0.88rem',
                             fontWeight: isGroupActive ? '700' : '500',
-                            color: isGroupActive ? '#46C5FF' : 'rgba(255,255,255,0.75)',
-                            borderBottom: isGroupActive ? '2px solid #46C5FF' : '2px solid transparent',
+                            color: isGroupActive ? '#2683FB' : '#475569',
+                            borderBottom: isGroupActive ? '2px solid #2683FB' : '2px solid transparent',
                             transition: 'all 0.15s',
                             whiteSpace: 'nowrap',
                           }}
-                          onMouseOver={(e) => { if (!isGroupActive) e.currentTarget.style.color = 'white'; }}
-                          onMouseOut={(e) => { if (!isGroupActive) e.currentTarget.style.color = 'rgba(255,255,255,0.75)'; }}
+                          onMouseOver={(e) => { if (!isGroupActive) e.currentTarget.style.color = '#0f172a'; }}
+                          onMouseOut={(e) => { if (!isGroupActive) e.currentTarget.style.color = '#475569'; }}
                         >
                           {isGroupActive ? `${activeItem.icon} ${activeItem.label}` : group.label}
                           <span style={{
@@ -4010,11 +4025,11 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                             position: 'absolute',
                             top: 'calc(100% - 2px)',
                             left: 0,
-                            backgroundColor: '#0D1320',
-                            border: '1.5px solid rgba(70,197,255,0.35)',
-                            borderTop: '2px solid #46C5FF',
+                            backgroundColor: '#ffffff',
+                            border: '1px solid #e2e8f0',
+                            borderTop: '2px solid #2683FB',
                             borderRadius: '0 0 10px 10px',
-                            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                            boxShadow: '0 8px 24px rgba(15,23,42,0.12)',
                             minWidth: '180px',
                             zIndex: 200,
                             overflow: 'hidden'
@@ -4028,18 +4043,18 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                                   width: '100%',
                                   textAlign: 'left',
                                   padding: '0.75rem 1.25rem',
-                                  background: tab === item.id ? 'rgba(70,197,255,0.12)' : 'none',
+                                  background: tab === item.id ? '#eff6ff' : 'none',
                                   border: 'none',
-                                  borderLeft: tab === item.id ? '3px solid #46C5FF' : '3px solid transparent',
-                                  color: tab === item.id ? '#46C5FF' : 'rgba(255,255,255,0.8)',
+                                  borderLeft: tab === item.id ? '3px solid #2683FB' : '3px solid transparent',
+                                  color: tab === item.id ? '#2683FB' : '#334155',
                                   fontSize: '0.88rem',
                                   fontWeight: tab === item.id ? '600' : '400',
                                   cursor: 'pointer',
                                   transition: 'all 0.15s',
                                   gap: '0.5rem',
                                 }}
-                                onMouseOver={(e) => { if (tab !== item.id) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'white'; }}}
-                                onMouseOut={(e) => { if (tab !== item.id) { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'rgba(255,255,255,0.8)'; }}}
+                                onMouseOver={(e) => { if (tab !== item.id) { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#0f172a'; }}}
+                                onMouseOut={(e) => { if (tab !== item.id) { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#334155'; }}}
                               >
                                 {item.icon} {item.label}
                               </button>
@@ -4069,11 +4084,14 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
             {tab === 'appointments' && <AppointmentsView userId={farrierId} userProfile={userProfile} />}
             {tab === 'invoices' && <InvoicesView userId={farrierId} userProfile={userProfile} />}
             {tab === 'customers' && <CustomersView userId={farrierId} userProfile={userProfile} />}
+            {tab === 'horses' && <HorsesView userId={farrierId} />}
+            {tab === 'upcoming' && <HorsesView userId={farrierId} upcoming />}
             {tab === 'sponsors' && isSponsorAdmin && <SponsorBannersView />}
             {tab === 'services' && <ServicesView userId={farrierId} />}
             {tab === 'inventory' && <InventoryView userId={farrierId} />}
             {tab === 'data' && <DataManagementView userId={farrierId} />}
-            {tab === 'reports' && <ReportsView userId={farrierId} />}
+            {tab === 'reports' && window.FarriTeam?.role !== 'farrier' && <ReportsView userId={farrierId} />}
+            {tab === 'business' && window.FarriTeam?.role !== 'farrier' && <OwnerDashboardView userId={farrierId} />}
             {tab === 'mileage' && <MileageLogView userId={farrierId} userProfile={userProfile} />}
             {tab === 'route' && <RouteSheetView userId={farrierId} userProfile={userProfile} />}
             {tab === 'settings' && <SettingsView user={user} userProfile={userProfile} setUserProfile={setUserProfile} farrierId={farrierId} />}
@@ -4088,11 +4106,11 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
               color: '#9ca3af',
             }}>
               <span>© {new Date().getFullYear()} FarriTech &nbsp;·&nbsp; </span>
-              <a href="https://farritech.com/privacy" target="_blank" rel="noreferrer" style={{color:'#6b7280',textDecoration:'none'}}>Privacy Policy</a>
+              <a href="https://farritech.com/privacy" target="_blank" rel="noreferrer" style={{color:'var(--text-muted)',textDecoration:'none'}}>Privacy Policy</a>
               <span> &nbsp;·&nbsp; </span>
-              <a href="https://farritech.com/terms" target="_blank" rel="noreferrer" style={{color:'#6b7280',textDecoration:'none'}}>Terms of Service</a>
+              <a href="https://farritech.com/terms" target="_blank" rel="noreferrer" style={{color:'var(--text-muted)',textDecoration:'none'}}>Terms of Service</a>
               <span> &nbsp;·&nbsp; </span>
-              <a href="https://farritech.com/refund-policy" target="_blank" rel="noreferrer" style={{color:'#6b7280',textDecoration:'none'}}>Refund Policy</a>
+              <a href="https://farritech.com/refund-policy" target="_blank" rel="noreferrer" style={{color:'var(--text-muted)',textDecoration:'none'}}>Refund Policy</a>
             </footer>
           </main>
         </div>
@@ -4120,6 +4138,8 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
       const [formName, setFormName] = useState('');
       const [formFarmName, setFormFarmName] = useState('');
       const [formManagerContact, setFormManagerContact] = useState('');
+      // Other people to reach for this customer: [{ name, role, phone, email }] (customers/{id}.contacts).
+      const [formContacts, setFormContacts] = useState([]);
       const [formEmail, setFormEmail] = useState('');
       const [formSource, setFormSource] = useState('referral');
       const [formPhone, setFormPhone] = useState('');
@@ -4352,6 +4372,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
       const openAdd = () => {
         setEditingCustomer(null);
         setFormName(''); setFormFarmName(''); setFormManagerContact(''); setFormEmail(''); setFormPhone('');
+        setFormContacts([]);
         setFormAddress(''); setFormCity(''); setFormState(''); setFormZip('');
         setFormNotes(''); setFormSource('referral');
         setShowAddEdit(true);
@@ -4362,6 +4383,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
         setFormName(cust.name || '');
         setFormFarmName(cust.farmName || '');
         setFormManagerContact(cust.managerContact || '');
+        setFormContacts(Array.isArray(cust.contacts) ? cust.contacts.map(c => ({ name: c.name || '', role: c.role || '', phone: c.phone || '', email: c.email || '' })) : []);
         setFormEmail(cust.email || '');
         setFormPhone(cust.phone || '');
         setFormAddress(cust.address || '');
@@ -4382,6 +4404,9 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
             name: formName.trim(),
             farmName: formFarmName.trim(),
             managerContact: formManagerContact.trim(),
+            contacts: formContacts
+              .map(c => ({ name: c.name.trim(), role: c.role.trim(), phone: c.phone.trim(), email: c.email.trim() }))
+              .filter(c => c.name || c.phone || c.email),
             email: formEmail.trim(),
             phone: formPhone.trim(),
             address: formAddress.trim(),
@@ -4436,6 +4461,8 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
         }
       };
 
+      // "123 Main St, Wellington, FL 33414" from whichever address parts the customer has.
+      const custAddress = (c) => [c.address, c.city, [c.state, c.zip].filter(Boolean).join(' ')].map(x => String(x || '').trim()).filter(Boolean).join(', ');
       const searchQ = search.trim().toLowerCase();
       const matchingHorses = (c) => searchQ ? (horseNamesByCustomer[c.id] || []).filter(n => n.toLowerCase().includes(searchQ)) : [];
       const filtered = customers.filter(c => {
@@ -4445,7 +4472,11 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
           (c.farmName || '').toLowerCase().includes(q) ||
           (c.managerContact || '').toLowerCase().includes(q) ||
           (c.email || '').toLowerCase().includes(q) ||
-          (c.phone || '').includes(q);
+          custAddress(c).toLowerCase().includes(q) ||
+          (Array.isArray(c.contacts) && c.contacts.some(k => `${k.name || ''} ${k.role || ''} ${k.email || ''}`.toLowerCase().includes(q)
+            || (q.replace(/\D/g, '').length >= 3 && String(k.phone || '').replace(/\D/g, '').includes(q.replace(/\D/g, ''))))) ||
+          (c.phone || '').includes(q) ||
+          (q.replace(/\D/g, '').length >= 3 && (c.phone || '').replace(/\D/g, '').includes(q.replace(/\D/g, '')));
         const matchSms = smsFilter === 'all' ||
           (smsFilter === 'opted_out' && c.smsOptOut) ||
           (smsFilter === 'opted_in' && !c.smsOptOut);
@@ -4525,19 +4556,41 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
               onChange={e => setFormNotes(e.target.value)} rows={3}
               style={{ width: '100%', padding: '0.75rem', borderRadius: 8, border: '2px solid var(--border)', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', resize: 'vertical', boxSizing: 'border-box' }} />
           </div>
+
+          {/* Other contacts: barn manager, spouse, trainer, vet… */}
+          <div className="form-group">
+            <label>Other Contacts</label>
+            {formContacts.map((c, i) => {
+              const setField = (k, v) => setFormContacts(prev => prev.map((x, j) => j === i ? { ...x, [k]: v } : x));
+              const inp = { padding: '0.6rem', borderRadius: 8, border: '2px solid var(--border)', fontFamily: 'Outfit,sans-serif', fontSize: '0.95rem', boxSizing: 'border-box', minWidth: 0 };
+              return (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1.3fr auto', gap: '0.4rem', marginBottom: '0.4rem' }}>
+                  <input type="text" value={c.name} placeholder="Name" onChange={e => setField('name', e.target.value)} style={inp} />
+                  <input type="text" value={c.role} placeholder="Role (e.g. Trainer)" list="contact-roles" onChange={e => setField('role', e.target.value)} style={inp} />
+                  <input type="tel" value={fmtPhone(c.phone)} placeholder="Phone" onChange={e => setField('phone', e.target.value.replace(/\D/g, '').slice(0, 11))} style={inp} />
+                  <input type="email" value={c.email} placeholder="Email (optional)" onChange={e => setField('email', e.target.value)} style={inp} />
+                  <button type="button" className="btn btn-sm btn-outline" title="Remove contact" onClick={() => setFormContacts(prev => prev.filter((_, j) => j !== i))}>✕</button>
+                </div>
+              );
+            })}
+            <datalist id="contact-roles">
+              {['Barn manager', 'Spouse', 'Trainer', 'Rider', 'Vet', 'Groom', 'Owner', 'Other'].map(r => <option key={r} value={r} />)}
+            </datalist>
+            <button type="button" className="btn btn-sm btn-outline" onClick={() => setFormContacts(prev => [...prev, { name: '', role: '', phone: '', email: '' }])}>+ Add contact</button>
+          </div>
           {/* Source — hide the qr_booking option for manual entry; show as read-only if editing a qr_booking customer */}
           <div className="form-group">
             <label>How did you get this customer?</label>
             {editingCustomer?.source === 'qr_booking' ? (
-              <div style={{ padding: '0.75rem', borderRadius: 8, border: '2px solid var(--border)', background: 'rgba(38,131,251,0.06)', color: '#64748b', fontSize: '0.95rem' }}>
+              <div style={{ padding: '0.75rem', borderRadius: 8, border: '2px solid var(--border)', background: 'rgba(38,131,251,0.06)', color: 'var(--text-muted)', fontSize: '0.95rem' }}>
                 📲 QR Booking (set by customer)
               </div>
             ) : (
               <select value={formSource} onChange={e => setFormSource(e.target.value)}
-                style={{ width: '100%', padding: '0.75rem', borderRadius: 8, border: '2px solid rgba(38,131,251,0.45)', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', background: 'rgba(22,32,50,0.95)', color: 'var(--text)', colorScheme: 'dark' }}>
-                <option value="referral" style={{background:'#1e2d45', color:'#e8f0fe'}}>🤝 Referral</option>
-                <option value="existing" style={{background:'#1e2d45', color:'#e8f0fe'}}>⭐ Existing</option>
-                <option value="marketing" style={{background:'#1e2d45', color:'#e8f0fe'}}>📣 Marketing</option>
+                style={{ width: '100%', padding: '0.75rem', borderRadius: 8, border: '1px solid #cbd5e1', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', background: '#fff', color: 'var(--text)', colorScheme: 'light' }}>
+                <option value="referral">🤝 Referral</option>
+                <option value="existing">⭐ Existing</option>
+                <option value="marketing">📣 Marketing</option>
               </select>
             )}
           </div>
@@ -4565,23 +4618,36 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                   👤 {selectedCustomer.name}
                 </h2>
                 {selectedCustomer.farmName && (
-                  <div style={{ fontSize: '1rem', fontWeight: 600, color: '#1e293b', marginBottom: '0.25rem' }}>
+                  <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text)', marginBottom: '0.25rem' }}>
                     🏠 {selectedCustomer.farmName}
                   </div>
                 )}
                 {selectedCustomer.managerContact && (
-                  <div style={{ fontSize: '0.9rem', color: '#475569', marginBottom: '0.25rem' }}>
+                  <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
                     👔 Manager/Contact: {selectedCustomer.managerContact}
                   </div>
                 )}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', marginTop: '0.5rem', color: '#1e293b', fontSize: '0.95rem' }}>
-                  {selectedCustomer.phone && <span>📞 {selectedCustomer.phone}</span>}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', marginTop: '0.5rem', color: 'var(--text)', fontSize: '0.95rem' }}>
+                  {selectedCustomer.phone && <span>📞 {fmtPhone(selectedCustomer.phone)}</span>}
                   {selectedCustomer.email && <span>✉️ {selectedCustomer.email}</span>}
                   {(selectedCustomer.address || selectedCustomer.city) && <span>📍 {[selectedCustomer.address, selectedCustomer.city, selectedCustomer.state, selectedCustomer.zip].filter(Boolean).join(', ')}</span>}
                 </div>
                 {selectedCustomer.notes && (
-                  <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.9rem', background: 'rgba(38,131,251,0.06)', borderRadius: 8, fontSize: '0.9rem', color: '#444', borderLeft: '3px solid var(--primary)' }}>
+                  <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.9rem', background: 'rgba(38,131,251,0.06)', borderRadius: 8, fontSize: '0.9rem', color: 'var(--text)', borderLeft: '3px solid var(--primary)' }}>
                     💬 {selectedCustomer.notes}
+                  </div>
+                )}
+                {Array.isArray(selectedCustomer.contacts) && selectedCustomer.contacts.length > 0 && (
+                  <div style={{ marginTop: '0.75rem' }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.35rem' }}>Other contacts</div>
+                    {selectedCustomer.contacts.map((c, i) => (
+                      <div key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 1rem', fontSize: '0.92rem', padding: '0.3rem 0' }}>
+                        <strong>{c.name || 'Contact'}</strong>
+                        {c.role && <span style={{ color: 'var(--text-muted)' }}>{c.role}</span>}
+                        {c.phone && <a href={`tel:${String(c.phone).replace(/\D/g, '')}`} style={{ color: 'var(--primary)' }}>📞 {fmtPhone(c.phone)}</a>}
+                        {c.email && <a href={`mailto:${c.email}`} style={{ color: 'var(--primary)' }}>✉️ {c.email}</a>}
+                      </div>
+                    ))}
                   </div>
                 )}
                 <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -4614,8 +4680,11 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                       referral:   { label: 'Referral',   icon: '🤝', bg: '#fdf4ff', color: '#9333ea' },
                       existing:   { label: 'Existing',   icon: '⭐', bg: '#fffbeb', color: '#d97706' },
                       marketing:  { label: 'Marketing',  icon: '📣', bg: '#fff1f2', color: '#e11d48' },
+                      mobile_app: { label: 'Added on Mobile', icon: '📱', bg: '#ecfdf5', color: '#047857' },
                     };
-                    const s = sourceMap[selectedCustomer.source] || { label: selectedCustomer.source, icon: '📌', bg: '#f8fafc', color: '#64748b' };
+                    // Anything else reads as words ("auto_from_confirm" → "Auto from confirm"), not code.
+                    const pretty = String(selectedCustomer.source || '').replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+                    const s = sourceMap[selectedCustomer.source] || { label: pretty, icon: '📌', bg: '#f8fafc', color: '#475569' };
                     return (
                       <span style={{
                         display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
@@ -4652,10 +4721,10 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                 { label: 'Total Paid', val: fmtMoney(customerDetail.totalPaid), icon: '✅', color: '#10b981' },
                 { label: 'Outstanding', val: fmtMoney(customerDetail.balance), icon: '⚠️', color: customerDetail.balance > 0 ? '#ef4444' : '#10b981' },
               ].map(s => (
-                <div key={s.label} style={{ background: 'var(--surface)', borderRadius: 12, padding: '1rem 1.25rem', boxShadow: '0 2px 12px rgba(0,0,0,0.3)', border: `2px solid ${s.color}22` }}>
+                <div key={s.label} style={{ background: 'var(--surface)', borderRadius: 12, padding: '1rem 1.25rem', boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.05)', border: `2px solid ${s.color}22` }}>
                   <div style={{ fontSize: '1.4rem' }}>{s.icon}</div>
                   <div style={{ fontSize: '1.4rem', fontWeight: 700, color: s.color }}>{s.val}</div>
-                  <div style={{ fontSize: '0.8rem', color: '#8ab4d8' }}>{s.label}</div>
+                  <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{s.label}</div>
                 </div>
               ))}
             </div>
@@ -4705,7 +4774,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                         {apt.requestedDate || apt.date || '—'} {apt.requestedTime ? `at ${apt.requestedTime}` : ''}
                       </span>
                       {apt.services && apt.services.length > 0 && (
-                        <div style={{ fontSize: '0.8rem', color: '#1e293b', marginTop: '0.2rem' }}>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text)', opacity: 0.85, marginTop: '0.2rem' }}>
                           🔧 {Array.isArray(apt.services) ? apt.services.join(', ') : apt.services}
                         </div>
                       )}
@@ -4773,10 +4842,10 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
           {/* Delete confirm */}
           {confirmDelete && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-              <div style={{ background: 'var(--surface)', color: '#1e293b', borderRadius: 16, padding: '2rem', maxWidth: 400, width: '90%', textAlign: 'center', border: '2px solid rgba(38,131,251,0.45)' }}>
+              <div style={{ background: 'var(--surface)', color: 'var(--text)', borderRadius: 16, padding: '2rem', maxWidth: 400, width: '90%', textAlign: 'center', border: '1px solid #cbd5e1' }}>
                 <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⚠️</div>
                 <h3 style={{ marginBottom: '0.5rem' }}>Delete {confirmDelete.name}?</h3>
-                <p style={{ color: '#666', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
                   This removes the customer record only. Appointments and invoices are not affected.
                 </p>
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
@@ -4845,7 +4914,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
           {/* Filters */}
           <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
             <input
-              type="text" placeholder="🔍 Search name, email, phone, horse…"
+              type="text" placeholder="🔍 Search name, phone, email, address, horse…"
               value={search} onChange={e => setSearch(e.target.value)}
               style={{ flex: '1', minWidth: 200, padding: '0.6rem 0.9rem', borderRadius: 8, border: '2px solid var(--border)', fontFamily: 'Outfit,sans-serif', fontSize: '0.95rem' }}
             />
@@ -4874,7 +4943,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
               {filtered.map(cust => (
                 <div key={cust.id || cust.email} onClick={() => openDetail(cust)}
-                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.1rem', background: 'var(--surface)', borderRadius: 12, border: '2px solid rgba(38,131,251,0.45)', cursor: 'pointer', transition: 'all 0.15s', flexWrap: 'wrap', gap: '0.5rem' }}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.1rem', background: 'var(--surface)', borderRadius: 12, border: '1px solid #cbd5e1', cursor: 'pointer', transition: 'all 0.15s', flexWrap: 'wrap', gap: '0.5rem' }}
                   onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
                   onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
                 >
@@ -4885,8 +4954,11 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                     <div>
                       <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text)' }}>{cust.name || 'Unknown'}{cust.farmName ? ` — ${cust.farmName}` : ''}</div>
                       <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-                        {cust.phone && <span>📞 {cust.phone}</span>}
+                        {cust.managerContact && <span>👔 {cust.managerContact}</span>}
+                        {cust.phone && <span>📞 {fmtPhone(cust.phone)}</span>}
                         {cust.email && <span>✉️ {cust.email}</span>}
+                        {custAddress(cust) && <span>📍 {custAddress(cust)}</span>}
+                        {Array.isArray(cust.contacts) && cust.contacts.length > 0 && <span>👥 +{cust.contacts.length} contact{cust.contacts.length === 1 ? '' : 's'}</span>}
                         {matchingHorses(cust).length > 0 && <span style={{ color: 'var(--primary)', fontWeight: 600 }}>🐴 {matchingHorses(cust).join(', ')}</span>}
                       </div>
                     </div>
@@ -4917,10 +4989,10 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
           {/* Delete confirm modal */}
           {confirmDelete && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-              <div style={{ background: 'var(--surface)', color: '#1e293b', borderRadius: 16, padding: '2rem', maxWidth: 400, width: '90%', textAlign: 'center', border: '2px solid rgba(38,131,251,0.45)' }}>
+              <div style={{ background: 'var(--surface)', color: 'var(--text)', borderRadius: 16, padding: '2rem', maxWidth: 400, width: '90%', textAlign: 'center', border: '1px solid #cbd5e1' }}>
                 <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⚠️</div>
                 <h3 style={{ marginBottom: '0.5rem' }}>Delete {confirmDelete.name}?</h3>
-                <p style={{ color: '#666', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
                   This removes the customer record only. Appointments and invoices are not affected.
                 </p>
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
@@ -4928,6 +5000,356 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                   <button className="btn btn-sm" style={{ background: '#ef4444', color: '#fff' }} onClick={() => deleteCustomer(confirmDelete)}>🗑️ Delete</button>
                 </div>
               </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────
+    // HORSES VIEW — find a horse by its name or its owner's name (an owner match
+    // lists all of that customer's horses), then see its whole history: last and
+    // next service, every appointment and every invoice line for that horse
+    // (lib/horse-history.js decides what belongs to it).
+    // With `upcoming` (the Upcoming Service tab) the list is instead every horse due for
+    // service within N weeks, grouped by farm, plus each farm's other horses — the same
+    // report as mobile.html's renderUpcoming().
+    // ─────────────────────────────────────────
+    function HorsesView({ userId, upcoming }) {
+      const [weeks, setWeeks] = useState(4);
+      const [horses, setHorses] = useState([]);
+      const [customersById, setCustomersById] = useState({});
+      const [appointments, setAppointments] = useState([]);
+      const [invoices, setInvoices] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [search, setSearch] = useState('');
+      const [selected, setSelected] = useState(null);
+      const [editHorse, setEditHorse] = useState(null);
+
+      const load = async () => {
+        if (!db || !userId) return;
+        setLoading(true);
+        try {
+          // Appointments and invoices don't index horse ids, so pull the farrier's docs
+          // and match client-side (same as mobile.html's deleteHorse()).
+          const [hSnap, cSnap, aSnap, iSnap] = await Promise.all([
+            db.collection('horses').where('farrierId', '==', userId).get(),
+            db.collection('customers').where('farrierId', '==', userId).get(),
+            db.collection('appointments').where('farrierId', '==', userId).get(),
+            db.collection('invoices').where('farrierId', '==', userId).get(),
+          ]);
+          const custs = {};
+          cSnap.docs.forEach(d => { custs[d.id] = { id: d.id, ...d.data() }; });
+          const list = hSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          setCustomersById(custs);
+          setHorses(list);
+          setAppointments(aSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+          setInvoices(iSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+          setSelected(prev => prev ? (list.find(h => h.id === prev.id) || null) : prev);
+        } catch (e) {
+          console.error('Error loading horses:', e);
+        }
+        setLoading(false);
+      };
+
+      useEffect(() => { load(); }, [userId]);
+
+      const ownerName = (h) => customersById[h.customerId]?.name || h.customerName || 'No owner';
+
+      const fmtDay = (d) => d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+      const fmtMoney = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+      const statusColor = { pending: '#f59e0b', confirmed: '#10b981', cancelled: '#ef4444', invoiced: '#6366f1', completed: '#10b981' };
+      const invStatusColor = { paid: '#10b981', outstanding: '#ef4444', partial: '#f59e0b' };
+      const pill = (text, color) => (
+        <span style={{ padding: '0.15rem 0.6rem', borderRadius: 20, fontSize: '0.75rem', fontWeight: 700, background: `${color}22`, color, textTransform: 'capitalize' }}>{text}</span>
+      );
+      const rowStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: 'rgba(38,131,251,0.08)', borderRadius: 8, flexWrap: 'wrap', gap: '0.5rem' };
+
+      // ── HORSE DETAIL ──
+      if (selected) {
+        const hist = window.FarriHorseHistory.build(selected, appointments, invoices);
+        const owner = customersById[selected.customerId];
+        const next = hist.nextService;
+        const profile = [
+          ['Breed', selected.breed], ['Color', selected.color], ['Sex', selected.sex], ['Date of Birth', selected.dob],
+          ['Shoeing Cycle', selected.shoeingCycleWeeks ? `${selected.shoeingCycleWeeks} weeks` : ''],
+          ['Shoe Size', selected.shoeSize], ['Shoe Type', selected.shoeType],
+          ['Gait Notes', selected.gaitNotes], ['Hoof Notes', selected.hoofNotes], ['Known Issues', selected.knownIssues],
+        ].filter(([, v]) => v);
+
+        return (
+          <div>
+            <button className="btn btn-sm btn-outline" onClick={() => setSelected(null)} style={{ marginBottom: '1rem' }}>← Back to {upcoming ? 'Upcoming Service' : 'Horses'}</button>
+
+            <div className="card" style={{ marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+                <div>
+                  <h2 style={{ margin: '0 0 0.25rem', color: 'var(--primary)', fontSize: '1.6rem' }}>🐴 {selected.name || 'Unnamed'}</h2>
+                  <div style={{ fontSize: '0.95rem', color: 'var(--text)' }}>
+                    👤 {ownerName(selected)}
+                    {owner?.farmName && <span style={{ color: 'var(--text-muted)' }}> · 🏠 {owner.farmName}</span>}
+                    {owner?.phone && <span style={{ color: 'var(--text-muted)' }}> · 📞 {fmtPhone(owner.phone)}</span>}
+                  </div>
+                </div>
+                <button className="btn btn-sm btn-outline" onClick={() => setEditHorse(selected)}>✏️ Edit Horse</button>
+              </div>
+              {profile.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.5rem 1rem', marginTop: '1rem' }}>
+                  {profile.map(([label, v]) => (
+                    <div key={label}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+                      <div style={{ fontSize: '0.92rem', color: 'var(--text)', whiteSpace: 'pre-wrap' }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(selected.photos || []).length > 0 && (
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '1rem' }}>
+                  {selected.photos.map((p, i) => (
+                    <a key={p.storagePath || i} href={p.url} target="_blank" rel="noopener noreferrer">
+                      <img src={p.url} alt="" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+              {[
+                { icon: '🔧', label: 'Last Service', val: hist.lastService ? fmtDay(hist.lastService.date) : 'None yet', sub: hist.lastService?.label, color: '#10b981' },
+                { icon: '📅', label: next?.estimated ? (next.overdue ? 'Next Service (overdue)' : 'Next Service (estimated)') : 'Next Service',
+                  val: next ? fmtDay(next.date) : 'Not scheduled',
+                  sub: next ? next.label : (selected.shoeingCycleWeeks ? '' : 'Set a shoeing cycle to estimate'),
+                  color: next?.overdue ? '#ef4444' : '#2683FB' },
+                { icon: '📋', label: 'Appointments', val: hist.appointments.length, color: '#8b5cf6' },
+                { icon: '💰', label: 'Billed for this horse', val: fmtMoney(hist.totalBilled), sub: `${hist.invoices.length} invoice${hist.invoices.length === 1 ? '' : 's'}`, color: '#f59e0b' },
+              ].map(s => (
+                <div key={s.label} style={{ background: 'var(--surface)', borderRadius: 12, padding: '1rem 1.25rem', boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.05)', border: `2px solid ${s.color}22` }}>
+                  <div style={{ fontSize: '1.4rem' }}>{s.icon}</div>
+                  <div style={{ fontSize: '1.3rem', fontWeight: 700, color: s.color }}>{s.val}</div>
+                  <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{s.label}</div>
+                  {s.sub && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{s.sub}</div>}
+                </div>
+              ))}
+            </div>
+
+            <div className="card" style={{ marginBottom: '1rem' }}>
+              <h2 style={{ marginBottom: '1rem', fontSize: '1.1rem', color: 'var(--primary)' }}>📋 Appointments</h2>
+              {hist.appointments.length === 0 ? (
+                <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1rem', fontSize: '0.9rem' }}>No appointments for this horse yet.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {hist.appointments.map(apt => (
+                    <div key={apt.id} style={rowStyle}>
+                      <div>
+                        <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{fmtDay(apt.date)} {apt.requestedTime ? `at ${apt.requestedTime}` : ''}</span>
+                        {hist.upcoming.includes(apt) && <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: '#2683FB', fontWeight: 700 }}>UPCOMING</span>}
+                        {apt.horseServices.length > 0 && (
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text)', opacity: 0.85, marginTop: '0.2rem' }}>🔧 {apt.horseServices.join(', ')}</div>
+                        )}
+                        {apt.comments && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>💬 {apt.comments}</div>}
+                      </div>
+                      {pill(apt.status || 'pending', statusColor[apt.status] || '#94a3b8')}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="card">
+              <h2 style={{ marginBottom: '1rem', fontSize: '1.1rem', color: 'var(--primary)' }}>💰 Invoices</h2>
+              {hist.invoices.length === 0 ? (
+                <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1rem', fontSize: '0.9rem' }}>No invoices for this horse yet.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {hist.invoices.map(inv => (
+                    <div key={inv.id} style={rowStyle}>
+                      <div>
+                        <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Invoice #{inv.invoiceNumber || inv.id.slice(-6).toUpperCase()}</span>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{fmtDay(inv.date)}</div>
+                        {inv.horseLines.map((l, i) => (
+                          <div key={i} style={{ fontSize: '0.8rem', color: 'var(--text)', opacity: 0.85 }}>
+                            🔧 {l.description || 'Service'}{Number(l.qty) > 1 ? ` × ${l.qty}` : ''} — {fmtMoney(Number(l.amount) || 0)}
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontWeight: 700, fontSize: '1rem' }}>{fmtMoney(inv.horseTotal)}</div>
+                        {inv.horseTotal !== Number(inv.total) && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>of {fmtMoney(inv.total)} invoice</div>}
+                        {pill(inv.status || 'outstanding', invStatusColor[inv.status] || '#94a3b8')}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {editHorse && (
+              <HorseEditModal
+                horse={editHorse}
+                customer={{ id: editHorse.customerId || '', name: ownerName(editHorse) }}
+                userId={userId}
+                onClose={() => setEditHorse(null)}
+                onSaved={() => load()}
+              />
+            )}
+          </div>
+        );
+      }
+
+      // ── UPCOMING SERVICE ── a farm appears when at least one of its horses is due within
+      // `weeks`; due horses first, then the owner's other horses. Farms by earliest due date.
+      if (upcoming) {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const end = new Date(today.getTime() + weeks * 7 * 86400e3);
+        const all = horses.map(h => ({ h, hist: window.FarriHorseHistory.build(h, appointments, invoices) }));
+        const isDue = x => x.hist.nextService && x.hist.nextService.date < end;
+        const byFarm = {};
+        all.forEach(x => {
+          const key = x.h.customerId || ownerName(x.h);
+          (byFarm[key] = byFarm[key] || { owner: customersById[x.h.customerId], name: ownerName(x.h), due: [], other: [] })[isDue(x) ? 'due' : 'other'].push(x);
+        });
+        const byNext = (a, b) => (a.hist.nextService?.date || Infinity) - (b.hist.nextService?.date || Infinity);
+        const farms = Object.values(byFarm).filter(g => g.due.length);
+        farms.forEach(g => { g.due.sort(byNext); g.other.sort(byNext); });
+        farms.sort((a, b) => a.due[0].hist.nextService.date - b.due[0].hist.nextService.date);
+        const dueCount = farms.reduce((n, g) => n + g.due.length, 0);
+        const overdue = farms.reduce((n, g) => n + g.due.filter(x => x.hist.nextService.overdue).length, 0);
+        const noDate = all.filter(x => !x.hist.nextService).length;
+        const horseRow = ({ h, hist }, muted) => {
+          const next = hist.nextService;
+          const tag = !next ? pill('no due date', '#94a3b8')
+            : !next.estimated ? pill('booked', '#10b981')
+            : next.overdue ? pill('overdue', '#ef4444')
+            : muted ? pill('next', '#94a3b8') : pill('due', '#f59e0b');
+          return (
+            <div key={h.id} onClick={() => setSelected(h)} style={{ ...rowStyle, cursor: 'pointer', ...(muted ? { background: 'transparent', border: '1px solid var(--border)', opacity: 0.75 } : {}) }}>
+              <div>
+                <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>🐴 {h.name || 'Unnamed'}</span>
+                {h.breed && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}> — {h.breed}</span>}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', color: 'var(--text-muted)', fontSize: '0.8rem', flexWrap: 'wrap' }}>
+                {next && <span style={{ fontWeight: 600, color: next.overdue ? '#ef4444' : undefined }}>{fmtDay(next.date)}</span>}
+                {tag}
+                <span>Last: {hist.lastService ? fmtDay(hist.lastService.date) : '—'}</span>
+                <span>›</span>
+              </div>
+            </div>
+          );
+        };
+        return (
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <h2 style={{ margin: 0, color: 'var(--primary)' }}>🔔 Upcoming Service</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>Due in the next</span>
+                {[1, 2, 4, 6, 8].map(w => (
+                  <button key={w} className={`btn btn-sm ${weeks === w ? 'btn-primary' : 'btn-outline'}`} onClick={() => setWeeks(w)}>{w} wk{w === 1 ? '' : 's'}</button>
+                ))}
+              </div>
+            </div>
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>⏳ Loading horses…</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {farms.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No horses due in the next {weeks} week{weeks === 1 ? '' : 's'}.</div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', fontWeight: 700 }}>
+                      {dueCount} horse{dueCount === 1 ? '' : 's'} due at {farms.length} farm{farms.length === 1 ? '' : 's'}
+                      {overdue > 0 && pill(`${overdue} overdue`, '#ef4444')}
+                    </div>
+                    {farms.map(g => (
+                      <div key={g.due[0].h.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '0.9rem' }}>
+                        <div style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '1.05rem' }}>{g.owner?.farmName || g.name}</div>
+                        {g.owner?.farmName && <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>👤 {g.name}</div>}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.6rem' }}>
+                          {g.due.map(x => horseRow(x, false))}
+                        </div>
+                        {g.other.length > 0 && (
+                          <>
+                            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '0.8rem 0 0.4rem' }}>Also at this farm · not due yet</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                              {g.other.map(x => horseRow(x, true))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </>
+                )}
+                {noDate > 0 && (
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    {noDate} horse{noDate === 1 ? ' has' : 's have'} no appointment or shoeing cycle, so no due date. Set a shoeing cycle on the horse to include it.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // ── HORSE LIST ── search matches the horse's name or its owner's name / farm, so
+      // typing a customer's name lists all of that customer's horses.
+      const q = search.trim().toLowerCase();
+      const filtered = horses.filter(h => {
+        if (!q) return true;
+        const owner = customersById[h.customerId];
+        return [h.name, ownerName(h), owner?.farmName, h.breed].some(v => String(v || '').toLowerCase().includes(q));
+      });
+      const groups = {};
+      filtered.forEach(h => { (groups[ownerName(h)] = groups[ownerName(h)] || []).push(h); });
+      const owners = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+      owners.forEach(o => groups[o].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))));
+
+      return (
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <h2 style={{ margin: 0, color: 'var(--primary)' }}>🐴 Horses ({filtered.length})</h2>
+          </div>
+          <input
+            type="text" placeholder="🔍 Search by horse name or customer name…" autoFocus
+            value={search} onChange={e => setSearch(e.target.value)}
+            style={{ width: '100%', padding: '0.75rem', borderRadius: 8, border: '2px solid var(--border)', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', boxSizing: 'border-box', marginBottom: '1.25rem' }}
+          />
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>⏳ Loading horses…</div>
+          ) : owners.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+              {horses.length === 0 ? 'No horses on file yet. Add horses from a customer\'s record.' : 'No horses or customers match your search.'}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {owners.map(o => (
+                <div key={o}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.4rem' }}>
+                    👤 {o} · {groups[o].length} horse{groups[o].length === 1 ? '' : 's'}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    {groups[o].map(h => {
+                      const hist = window.FarriHorseHistory.build(h, appointments, invoices);
+                      return (
+                        <div key={h.id} onClick={() => setSelected(h)} style={{ ...rowStyle, cursor: 'pointer' }}>
+                          <div>
+                            <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{h.name || 'Unnamed'}</span>
+                            {h.breed && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}> — {h.breed}</span>}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', color: 'var(--text-muted)', fontSize: '0.8rem', flexWrap: 'wrap' }}>
+                            <span>Last: {hist.lastService ? fmtDay(hist.lastService.date) : '—'}</span>
+                            <span style={{ color: hist.nextService?.overdue ? '#ef4444' : undefined }}>
+                              Next: {hist.nextService ? fmtDay(hist.nextService.date) + (hist.nextService.estimated ? '*' : '') : '—'}
+                            </span>
+                            <span>›</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>* estimated from the last service and the horse's shoeing cycle</div>
             </div>
           )}
         </div>
@@ -5118,7 +5540,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                 const isActive = b.active !== false;
                 return (
                   <div key={b.id}
-                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.1rem', background: 'var(--surface)', borderRadius: 12, border: '2px solid rgba(38,131,251,0.45)', flexWrap: 'wrap', gap: '0.75rem' }}
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.1rem', background: 'var(--surface)', borderRadius: 12, border: '1px solid #cbd5e1', flexWrap: 'wrap', gap: '0.75rem' }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', minWidth: 0 }}>
                       <div style={{ width: 88, height: 48, borderRadius: 8, background: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0, border: '1px solid var(--border)' }}>
@@ -5150,10 +5572,10 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
 
           {confirmDelete && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-              <div style={{ background: 'var(--surface)', color: '#1e293b', borderRadius: 16, padding: '2rem', maxWidth: 400, width: '90%', textAlign: 'center', border: '2px solid rgba(38,131,251,0.45)' }}>
+              <div style={{ background: 'var(--surface)', color: 'var(--text)', borderRadius: 16, padding: '2rem', maxWidth: 400, width: '90%', textAlign: 'center', border: '1px solid #cbd5e1' }}>
                 <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⚠️</div>
                 <h3 style={{ marginBottom: '0.5rem' }}>Delete {confirmDelete.businessName}?</h3>
-                <p style={{ color: '#666', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
                   This removes the banner permanently. If you just want to hide it temporarily, use the Active toggle instead.
                 </p>
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
@@ -5587,8 +6009,8 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
         setSending(false);
       };
 
-      const inputStyle = { width: '100%', padding: '0.75rem', borderRadius: 8, border: '2px solid rgba(38,131,251,0.45)', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', boxSizing: 'border-box', background: 'rgba(22,32,50,0.95)', color: 'var(--text)', colorScheme: 'dark' };
-      const cardStyle = { background: 'var(--surface)', borderRadius: 12, padding: '1.5rem', boxShadow: '0 2px 12px rgba(0,0,0,0.3)', marginBottom: '1.25rem', border: '2px solid rgba(38,131,251,0.45)', color: 'var(--text)' };
+      const inputStyle = { width: '100%', padding: '0.75rem', borderRadius: 8, border: '1px solid #cbd5e1', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', boxSizing: 'border-box', background: '#fff', color: 'var(--text)', colorScheme: 'light' };
+      const cardStyle = { background: 'var(--surface)', borderRadius: 12, padding: '1.5rem', boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.05)', marginBottom: '1.25rem', border: '1px solid #cbd5e1', color: 'var(--text)' };
 
       return (
         <div style={{ maxWidth: 680, margin: '0 auto' }}>
@@ -5649,7 +6071,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
             )}
 
             {routeGenerated && totalDistance && (
-              <div style={{ padding: '0.6rem 1rem', background: '#0d2a15', border: '1.5px solid #4ade80', borderRadius: 8, marginBottom: '1rem', fontSize: '0.9rem', color: '#4ade80', fontWeight: 600 }}>
+              <div style={{ padding: '0.6rem 1rem', background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 8, marginBottom: '1rem', fontSize: '0.9rem', color: '#166534', fontWeight: 600 }}>
                 🚗 Optimised route · {totalDistance} mi · ~{totalDuration} min driving
               </div>
             )}
@@ -5708,7 +6130,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                       {c.name}{c.farmName ? <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> — {c.farmName}</span> : ''}
                     </div>
                     <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                      {c.phone && <span style={{ marginRight: '0.75rem' }}>📞 {c.phone}</span>}
+                      {c.phone && <span style={{ marginRight: '0.75rem' }}>📞 {fmtPhone(c.phone)}</span>}
                       {c.address && <span>📍 {[c.address, c.city, c.state].filter(Boolean).join(', ')}</span>}
                     </div>
                     {c.services?.length > 0 && (
@@ -5719,7 +6141,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                         📅 Next appt: {c.nextAppt.requestedDate} {c.nextAppt.requestedTime ? `at ${c.nextAppt.requestedTime}` : ''}
                       </div>
                     ) : (
-                      <div style={{ fontSize: '0.8rem', marginTop: 3, color: '#4ade80', fontWeight: 600 }}>
+                      <div style={{ fontSize: '0.8rem', marginTop: 3, color: '#166534', fontWeight: 600 }}>
                         ✅ No upcoming appointment scheduled
                       </div>
                     )}
@@ -5758,12 +6180,53 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
               </div>
 
               {sendResult && (
-                <div style={{ marginTop: '0.75rem', padding: '0.7rem 1rem', background: '#0d2a15', borderRadius: 8, border: '1.5px solid #4ade80', fontSize: '0.92rem', fontWeight: 600, color: '#4ade80' }}>
+                <div style={{ marginTop: '0.75rem', padding: '0.7rem 1rem', background: '#f0fdf4', borderRadius: 8, border: '1.5px solid #86efac', fontSize: '0.92rem', fontWeight: 600, color: '#16a34a' }}>
                   {sendResult}
                 </div>
               )}
             </div>
           )}
+        </div>
+      );
+    }
+
+    // Business dashboard for owners and managers — lib/owner-dashboard.js does the math and
+    // drawing (the mobile app's Business Dashboard uses the same file). Read-only.
+    function OwnerDashboardView({ userId }) {
+      const boxRef = React.useRef(null);
+      const [state, setState] = useState({ loading: true, error: '', stamp: 0 });
+      const load = async () => {
+        setState(s => ({ ...s, loading: true, error: '' }));
+        try {
+          const [invSnap, apptSnap, team] = await Promise.all([
+            db.collection('invoices').where('farrierId', '==', userId).get(),
+            db.collection('appointments').where('farrierId', '==', userId).get(),
+            fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'team_status' }) })
+              .then(r => r.json()).catch(() => null),
+          ]);
+          const names = { [userId]: 'Owner' };
+          for (const m of (team?.members || [])) names[m.uid] = m.name || m.email;
+          const stats = window.FarriOwnerDash.compute(
+            invSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+            apptSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+            { names, ownerId: userId });
+          window.FarriOwnerDash.render(boxRef.current, stats, { dark: true });
+          setState({ loading: false, error: '', stamp: Date.now() });
+        } catch (e) {
+          console.error('Business dashboard error:', e);
+          setState({ loading: false, error: 'Couldn’t load the dashboard. Please try again.', stamp: 0 });
+        }
+      };
+      useEffect(() => { if (userId) load(); }, [userId]);
+      return (
+        <div>
+          <div style={{display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap'}}>
+            <h1 style={{fontSize: '2rem', color: 'var(--primary)', margin: 0}}>Business Dashboard</h1>
+            <button className="btn btn-sm btn-outline" onClick={load} disabled={state.loading} style={{marginLeft: 'auto'}}>{state.loading ? 'Loading…' : '↻ Refresh'}</button>
+          </div>
+          {state.error && <div className="error-message">{state.error}</div>}
+          {state.loading && !state.stamp && <div style={{color: 'var(--text-muted)'}}>Loading your numbers…</div>}
+          <div ref={boxRef} />
         </div>
       );
     }
@@ -6354,7 +6817,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                           ></div>
                         </div>
                         <div style={{textAlign: 'center'}}>
-                          <div style={{fontSize: '0.75rem', fontWeight: '600', color: '#1e293b', marginBottom: '0.25rem'}}>
+                          <div style={{fontSize: '0.75rem', fontWeight: '600', color: 'var(--text)', marginBottom: '0.25rem'}}>
                             {bucket.label}
                           </div>
                           <div style={{fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '0.5rem'}}>
@@ -6659,7 +7122,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                               <div style={{marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid #e5e7eb'}}>
                                 {inv.items.map((item, idx) => (
                                   <div key={idx} style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.25rem'}}>
-                                    • {item.description}{item.horseName ? ` (${item.horseName})` : ''} - ${parseFloat(item.amount || 0).toFixed(2)}
+                                    • {item.description}{FarriPricing.itemHorseLabel(item) ? ` (${FarriPricing.itemHorseLabel(item)})` : ''} - ${parseFloat(item.amount || 0).toFixed(2)}
                                   </div>
                                 ))}
                               </div>
@@ -6988,7 +7451,7 @@ function ServicesView({ userId }) {
                 <div style={{ padding: '1.25rem', borderRadius: 12, background: 'var(--surface)', border: '2px solid var(--primary)', marginBottom: '1rem' }}>
                   <div style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: '0.35rem' }}>📋 Build your inventory from our supply catalog?</div>
                   <div style={{ color: 'var(--text-muted)', marginBottom: '0.9rem' }}>
-                    Tick the shoes, nails, pads and tools you carry — brand, size, part number and list price come filled in. You just count what's on the truck.
+                    Tick the shoes, nails, pads and tools you carry — brand, size and part number come filled in. You just count what's on the truck.
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button className="btn btn-primary" onClick={() => setCatalogOpen(true)}>Browse catalog</button>
@@ -7117,9 +7580,9 @@ function ServicesView({ userId }) {
             const isOwned = owned.has(inventoryCatalogKey(p.t, v[0]));
             const on = isOwned || selected.has(key);
             return (
-              <label key={vi} title={v[1] ? `Part # ${v[1]}` : ''} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.25rem 0.55rem', borderRadius: 999, border: `2px solid ${on ? 'var(--primary)' : 'var(--border)'}`, fontSize: '0.85rem', cursor: isOwned ? 'default' : 'pointer', opacity: isOwned ? 0.5 : 1 }}>
+              <label key={vi} title={v[1] ? `Part # ${v[1]}` : ''} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.25rem 0.55rem', borderRadius: 999, border: `2px solid ${isOwned ? '#22c55e' : on ? 'var(--primary)' : 'var(--border)'}`, fontSize: '0.85rem', cursor: isOwned ? 'default' : 'pointer' }} {...(isOwned ? { title: 'Already in your inventory' } : {})}>
                 <input type="checkbox" checked={on} disabled={isOwned} onChange={() => toggleKey(key)} style={{ margin: 0 }} />
-                {v[0] || 'Standard'}{v[2] ? <span style={{ color: 'var(--text-muted)' }}> · ${Number(v[2]).toFixed(2)}</span> : null}
+                {v[0] || 'Standard'}{isOwned && <span style={{ color: '#22c55e' }}> ✓</span>}
               </label>
             );
           })}
@@ -7134,10 +7597,10 @@ function ServicesView({ userId }) {
           const key = `fd:${pi}:0`;
           const isOwned = owned.has(inventoryCatalogKey(p.t, ''));
           return (
-            <label key={pi} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0', opacity: isOwned ? 0.5 : 1, cursor: isOwned ? 'default' : 'pointer' }}>
+            <label key={pi} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0', cursor: isOwned ? 'default' : 'pointer' }}>
               <input type="checkbox" checked={isOwned || selected.has(key)} disabled={isOwned} onChange={() => toggleKey(key)} />
               <span style={{ flex: 1 }}>{p.t}{p.b ? <span style={{ color: 'var(--text-muted)' }}> — {p.b}</span> : null}</span>
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{isOwned ? 'already added' : p.v[0][2] ? `$${Number(p.v[0][2]).toFixed(2)}` : ''}</span>
+              {isOwned && <span style={{ color: '#22c55e', fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap' }}>✓ In inventory</span>}
             </label>
           );
         }
@@ -7213,7 +7676,7 @@ function ServicesView({ userId }) {
             </div>
             <p style={{ margin: '0 0 0.75rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
               {tab === 'fd'
-                ? 'Pick the sizes you carry. Brand, size, part number and list price are filled in — click Edit afterwards to set quantity, reorder level, or your actual cost.'
+                ? 'Pick the sizes you carry. Brand, size and part number are filled in — click Edit afterwards to set quantity, reorder level and your cost.'
                 : "For anything not in the supply catalog. They're added with a quantity of 0 — click Edit on each to fill in details."}
             </p>
             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
@@ -7269,10 +7732,10 @@ function ServicesView({ userId }) {
                       {genVisible.filter(v => v.entry.category === cat).map(({ entry, idx }) => {
                         const isOwned = owned.has(inventoryCatalogKey(entry.name, ''));
                         return (
-                          <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', opacity: isOwned ? 0.5 : 1, cursor: isOwned ? 'default' : 'pointer' }}>
+                          <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', cursor: isOwned ? 'default' : 'pointer' }}>
                             <input type="checkbox" checked={isOwned || selected.has(`gen:${idx}`)} disabled={isOwned} onChange={() => toggleKey(`gen:${idx}`)} />
                             <span style={{ flex: 1 }}>{entry.name}</span>
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{isOwned ? 'already added' : `per ${entry.unit}`}</span>
+                            {isOwned ? <span style={{ color: '#22c55e', fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap' }}>✓ In inventory</span> : <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>per {entry.unit}</span>}
                           </label>
                         );
                       })}
@@ -7283,7 +7746,7 @@ function ServicesView({ userId }) {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem', marginTop: '0.5rem' }}>
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{tab === 'fd' && fd ? `List prices as of ${fd.retrieved}` : ''}</span>
+              <span />
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button className="btn btn-outline" onClick={onClose}>Cancel</button>
                 <button className="btn btn-primary" disabled={!selected.size || saving} onClick={handleAdd}>
@@ -7900,7 +8363,7 @@ function ServicesView({ userId }) {
               invoiceDate: dateStr,
               dueDate: dateStr,
               item: item.description || item.serviceNameSnapshot || 'Service',
-              itemDescription: item.horseName ? `${item.description || ''} (${item.horseName})` : (item.description || ''),
+              itemDescription: FarriPricing.itemHorseLabel(item) ? `${item.description || ''} (${FarriPricing.itemHorseLabel(item)})` : (item.description || ''),
               itemAmount: Number(item.amount || 0).toFixed(2),
               memo: inv.notes || '',
             });
@@ -8062,8 +8525,9 @@ function ServicesView({ userId }) {
       const loadLogs = async () => {
         setLoading(true);
         try {
+          // Mileage is personal: a team member sees their own (api/_lib/team.js).
           const snap = await db.collection('mileage_logs')
-            .where('farrierId', '==', userId)
+            .where('farrierId', '==', window.FarriTeam?.member ? firebase.auth().currentUser.uid : userId)
             .get();
           const data = snap.docs
             .map(d => ({ id: d.id, ...d.data() }))
@@ -8155,8 +8619,8 @@ function ServicesView({ userId }) {
         <div style={{maxWidth: '900px', margin: '0 auto', padding: '2rem 1rem'}}>
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1.5rem', flexWrap:'wrap', gap:'1rem'}}>
             <div>
-              <h1 style={{fontSize:'1.75rem', fontWeight:'800', color:'#0D1320', margin:0}}>🚗 Mileage Log</h1>
-              <p style={{color:'#6b7280', margin:'4px 0 0', fontSize:'0.9rem'}}>Track miles driven for tax deductions</p>
+              <h1 style={{fontSize:'1.75rem', fontWeight:'800', color:'var(--text)', margin:0}}>🚗 Mileage Log</h1>
+              <p style={{color:'var(--text-muted)', margin:'4px 0 0', fontSize:'0.9rem'}}>Track miles driven for tax deductions</p>
             </div>
             <button onClick={handlePrint} style={{background:'#0F766E', color:'white', border:'none', borderRadius:'10px', padding:'10px 20px', fontWeight:'700', fontSize:'0.9rem', cursor:'pointer'}}>
               🖨️ Print / Export
@@ -8190,7 +8654,7 @@ function ServicesView({ userId }) {
 
           {/* Table */}
           {loading ? (
-            <div style={{textAlign:'center', padding:'3rem', color:'#6b7280'}}>Loading…</div>
+            <div style={{textAlign:'center', padding:'3rem', color:'var(--text-muted)'}}>Loading…</div>
           ) : filtered.length === 0 ? (
             <div style={{textAlign:'center', padding:'3rem', color:'#6b7280', background:'white', borderRadius:'12px', border:'1.5px solid #e5e7eb'}}>
               No mileage entries for this period.<br/>
@@ -8476,7 +8940,7 @@ function ServicesView({ userId }) {
                 <h3 style={{fontSize: '1.25rem', marginBottom: '1rem', color: 'var(--primary)'}}>
                   📞 Support
                 </h3>
-                <p style={{fontSize: '1.125rem', color: '#1e293b', marginBottom: '0.5rem'}}>
+                <p style={{fontSize: '1.125rem', color: 'var(--text)', marginBottom: '0.5rem'}}>
                   Need help? We're here for you!
                 </p>
                 <a 
@@ -8737,7 +9201,7 @@ function ServicesView({ userId }) {
             <span>
               Google Calendar: {userProfile?.googleCalendarConnected ? 'Connected ✓' : 'Not Connected'}
               {userProfile?.googleCalendarConnected && userProfile?.googleCalendarEmail && (
-                <span style={{marginLeft: '0.5rem', fontSize: '0.8rem', color: '#6b7280', fontWeight: '400'}}>
+                <span style={{marginLeft: '0.5rem', fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '400'}}>
                   ({userProfile.googleCalendarEmail})
                 </span>
               )}
@@ -9442,7 +9906,7 @@ function ServicesView({ userId }) {
                   <div style={{marginBottom: '1rem', color: '#475569', textAlign: 'left'}}>
                     <div><strong>Name:</strong> {formData.name}</div>
                     {formData.farmName && <div><strong>Farm:</strong> {formData.farmName}</div>}
-                    <div><strong>Phone:</strong> {formData.phone}</div>
+                    <div><strong>Phone:</strong> {fmtPhone(formData.phone)}</div>
                     {formData.email && <div><strong>Email:</strong> {formData.email}</div>}
                     <div><strong>Horses/Services:</strong> {horseRows.filter(r => r.horseName.trim() || r.services.length > 0).length
                       ? horseRows.filter(r => r.horseName.trim() || r.services.length > 0)
@@ -9962,243 +10426,276 @@ function ServicesView({ userId }) {
 }
 
 function CalendarView({ userId }) {
-      const [currentDate, setCurrentDate] = useState(new Date());
+      // Month / Week / Day calendar of the farrier's appointments, plus the horses actually
+      // worked on each day. "Horses done" comes from that day's invoice lines (one per horse),
+      // topped up with horses on that day's completed/invoiced appointments that no invoice
+      // line already covers.
+      const [view, setView] = useState('month');
+      const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); });
       const [appointments, setAppointments] = useState([]);
+      const [invoices, setInvoices] = useState([]);
       const [loading, setLoading] = useState(true);
 
       useEffect(() => {
-        loadAppointments();
-      }, []);
-
-      const loadAppointments = async () => {
-        if (db) {
+        if (!db || !userId) { setLoading(false); return; }
+        (async () => {
           try {
-            const snapshot = await db.collection('appointments')
-              .where('farrierId', '==', userId)
-              .get();
-            
-            const appointmentData = snapshot.docs.map(doc => {
-              const data = doc.data();
-              
-              // Clean up time format: convert "HH:MM:SS" to "HH:MM"
-              if (data.requestedTime && data.requestedTime.includes(':')) {
-                const timeParts = data.requestedTime.split(':');
-                if (timeParts.length === 3) {
-                  data.requestedTime = `${timeParts[0]}:${timeParts[1]}`;
-                }
-              }
-          
-              return {
-                id: doc.id,
-                ...data
-              };
-            });
-            
-            setAppointments(appointmentData);
-            console.log('✅ Loaded appointments for calendar:', appointmentData.length);
+            const [aSnap, iSnap] = await Promise.all([
+              db.collection('appointments').where('farrierId', '==', userId).get(),
+              db.collection('invoices').where('farrierId', '==', userId).get(),
+            ]);
+            setAppointments(aSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setInvoices(iSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
           } catch (error) {
-            console.error('❌ Error loading appointments:', error);
+            console.error('❌ Error loading calendar:', error);
           }
+          setLoading(false);
+        })();
+      }, [userId]);
+
+      const pad = (n) => String(n).padStart(2, '0');
+      const keyOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+      const todayKey = keyOf(new Date());
+      const toDate = (v) => v?.toDate ? v.toDate() : (typeof v?.seconds === 'number' ? new Date(v.seconds * 1000) : (v ? new Date(v) : null));
+      const fmtTime = (t) => {
+        if (!t || !t.includes(':')) return '';
+        const [h, m] = t.split(':').map(Number);
+        return `${h % 12 || 12}:${pad(m || 0)} ${h >= 12 ? 'PM' : 'AM'}`;
+      };
+      const norm = (s) => String(s || '').trim().toLowerCase();
+
+      // Horses booked on an appointment: per-horse requests, else the plain horse names.
+      const horsesOf = (a) => {
+        if (Array.isArray(a.horseRequests) && a.horseRequests.length) {
+          return a.horseRequests.map(r => ({ name: r.horseName || 'Horse', services: r.services || [] }));
         }
-        setLoading(false);
+        return (a.horseNames || []).map(n => ({ name: n, services: a.services || [] }));
       };
 
-      // Count appointments by date
-      const getAppointmentCounts = () => {
-        const counts = {};
-        appointments.forEach(apt => {
-          if (apt.requestedDate) {
-            const date = apt.requestedDate; // Format: "2026-02-15"
-            if (!counts[date]) {
-              counts[date] = { confirmed: 0, pending: 0, total: 0 };
-            }
-            counts[date].total++;
-            // Handle status - if not set or 'pending', treat as pending
-            const status = apt.status || 'pending';
-            
-            if (status === 'confirmed') {
-              counts[date].confirmed++;
-            } else {
-              // Treat everything else (pending, undefined, null) as pending
-              counts[date].pending++;
-            }
-            
-            console.log(`📅 Date: ${date}, Status: ${status}, Counts:`, counts[date]);
-          }
+      const byDay = React.useMemo(() => {
+        const days = {};
+        const day = (k) => (days[k] = days[k] || { appts: [], done: [] });
+        appointments.forEach(a => {
+          if (!a.requestedDate) return;
+          day(a.requestedDate).appts.push(a);
         });
-        console.log('📊 Final appointment counts:', counts);
-        return counts;
+        Object.values(days).forEach(d => d.appts.sort((x, y) => String(x.requestedTime || '99').localeCompare(String(y.requestedTime || '99'))));
+
+        // Horses done: invoice lines on the invoice's date…
+        invoices.forEach(inv => {
+          if (inv.status === 'cancelled') return;
+          const d = toDate(inv.createdAt);
+          if (!d || isNaN(d)) return;
+          const k = keyOf(d);
+          const perHorse = {};
+          (inv.items || []).forEach(it => {
+            // "Multiple horses × 10" for a group line, so the day's recap shows how many.
+            const horse = FarriPricing.itemHorseLabel({ horseName: it.horseName, qty: it.qty });
+            if (!horse) return;
+            const id = norm(horse);
+            perHorse[id] = perHorse[id] || { horse, customer: inv.customerName || '', farm: inv.customerFarmName || '', services: [], invoiceNumber: inv.invoiceNumber || '' };
+            const svc = it.serviceNameSnapshot || it.description || it.serviceName;
+            if (svc) perHorse[id].services.push(svc);
+          });
+          Object.values(perHorse).forEach(h => day(k).done.push(h));
+        });
+        // …plus horses on completed/invoiced appointments that day not already listed.
+        Object.entries(days).forEach(([k, d]) => {
+          d.appts.forEach(a => {
+            if (!(a.status === 'completed' || a.status === 'invoiced' || a.invoiced)) return;
+            horsesOf(a).forEach(h => {
+              const dup = d.done.some(x => norm(x.horse) === norm(h.name) && norm(x.customer) === norm(a.customerName));
+              if (!dup) d.done.push({ horse: h.name, customer: a.customerName || '', farm: a.farmName || '', services: h.services, invoiceNumber: '' });
+            });
+          });
+        });
+        return days;
+      }, [appointments, invoices]);
+
+      const dayData = (k) => byDay[k] || { appts: [], done: [] };
+      const live = (a) => a.status !== 'cancelled';
+
+      // ── navigation ──
+      const step = (dir) => {
+        if (view === 'month') setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + dir, 1));
+        else setCursor(addDays(cursor, dir * (view === 'week' ? 7 : 1)));
+      };
+      const goToday = () => { const d = new Date(); setCursor(new Date(d.getFullYear(), d.getMonth(), d.getDate())); };
+      const openDay = (d) => { setCursor(d); setView('day'); };
+      const weekStart = addDays(cursor, -cursor.getDay());
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const title = view === 'month'
+        ? `${monthNames[cursor.getMonth()]} ${cursor.getFullYear()}`
+        : view === 'week'
+          ? `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${addDays(weekStart, 6).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+          : cursor.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+      const statusStyle = (s) => ({
+        confirmed: { bg: '#dcfce7', fg: '#166534', label: 'Confirmed' },
+        completed: { bg: '#dbeafe', fg: '#1e40af', label: 'Completed' },
+        invoiced: { bg: '#e0e7ff', fg: '#3730a3', label: 'Invoiced' },
+        cancelled: { bg: '#fee2e2', fg: '#991b1b', label: 'Cancelled' },
+      }[s] || { bg: '#fef3c7', fg: '#92400e', label: s ? s[0].toUpperCase() + s.slice(1) : 'Pending' });
+      const pill = (bg, fg, text) => <span style={{ background: bg, color: fg, borderRadius: 999, padding: '0.1rem 0.5rem', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>{text}</span>;
+      const horseCount = (k) => dayData(k).done.length;
+
+      // ── Month ──
+      const renderMonth = () => {
+        const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+        const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+        const cells = [];
+        for (let i = 0; i < first.getDay(); i++) cells.push(<div key={`e${i}`} className="calendar-day" style={{ aspectRatio: 'auto', minHeight: 96 }} />);
+        for (let i = 1; i <= daysInMonth; i++) {
+          const d = new Date(cursor.getFullYear(), cursor.getMonth(), i);
+          const k = keyOf(d);
+          const appts = dayData(k).appts.filter(live);
+          const confirmed = appts.filter(a => a.status === 'confirmed').length;
+          const other = appts.length - confirmed;
+          const horses = horseCount(k);
+          cells.push(
+            <div key={k} className="calendar-day" onClick={() => openDay(d)} title="Open this day"
+              style={{ aspectRatio: 'auto', minHeight: 96, flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', padding: '0.4rem', gap: '0.25rem' }}>
+              <div style={{ alignSelf: 'flex-end', fontWeight: 700, width: 26, height: 26, lineHeight: '26px', textAlign: 'center', borderRadius: '50%',
+                background: k === todayKey ? 'var(--primary)' : 'transparent', color: k === todayKey ? '#fff' : 'var(--text)' }}>{i}</div>
+              {confirmed > 0 && pill('#dcfce7', '#166534', `✓ ${confirmed} confirmed`)}
+              {other > 0 && pill('#fef3c7', '#92400e', `⏳ ${other} ${other === 1 ? 'appt' : 'appts'}`)}
+              {horses > 0 && pill('#dbeafe', '#1e40af', `🐴 ${horses} done`)}
+            </div>
+          );
+        }
+        return (
+          <div className="calendar-grid">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => <div key={day} className="calendar-day header" style={{ aspectRatio: 'auto', padding: '0.5rem' }}>{day}</div>)}
+            {cells}
+          </div>
+        );
       };
 
-      const appointmentCounts = getAppointmentCounts();
-      
-      const daysInMonth = new Date(
-        currentDate.getFullYear(),
-        currentDate.getMonth() + 1,
-        0
-      ).getDate();
-
-      const firstDay = new Date(
-        currentDate.getFullYear(),
-        currentDate.getMonth(),
-        1
-      ).getDay();
-
-      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December'];
-
-      const days = [];
-      for (let i = 0; i < firstDay; i++) {
-        days.push(<div key={`empty-${i}`} className="calendar-day"></div>);
-      }
-      for (let i = 1; i <= daysInMonth; i++) {
-        const isToday = i === new Date().getDate() && 
-                        currentDate.getMonth() === new Date().getMonth() &&
-                        currentDate.getFullYear() === new Date().getFullYear();
-        
-        // Format date to match appointment requestedDate format (YYYY-MM-DD)
-        const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-        const counts = appointmentCounts[dateStr];
-        
-        days.push(
-          <div 
-            key={i} 
-            className={`calendar-day ${isToday ? 'today' : ''}`}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'flex-start',
-              padding: '0.5rem',
-              minHeight: '80px',
-              position: 'relative'
-            }}
-          >
-            <div style={{fontWeight: '600', marginBottom: '0.25rem'}}>{i}</div>
-            {counts && counts.total > 0 && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.25rem',
-                fontSize: '0.75rem',
-                width: '100%',
-                alignItems: 'center'
-              }}>
-                {counts.confirmed > 0 && (
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.25rem',
-                    padding: '0.25rem 0.5rem',
-                    background: '#dcfce7',
-                    color: '#166534',
-                    borderRadius: '6px',
-                    fontWeight: '700',
-                    fontSize: '0.75rem'
-                  }}>
-                    ✓ {counts.confirmed}
-                  </div>
-                )}
-                {counts.pending > 0 && (
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.25rem',
-                    padding: '0.25rem 0.5rem',
-                    background: '#2a2010',
-                    color: '#92400e',
-                    borderRadius: '6px',
-                    fontWeight: '700',
-                    fontSize: '0.75rem'
-                  }}>
-                    ⏳ {counts.pending}
-                  </div>
-                )}
+      const apptCard = (a, compact) => {
+        const st = statusStyle(a.status);
+        const horses = horsesOf(a);
+        return (
+          <div key={a.id} style={{ border: '1px solid var(--border)', borderLeft: `4px solid ${st.fg}`, borderRadius: 8, padding: compact ? '0.4rem 0.5rem' : '0.75rem 1rem', background: 'var(--surface)', opacity: a.status === 'cancelled' ? 0.55 : 1 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+              <strong style={{ fontSize: compact ? '0.8rem' : '1rem', textDecoration: a.status === 'cancelled' ? 'line-through' : 'none' }}>
+                {fmtTime(a.requestedTime) && <span style={{ color: 'var(--primary)' }}>{fmtTime(a.requestedTime)} </span>}
+                {a.customerName || 'Customer'}
+              </strong>
+              {!compact && pill(st.bg, st.fg, st.label)}
+            </div>
+            {!compact && a.farmName && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{a.farmName}</div>}
+            {!compact && (a.address || a.city) && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>📍 {[a.address, a.city, a.state].filter(Boolean).join(', ')}</div>}
+            {horses.length > 0 ? (
+              <div style={{ fontSize: compact ? '0.75rem' : '0.88rem', marginTop: '0.2rem' }}>
+                {horses.map((h, i) => (
+                  <div key={i}>🐴 <strong>{h.name}</strong>{!compact && h.services.length ? <span style={{ color: 'var(--text-muted)' }}> — {h.services.join(', ')}</span> : null}</div>
+                ))}
               </div>
+            ) : (
+              (a.numberOfHorses || (a.services || []).length) ? (
+                <div style={{ fontSize: compact ? '0.75rem' : '0.88rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                  {a.numberOfHorses ? `🐴 ${a.numberOfHorses} horse${a.numberOfHorses == 1 ? '' : 's'}` : ''}{!compact && (a.services || []).length ? ` · ${a.services.join(', ')}` : ''}
+                </div>
+              ) : null
             )}
           </div>
         );
-      }
+      };
+
+      const doneList = (done, compact) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: compact ? '0.15rem' : '0.4rem' }}>
+          {done.map((h, i) => (
+            <div key={i} style={{ fontSize: compact ? '0.75rem' : '0.9rem', background: compact ? 'transparent' : '#f0f9ff', border: compact ? 'none' : '1px solid #dbeafe', borderRadius: 8, padding: compact ? 0 : '0.5rem 0.75rem' }}>
+              ✅ <strong>{h.horse}</strong>
+              <span style={{ color: 'var(--text-muted)' }}> · {h.customer}{!compact && h.farm ? ` (${h.farm})` : ''}</span>
+              {!compact && h.services.length > 0 && <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginTop: 2 }}>{h.services.join(', ')}{h.invoiceNumber ? ` · Invoice #${h.invoiceNumber}` : ''}</div>}
+            </div>
+          ))}
+        </div>
+      );
+
+      // ── Week ──
+      const renderWeek = () => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '0.5rem', overflowX: 'auto' }}>
+          {Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)).map(d => {
+            const k = keyOf(d);
+            const { appts, done } = dayData(k);
+            return (
+              <div key={k} style={{ minWidth: 130, border: '1px solid var(--border)', borderRadius: 10, background: k === todayKey ? '#eff6ff' : '#f8fafc', display: 'flex', flexDirection: 'column' }}>
+                <button onClick={() => openDay(d)} title="Open this day"
+                  style={{ background: 'none', border: 'none', borderBottom: '1px solid var(--border)', padding: '0.5rem', cursor: 'pointer', textAlign: 'center', fontFamily: 'inherit' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>{d.toLocaleDateString('en-US', { weekday: 'short' })}</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: k === todayKey ? 'var(--primary)' : 'var(--text)' }}>{d.getDate()}</div>
+                </button>
+                <div style={{ padding: '0.4rem', display: 'flex', flexDirection: 'column', gap: '0.35rem', flex: 1 }}>
+                  {appts.map(a => apptCard(a, true))}
+                  {!appts.length && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', padding: '0.5rem 0' }}>No appointments</div>}
+                </div>
+                {done.length > 0 && (
+                  <div style={{ borderTop: '1px solid var(--border)', padding: '0.4rem', background: '#f0f9ff', borderRadius: '0 0 10px 10px' }}>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', marginBottom: 2 }}>🐴 {done.length} done</div>
+                    {doneList(done, true)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+
+      // ── Day ──
+      const renderDay = () => {
+        const { appts, done } = dayData(keyOf(cursor));
+        const booked = appts.filter(live).reduce((n, a) => n + (horsesOf(a).length || Number(a.numberOfHorses) || 0), 0);
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)', gap: '1.25rem' }} className="ft-day-grid">
+            <div>
+              <h3 style={{ margin: '0 0 0.75rem' }}>📋 Appointments ({appts.filter(live).length}){booked ? <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: '0.9rem' }}> · {booked} horse{booked === 1 ? '' : 's'} booked</span> : null}</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {appts.map(a => apptCard(a, false))}
+                {!appts.length && <p style={{ color: 'var(--text-muted)' }}>No appointments this day.</p>}
+              </div>
+            </div>
+            <div>
+              <h3 style={{ margin: '0 0 0.75rem' }}>🐴 Horses done ({done.length})</h3>
+              {done.length ? doneList(done, false) : <p style={{ color: 'var(--text-muted)' }}>No horses recorded as done this day. They appear here once they're on an invoice, or the appointment is marked completed.</p>}
+            </div>
+          </div>
+        );
+      };
+
+      const viewBtn = (id, label) => (
+        <button className={`btn btn-sm ${view === id ? 'btn-primary' : 'btn-outline'}`} onClick={() => setView(id)}>{label}</button>
+      );
 
       return (
         <div>
-          <h1 style={{marginBottom: '1.5rem', fontSize: '2rem', color: 'var(--primary)'}}>Calendar</h1>
-          
+          <style>{`@media (max-width: 900px) { .ft-day-grid { grid-template-columns: 1fr !important; } }`}</style>
+          <h1 style={{ marginBottom: '1.5rem', fontSize: '2rem', color: 'var(--primary)' }}>Calendar</h1>
           <div className="calendar">
-            <div className="calendar-header">
-              <h2 className="calendar-title">
-                {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
-              </h2>
-              <div className="calendar-nav">
-                <button className="btn btn-sm btn-outline" onClick={() => {
-                  const newDate = new Date(currentDate);
-                  newDate.setMonth(newDate.getMonth() - 1);
-                  setCurrentDate(newDate);
-                }}>
-                  ←
-                </button>
-                <button className="btn btn-sm btn-outline" onClick={() => {
-                  const newDate = new Date(currentDate);
-                  newDate.setMonth(newDate.getMonth() + 1);
-                  setCurrentDate(newDate);
-                }}>
-                  →
-                </button>
+            <div className="calendar-header" style={{ flexWrap: 'wrap', gap: '0.75rem' }}>
+              <h2 className="calendar-title" style={{ margin: 0 }}>{title}</h2>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '0.25rem' }}>{viewBtn('month', 'Month')}{viewBtn('week', 'Week')}{viewBtn('day', 'Day')}</div>
+                <div className="calendar-nav">
+                  <button className="btn btn-sm btn-outline" onClick={() => step(-1)} aria-label="Previous">←</button>
+                  <button className="btn btn-sm btn-outline" onClick={goToday}>Today</button>
+                  <button className="btn btn-sm btn-outline" onClick={() => step(1)} aria-label="Next">→</button>
+                </div>
               </div>
             </div>
-
-            <div className="calendar-grid">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                <div key={day} className="calendar-day header">{day}</div>
-              ))}
-              {days}
-            </div>
+            {loading ? <p style={{ color: 'var(--text-muted)' }}>Loading…</p>
+              : view === 'month' ? renderMonth() : view === 'week' ? renderWeek() : renderDay()}
           </div>
-
-          {/* Legend */}
-          <div style={{
-            marginTop: '1rem',
-            padding: '1rem',
-            background: '#f9fafb',
-            borderRadius: '8px',
-            display: 'flex',
-            gap: '1.5rem',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexWrap: 'wrap'
-          }}>
-            <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-              <div style={{
-                padding: '0.25rem 0.5rem',
-                background: '#dcfce7',
-                color: '#166534',
-                borderRadius: '4px',
-                fontSize: '0.75rem',
-                fontWeight: '600'
-              }}>
-                ✓ {appointments.filter(a => (a.status || 'pending').toLowerCase() === 'confirmed').length}
-              </div>
-              <span style={{fontSize: '0.875rem', color: 'var(--text-muted)'}}>Confirmed</span>
+          {view === 'month' && (
+            <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+              <span>{pill('#dcfce7', '#166534', '✓')} Confirmed</span>
+              <span>{pill('#fef3c7', '#92400e', '⏳')} Other appointments</span>
+              <span>{pill('#dbeafe', '#1e40af', '🐴')} Horses done</span>
+              <span>Click a day to see it in detail.</span>
             </div>
-
-            <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-              <div style={{
-                padding: '0.25rem 0.5rem',
-                background: '#2a2010',
-                color: '#92400e',
-                borderRadius: '4px',
-                fontSize: '0.75rem',
-                fontWeight: '600'
-              }}>
-                ⏳ {appointments.filter(a => (a.status || 'pending').toLowerCase() !== 'confirmed').length}
-              </div>
-              <span style={{fontSize: '0.875rem', color: 'var(--text-muted)'}}>Pending</span>
-            </div>
-
-            <div style={{fontSize: '0.875rem', color: 'var(--text-muted)'}}>
-              {appointments.length} total appointment{appointments.length !== 1 ? 's' : ''}
-            </div>
-          </div>
+          )}
         </div>
       );
     }
@@ -10664,7 +11161,7 @@ function CalendarView({ userId }) {
                     <div className="appointment-info">
                       <div className="appointment-customer">{apt.customerName}{apt.farmName ? ` — ${apt.farmName}` : ''}</div>
                       <div className="appointment-details">
-                        📞 {apt.phone} {apt.email && `• ✉️ ${apt.email}`}
+                        📞 {fmtPhone(apt.phone)} {apt.email && `• ✉️ ${apt.email}`}
                         {userProfile?.smsEnabled && apt.phone && (() => {
                           const ph = apt.phone.replace(/\D/g,'');
                           const cust = appointments.find ? null : null; // will use Firestore
@@ -11036,6 +11533,8 @@ function CalendarView({ userId }) {
             requestedTime: time,
             status: 'confirmed',
             source: 'farrier_created',
+            // Who booked it (a team member, or the farrier themself) — for per-farrier views.
+            performedBy: firebase.auth().currentUser?.uid || '',
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           };
           const apptRef = await db.collection('appointments').add(newAppointment);
@@ -11087,7 +11586,7 @@ function CalendarView({ userId }) {
               <div style={{ padding: '0.9rem 1.1rem', background: '#f0f9ff', borderRadius: 10, border: '1.5px solid #bae6fd' }}>
                 <div style={{ fontWeight: 700, color: '#0369a1' }}>👤 {customer.name}{customer.farmName ? ` — ${customer.farmName}` : ''}</div>
                 <div style={{ fontSize: '0.85rem', color: '#334155', marginTop: '0.2rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                  {customer.phone && <span>📞 {customer.phone}</span>}
+                  {customer.phone && <span>📞 {fmtPhone(customer.phone)}</span>}
                   {customer.email && <span>✉️ {customer.email}</span>}
                 </div>
               </div>
@@ -11185,7 +11684,7 @@ function CalendarView({ userId }) {
                         style={{ marginTop: 2, width: 18, height: 18, cursor: 'pointer', flexShrink: 0 }} />
                       <div>
                         <div style={{ fontWeight: 600, color: '#16a34a', fontSize: '0.95rem' }}>📱 Send confirmation SMS</div>
-                        <div style={{ fontSize: '0.82rem', color: '#1e293b', marginTop: '0.2rem' }}>Text {customer.phone} with the appointment details.</div>
+                        <div style={{ fontSize: '0.82rem', color: '#1e293b', marginTop: '0.2rem' }}>Text {fmtPhone(customer.phone)} with the appointment details.</div>
                       </div>
                     </label>
                   ) : (
@@ -11351,11 +11850,11 @@ function CalendarView({ userId }) {
               <div className="form-group" style={{ margin: 0 }}>
                 <label>Sex</label>
                 <select value={sex} onChange={e => setSex(e.target.value)}
-                  style={{ ...inputStyle, border: '2px solid rgba(38,131,251,0.45)', background: 'rgba(22,32,50,0.95)', color: 'var(--text)', colorScheme: 'dark' }}>
-                  <option value="" style={{background:'#1e2d45', color:'#e8f0fe'}}>—</option>
-                  <option value="Mare" style={{background:'#1e2d45', color:'#e8f0fe'}}>Mare</option>
-                  <option value="Gelding" style={{background:'#1e2d45', color:'#e8f0fe'}}>Gelding</option>
-                  <option value="Stallion" style={{background:'#1e2d45', color:'#e8f0fe'}}>Stallion</option>
+                  style={{ ...inputStyle, border: '1px solid #cbd5e1', background: '#fff', color: 'var(--text)', colorScheme: 'light' }}>
+                  <option value="">—</option>
+                  <option value="Mare">Mare</option>
+                  <option value="Gelding">Gelding</option>
+                  <option value="Stallion">Stallion</option>
                 </select>
               </div>
             </div>
@@ -11762,7 +12261,7 @@ function CalendarView({ userId }) {
 
             <div style={{padding: '1.5rem', maxHeight: '70vh', overflowY: 'auto'}}>
               <div style={{marginBottom: '1rem', padding: '1rem', background: '#f0f9ff', borderRadius: '8px'}}>
-                <div style={{fontWeight: '600', color: '#46C5FF'}}>Customer: {appointment.customerName}{appointment.farmName ? ` — ${appointment.farmName}` : ''}</div>
+                <div style={{fontWeight: '600', color: '#2563eb'}}>Customer: {appointment.customerName}{appointment.farmName ? ` — ${appointment.farmName}` : ''}</div>
                 <div style={{fontSize: '0.875rem', color: '#64748b'}}>Email: {appointment.email || 'Not provided'}</div>
               </div>
 
@@ -11925,7 +12424,7 @@ function CalendarView({ userId }) {
                           📱 Notify customer via SMS
                         </div>
                         <div style={{fontSize: '0.82rem', color: '#1e293b', marginTop: '0.2rem'}}>
-                          Sends a text to {appointment.phone} with the updated date &amp; time.
+                          Sends a text to {fmtPhone(appointment.phone)} with the updated date &amp; time.
                         </div>
                       </div>
                     </label>
@@ -12255,7 +12754,7 @@ function CalendarView({ userId }) {
             {totalCancelled > 0 && (
               <div className="stat-card">
                 <div className="stat-label">Cancelled</div>
-                <div className="stat-value" style={{color: '#6b7280'}}>${totalCancelled.toFixed(2)}</div>
+                <div className="stat-value" style={{color: 'var(--text-muted)'}}>${totalCancelled.toFixed(2)}</div>
               </div>
             )}
           </div>
@@ -12461,7 +12960,7 @@ function CalendarView({ userId }) {
                       >
                         🖨️ Print / PDF
                       </button>
-                      {(invoice.status === 'paid' || invoice.status === 'partial') && (invoiceStripePaymentId(invoice) || invoiceIposPaid(invoice)) && invoiceRefundable(invoice) > 0 && (
+                      {window.FarriTeam?.role !== 'farrier' && (invoice.status === 'paid' || invoice.status === 'partial') && (invoiceStripePaymentId(invoice) || invoiceIposPaid(invoice)) && invoiceRefundable(invoice) > 0 && (
                         <button
                           className="btn btn-sm btn-outline"
                           onClick={() => { setSelectedInvoice(invoice); setShowRefundModal(true); }}
@@ -12505,8 +13004,8 @@ function CalendarView({ userId }) {
                               overflow: 'hidden'
                             }}>
                               {isOpen && item('✏️ Edit', () => setEditingInvoice(invoice))}
-                              {isOpen && FarriPricing.invoiceRate(invoice) > 0 && (userProfile?.stripePublishableKey || userProfile?.ipospaysConnected) && !invoice.cardFeeWaived && item('🏷️ Waive card price & resend', () => waiveCardPrice(invoice, true))}
-                              {isOpen && (userProfile?.stripePublishableKey || userProfile?.ipospaysConnected) && invoice.cardFeeWaived && item('↩️ Undo card price waiver', () => waiveCardPrice(invoice, false))}
+                              {isOpen && window.FarriTeam?.role !== 'farrier' && FarriPricing.invoiceRate(invoice) > 0 && (userProfile?.stripePublishableKey || userProfile?.ipospaysConnected) && !invoice.cardFeeWaived && item('🏷️ Waive card price & resend', () => waiveCardPrice(invoice, true))}
+                              {isOpen && window.FarriTeam?.role !== 'farrier' && (userProfile?.stripePublishableKey || userProfile?.ipospaysConnected) && invoice.cardFeeWaived && item('↩️ Undo card price waiver', () => waiveCardPrice(invoice, false))}
                               {item('✉️ Email', () => emailInvoiceLink(invoice, userProfile))}
                               {invoice.customerPhone && item('📱 SMS', async () => {
                                 const bizName = userProfile?.businessName || 'Your Farrier';
@@ -12689,6 +13188,71 @@ function CalendarView({ userId }) {
     function invoiceRefundable(invoice) {
       const paid = invoice.paidAmount || (invoice.payments || []).reduce((s,p) => s + (p.amount||0), 0) || invoice.total || 0;
       return Math.max(0, paid - (invoice.refundedAmount || 0));
+    }
+
+    // Settings → Team (owners only — see api/_lib/team.js). Farriers added here sign in with their
+    // own login and work in this business: same customers, horses, services and payment accounts.
+    function TeamSettings() {
+      const [team, setTeam] = useState(null);
+      const [form, setForm] = useState({ name: '', email: '', role: 'farrier' });
+      const [busy, setBusy] = useState(false);
+      const [msg, setMsg] = useState(null);
+      const call = async (body) => {
+        const r = await fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        return r.json();
+      };
+      const load = async () => { try { const d = await call({ action: 'team_status' }); if (d.success) setTeam(d); } catch (e) { /* stays hidden */ } };
+      useEffect(() => { load(); }, []);
+      const act = async (body, ok) => {
+        setBusy(true); setMsg(null);
+        try {
+          const d = await call(body);
+          if (!d.success) setMsg({ ok: false, text: d.error || 'Something went wrong.' });
+          else { if (ok) setMsg({ ok: true, text: typeof ok === 'function' ? ok(d) : ok }); await load(); }
+        } catch (e) { setMsg({ ok: false, text: 'Could not reach FarriTech.' }); }
+        setBusy(false);
+      };
+      if (!team || team.role !== 'owner') return null;
+      const members = team.members || [], invites = team.invites || [];
+      return (
+        <div className="card" style={{marginTop: '1.5rem'}}>
+          <h2>👥 Team</h2>
+          <p style={{color: 'var(--text-muted)', marginBottom: '1rem', fontSize: '0.9rem'}}>
+            Add the farriers who work for your business. Each signs in with their own login and sees your customers, horses and services;
+            payments go into your payment account. <strong>Managers</strong> can also refund and waive the card price; <strong>farriers</strong> can't.
+            Only you can change payment settings and the team.
+          </p>
+          {members.length === 0 && invites.length === 0 && <p style={{color: 'var(--text-muted)'}}>No one else yet. It's just you.</p>}
+          {members.map(m => (
+            <div key={m.uid} style={{display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 0', borderBottom: '1px solid var(--border)', flexWrap: 'wrap'}}>
+              <div style={{flex: 1, minWidth: '180px'}}><strong>{m.name || m.email}</strong>{m.name && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{m.email}</div>}</div>
+              <select value={m.role} disabled={busy} onChange={(e) => act({ action: 'team_set_role', uid: m.uid, role: e.target.value }, 'Role updated.')}>
+                <option value="farrier">Farrier</option>
+                <option value="manager">Manager</option>
+              </select>
+              <button className="btn btn-sm btn-outline" disabled={busy} onClick={() => { if (confirm(`Remove ${m.name || m.email} from your team? They'll lose access to your business right away.`)) act({ action: 'team_remove', uid: m.uid }, 'Removed.'); }}>Remove</button>
+            </div>
+          ))}
+          {invites.map(i => (
+            <div key={i.email} style={{display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 0', borderBottom: '1px solid var(--border)', flexWrap: 'wrap'}}>
+              <div style={{flex: 1, minWidth: '180px'}}><strong>{i.name || i.email}</strong> <span style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>— invited ({i.role}), joins when they next sign in</span></div>
+              <button className="btn btn-sm btn-outline" disabled={busy} onClick={() => act({ action: 'team_remove', email: i.email }, 'Invite cancelled.')}>Cancel invite</button>
+            </div>
+          ))}
+          <div style={{display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '1rem', alignItems: 'flex-end'}}>
+            <div className="form-group" style={{flex: '1 1 160px', margin: 0}}><label>Name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Jane Smith" /></div>
+            <div className="form-group" style={{flex: '2 1 220px', margin: 0}}><label>Email *</label><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="jane@example.com" /></div>
+            <div className="form-group" style={{flex: '1 1 120px', margin: 0}}><label>Role</label>
+              <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="farrier">Farrier</option><option value="manager">Manager</option></select>
+            </div>
+            <button className="btn btn-primary" disabled={busy || !form.email} onClick={() => act({ action: 'team_invite', ...form }, (d) => {
+              setForm({ name: '', email: '', role: 'farrier' });
+              return d.joined ? `Added. ${form.email} will get an email to set their password (or can sign in with Google).` : `Invited. ${form.email} already has a FarriTech login and joins when they next sign in.`;
+            })}>{busy ? 'Working…' : 'Add to team'}</button>
+          </div>
+          {msg && <div style={{marginTop: '0.75rem', color: msg.ok ? '#16a34a' : '#dc2626'}}>{msg.text}</div>}
+        </div>
+      );
     }
 
     // Settings → Manager Password. Stored hashed on the server (farrierSecrets); guards refunds.
@@ -12876,13 +13440,73 @@ function CalendarView({ userId }) {
       const hasCardPrice = chargeCents !== applyCents;
 
       // The secret key lives only on the server; a publishable key means Stripe is connected.
-      // With iPOSpays, the farrier keys the card into the iPOSpays payment page instead (the
-      // pay link's page, for the whole balance), so the card never touches FarriTech.
-      const hasIpos = !!userProfile?.ipospaysConnected;
-      const publishableKey = userProfile?.stripePublishableKey || '';
-      const hasStripe = !!publishableKey && !hasIpos;
-      const [iposOpened, setIposOpened] = useState(false);
-      const iposChargeCents = FarriPricing.getChargeCents(invoice, 'card_link');
+      // iPOSpays, when connected, takes keyed cards instead (same as pay links).
+      const useIpos = !!userProfile?.ipospaysConnected;
+      const publishableKey = useIpos ? '' : (userProfile?.stripePublishableKey || '');
+      const hasStripe = !!publishableKey;
+      // iPOSpays keyed card: { ref, url } of the card form shown in this box, while we wait.
+      // (iPOSpays lets its payment page be framed: no X-Frame-Options / frame-ancestors, 2026-10-13.)
+      const [iposPage, setIposPage] = useState(null);
+      const [iposChecking, setIposChecking] = useState(false);
+      const iposDoneRef = React.useRef(false);
+
+      const iposCheck = React.useCallback(async (ref, manual = false) => {
+        if (iposDoneRef.current) return;
+        if (manual) setIposChecking(true);
+        try {
+          const res = await fetch('/api/stripe-payment', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'ipospays_check', invoiceId: invoice.id, ref }),
+          });
+          const result = await res.json();
+          if (iposDoneRef.current) return;
+          if (result.success && result.paid) {
+            iposDoneRef.current = true;
+            alert(`✅ Payment of $${Number(result.amount).toFixed(2)} successful!`);
+            onPaymentSuccess();
+          } else if (result.success && result.declined) {
+            setIposPage(null);
+            setError(`The card didn't go through${result.message ? ` (${result.message})` : ''}. Try again with another card.`);
+          } else if (manual) {
+            setError(result.success ? "iPOSpays hasn't confirmed this payment yet. If the card form said it was approved, check again in a moment." : (result.error || 'Could not check the payment.'));
+          }
+        } catch (e) {
+          if (manual) setError('Could not reach the server to check the payment.');
+        }
+        if (manual) setIposChecking(false);
+      }, [invoice.id]);
+
+      // While the card form is open, ask every few seconds (and whenever this tab comes back
+      // into view, in case it was opened in its own tab) whether iPOSpays has the payment. Stops after 15 minutes; "Check now" still works.
+      React.useEffect(() => {
+        if (!iposPage) return;
+        const started = Date.now();
+        const timer = setInterval(() => { if (Date.now() - started < 15 * 60e3) iposCheck(iposPage.ref); }, 4000);
+        const onVisible = () => { if (document.visibilityState === 'visible') iposCheck(iposPage.ref); };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+      }, [iposPage, iposCheck]);
+
+      const openIposCardForm = async () => {
+        if (!applyCents || applyCents <= 0) { setError('Please enter a valid amount.'); return; }
+        setProcessing(true);
+        setError('');
+        try {
+          const res = await fetch('/api/stripe-payment', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'ipospays_keyed', invoiceId: invoice.id, applyAmount: applyCents / 100 }),
+          });
+          const result = await res.json();
+          if (!result.success) {
+            setError(result.error || 'Could not open the iPOSpays card form.');
+          } else {
+            setIposPage({ ref: result.ref, url: result.url, amount: result.amount });
+          }
+        } catch (err) {
+          setError('Could not open the iPOSpays card form. Please try again.');
+        }
+        setProcessing(false);
+      };
 
       React.useEffect(() => {
         if (!hasStripe || !window.Stripe) return;
@@ -12969,33 +13593,53 @@ function CalendarView({ userId }) {
               )}
             </div>
 
-            {hasIpos ? (
-              <>
-                <p style={{fontSize: '0.9rem', marginBottom: '1rem'}}>
-                  Opens the iPOSpays payment page for this invoice in a new tab. Key in the customer's card there.
-                  It charges the whole balance, <strong>{FarriPricing.money(iposChargeCents)}</strong>, and the invoice
-                  shows paid as soon as iPOSpays approves it.
-                </p>
-                {iposOpened && (
-                  <div style={{background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.875rem'}}>
-                    Finish the payment in the iPOSpays tab, then click Done. If the tab didn't open, allow pop-ups for FarriTech and try again.
+            {useIpos ? (
+              iposPage ? (
+                <>
+                  <iframe
+                    src={iposPage.url}
+                    title="iPOSpays card form"
+                    allow="payment"
+                    style={{width: '100%', height: '640px', maxHeight: '65vh', border: '1px solid var(--border)', borderRadius: '8px', background: '#fff'}}
+                  />
+                  <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.5rem', textAlign: 'center'}}>
+                    Type the card and press Pay Now — this closes by itself when the payment goes through.{' '}
+                    <a href={iposPage.url} target="_blank" rel="noreferrer" style={{color: 'var(--primary)'}}>Form not showing? Open it in a new tab</a>
                   </div>
-                )}
-                <div style={{display: 'flex', gap: '0.75rem', marginTop: '1.5rem'}}>
-                  <button type="button" onClick={iposOpened ? onPaymentSuccess : onClose} className="btn btn-outline" style={{flex: 1}}>
-                    {iposOpened ? 'Done' : 'Cancel'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-success"
-                    disabled={iposChargeCents <= 0}
-                    onClick={() => { window.open(`/pay/${encodeURIComponent(invoice.id)}`, '_blank'); setIposOpened(true); }}
-                    style={{flex: 1}}
-                  >
-                    {iposOpened ? 'Open Again' : `Open iPOSpays Page (${FarriPricing.money(iposChargeCents)})`}
-                  </button>
-                </div>
-              </>
+                  {error && <div className="error-message" style={{marginTop: '1rem'}}>{error}</div>}
+                  <div style={{display: 'flex', gap: '0.75rem', marginTop: '1.5rem'}}>
+                    <button type="button" onClick={onClose} className="btn btn-outline" style={{flex: 1}}>Close</button>
+                    <button type="button" className="btn btn-success" disabled={iposChecking} onClick={() => iposCheck(iposPage.ref, true)} style={{flex: 1}}>
+                      {iposChecking ? <span className="spinner"></span> : 'Check now'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="form-group">
+                    <label>Amount toward balance *</label>
+                    <input type="number" step="0.01" min="0.01" max={remaining} value={applyAmount} onChange={(e) => setApplyAmount(e.target.value)} />
+                    {hasCardPrice && applyCents > 0 && (
+                      <div style={{fontSize: '0.85rem', marginTop: '0.35rem'}}>
+                        Card price: <strong>{FarriPricing.money(chargeCents)}</strong> <span style={{color: 'var(--text-muted)'}}>(cash or check price {FarriPricing.money(applyCents)})</span>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{fontSize: '0.875rem', color: 'var(--text-muted)'}}>
+                    Click the Enter Card button.
+                  </div>
+                  {error && <div className="error-message" style={{marginTop: '1rem'}}>{error}</div>}
+                  <div style={{display: 'flex', gap: '0.75rem', marginTop: '1.5rem'}}>
+                    <button type="button" onClick={onClose} className="btn btn-outline" disabled={processing} style={{flex: 1}}>Cancel</button>
+                    <button type="button" className="btn btn-success" disabled={processing || applyCents <= 0} onClick={openIposCardForm} style={{flex: 1}}>
+                      {processing ? <span className="spinner"></span> : `Enter card for ${FarriPricing.money(chargeCents)}`}
+                    </button>
+                  </div>
+                  <div style={{marginTop: '1.5rem', padding: '0.75rem 1rem', background: '#f0f9ff', borderRadius: '8px', fontSize: '0.8rem', color: '#1e293b'}}>
+                    🔒 <strong>Secured by iPOSpays</strong> — card details never touch our servers
+                  </div>
+                </>
+              )
             ) : !hasStripe ? (
               <div style={{background: '#fff7ed', border: '1px solid #fdba74', borderRadius: '8px', padding: '1rem', textAlign: 'center'}}>
                 <div style={{fontSize: '1.5rem', marginBottom: '0.5rem'}}>⚠️</div>
@@ -13071,7 +13715,7 @@ function CalendarView({ userId }) {
 
 
     // Record a payment taken outside FarriTech. The amount starts at the price for the
-    // chosen method (card price for "Card (outside terminal)", cash price otherwise) and
+    // chosen method (card price for "External card", cash price otherwise) and
     // can be lowered for a partial payment. The server records it and closes any open
     // online checkout so the customer can't also pay by link.
     function ManualPaymentModal({ invoice, onClose, onPaymentRecorded }) {
@@ -13205,8 +13849,10 @@ function CalendarView({ userId }) {
       const [customerPhone, setCustomerPhone] = useState(editingInvoice?.customerPhone || prefillData?.customerPhone || '');
       const [items, setItems] = useState(
         editingInvoice?.items?.length
-          ? editingInvoice.items.map(i => ({ ...i, qty: i.qty || 1 }))
-          : [{ description: '', amount: 0, horseId: '', horseName: '' }]
+          // While editing, `amount` holds the per-horse price; the line total (price × qty)
+          // is worked out again on save.
+          ? editingInvoice.items.map(i => ({ ...i, qty: FarriPricing.itemQty(i), amount: FarriPricing.itemUnitPrice(i) }))
+          : [{ description: '', amount: 0, qty: 1, horseId: '', horseName: '' }]
       );
       const [milesDriven, setMilesDriven] = useState(editingInvoice?.milesDriven || 0);
       const [loading, setLoading] = useState(false);
@@ -13413,6 +14059,7 @@ useEffect(() => {
      // already uses elsewhere for linking records without a real doc id in hand).
      const [horseOptions, setHorseOptions] = useState([
        { id: "", name: "-- Select Horse --" },
+       { id: "__multiple__", name: "👥 " + FarriPricing.MULTIPLE_HORSES },
        { id: "__new__", name: "+ Add New Horse..." }
      ]);
 
@@ -13427,6 +14074,7 @@ useEffect(() => {
            .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
          setHorseOptions([
            { id: "", name: "-- Select Horse --" },
+           { id: "__multiple__", name: "👥 " + FarriPricing.MULTIPLE_HORSES },
            ...list,
            { id: "__new__", name: "+ Add New Horse..." }
          ]);
@@ -13435,7 +14083,7 @@ useEffect(() => {
      }, [userId, customerId, customerName]);
 
       const addItem = () => {
-        setItems([...items, { description: '', amount: 0, horseId: '', horseName: '' }]);
+        setItems([...items, { description: '', amount: 0, qty: 1, horseId: '', horseName: '' }]);
       };
 
       const updateItem = (index, field, value) => {
@@ -13471,7 +14119,13 @@ useEffect(() => {
 
      const selectHorse = (index, horseId) => {
        const newItems = [...items];
-       if (horseId === '__new__') {
+       // Anything but "Multiple horses" is a single horse, so the quantity goes back to 1.
+       if (horseId !== '__multiple__') { newItems[index].qty = 1; newItems[index].note = ''; }
+       if (horseId === '__multiple__') {
+         // Horses the farrier doesn't know individually: no horse record, just a name and a count.
+         newItems[index].horseId = '';
+         newItems[index].horseName = FarriPricing.MULTIPLE_HORSES;
+       } else if (horseId === '__new__') {
          newItems[index].horseId = '__new__';
          newItems[index].horseName = '';
        } else if (!horseId) {
@@ -13501,7 +14155,7 @@ useEffect(() => {
         setItems(items.filter((_, i) => i !== index));
       };
 
-      const total = items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+      const total = items.reduce((sum, item) => sum + FarriPricing.lineAmount(item.amount, item.qty), 0);
 
       const generatePaymentLink = async (sendVia = null) => {
         if (editLocked) {
@@ -13527,8 +14181,11 @@ useEffect(() => {
     description: String(i.description || "").trim(),
     horseId: (i.horseId && i.horseId !== '__new__') ? i.horseId : "",
     horseName: String(i.horseName || "").trim(),
-    qty: Number(i.qty || 1),
-    amount: Number(i.amount || 0),
+    // `amount` on the form is the per-horse price; saved, it's the line total (price × qty).
+    qty: FarriPricing.itemQty(i),
+    unitPrice: Number(i.amount || 0),
+    amount: FarriPricing.lineAmount(i.amount, i.qty),
+    ...(i.horseName === FarriPricing.MULTIPLE_HORSES && !i.horseId && String(i.note || '').trim() ? { note: String(i.note).trim() } : {}),
 
     // service linkage + immutable snapshots (so old invoices never change)
     serviceId: i.serviceId || "",
@@ -13717,6 +14374,8 @@ useEffect(() => {
 
             const docRef = await db.collection('invoices').add({
               farrierId: userId,
+              // Who did the work (a team member, or the farrier themself) — for per-farrier reports.
+              performedBy: firebase.auth().currentUser?.uid || '',
               customerId: customerId || '',
               customerName: customerName,
               customerFarmName: customerFarmName,
@@ -13741,7 +14400,7 @@ useEffect(() => {
                 db.collection('horses').doc(item.horseId).update({
                   lastServiceId: item.serviceId || '',
                   lastServiceName: item.description,
-                  lastServicePrice: item.amount,
+                  lastServicePrice: item.unitPrice,
                   lastServiceDate: firebase.firestore.FieldValue.serverTimestamp(),
                 }).catch(() => {});
               }
@@ -13787,7 +14446,7 @@ useEffect(() => {
             if (milesDriven > 0) {
               try {
                 await db.collection('mileage_logs').add({
-                  farrierId:    userId,
+                  farrierId:    window.FarriTeam?.member ? firebase.auth().currentUser.uid : userId,
                   date:         new Date().toISOString().split('T')[0],
                   customerName: customerName,
                   farmName:     customerFarmName || '',
@@ -13918,10 +14577,10 @@ useEffect(() => {
                 border: '2px solid #0ea5e9',
                 borderRadius: '8px'
               }}>
-                <div style={{fontSize: '0.875rem', fontWeight: '600', color: '#46C5FF', marginBottom: '0.5rem'}}>
+                <div style={{fontSize: '0.875rem', fontWeight: '600', color: '#2563eb', marginBottom: '0.5rem'}}>
                   📋 Invoice from Appointment
                 </div>
-                <div style={{fontSize: '0.875rem', color: '#46C5FF'}}>
+                <div style={{fontSize: '0.875rem', color: '#2563eb'}}>
                   Customer info pre-filled from appointment booking
                 </div>
               </div>
@@ -13975,7 +14634,7 @@ useEffect(() => {
                 <div style={{
                   fontSize: '0.9rem',
                   fontWeight: '600',
-                  color: '#46C5FF',
+                  color: '#2563eb',
                   marginBottom: '0.75rem',
                   display: 'flex',
                   alignItems: 'center',
@@ -14027,7 +14686,7 @@ useEffect(() => {
                     </div>
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                       <div>
-                        <div style={{fontSize: '0.85rem', fontWeight: '600', color: '#46C5FF'}}>
+                        <div style={{fontSize: '0.85rem', fontWeight: '600', color: '#2563eb'}}>
                           {selectedCustomerInfo.lastInvoice.invoiceNumber}
                         </div>
                         <div style={{fontSize: '0.75rem', color: '#64748b'}}>
@@ -14039,7 +14698,7 @@ useEffect(() => {
                         </div>
                       </div>
                       <div style={{textAlign: 'right'}}>
-                        <div style={{fontSize: '1rem', fontWeight: 'bold', color: '#46C5FF'}}>
+                        <div style={{fontSize: '1rem', fontWeight: 'bold', color: '#2563eb'}}>
                           ${selectedCustomerInfo.lastInvoice.total?.toFixed(2)}
                         </div>
                         <span style={{
@@ -14109,7 +14768,7 @@ useEffect(() => {
                       silently overwritten by a service chosen a moment earlier. */}
                   <div style={{display: 'flex', gap: '0.5rem', marginBottom: '0.5rem'}}>
                     <select
-                      value={item.horseId || ''}
+                      value={item.horseId || (item.horseName === FarriPricing.MULTIPLE_HORSES ? '__multiple__' : '')}
                       onChange={(e) => selectHorse(idx, e.target.value)}
                       style={{
                         flex: 2,
@@ -14217,7 +14876,45 @@ useEffect(() => {
                       step="0.01"
                       min="0"
                     />
+                    <label style={{marginBottom: 0, fontSize: '0.9rem', fontWeight: '500'}}>Qty:</label>
+                    <input
+                      type="number"
+                      aria-label="Quantity"
+                      value={item.qty ?? 1}
+                      onChange={(e) => updateItem(idx, 'qty', e.target.value === '' ? '' : Math.max(1, Math.floor(Number(e.target.value)) || 1))}
+                      onBlur={() => { if (!(Number(item.qty) >= 1)) updateItem(idx, 'qty', 1); }}
+                      style={{
+                        width: '80px',
+                        padding: '0.75rem',
+                        border: '2px solid var(--border)',
+                        borderRadius: '8px',
+                        fontSize: '1rem'
+                      }}
+                      step="1"
+                      min="1"
+                    />
                   </div>
+                  {FarriPricing.itemQty(item) > 1 && (
+                    <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.35rem'}}>
+                      {FarriPricing.money(Math.round((Number(item.amount) || 0) * 100))} each × {FarriPricing.itemQty(item)} = {FarriPricing.money(Math.round(FarriPricing.lineAmount(item.amount, item.qty) * 100))}
+                    </div>
+                  )}
+                  {item.horseName === FarriPricing.MULTIPLE_HORSES && !item.horseId && (
+                    <input
+                      type="text"
+                      placeholder="What are they? e.g. polo string, fronts only"
+                      value={item.note || ''}
+                      onChange={(e) => updateItem(idx, 'note', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem',
+                        border: '2px solid var(--border)',
+                        borderRadius: '8px',
+                        fontSize: '1rem',
+                        marginTop: '0.5rem'
+                      }}
+                    />
+                  )}
                 </div>
               ))}
               <button className="btn btn-sm btn-outline" onClick={addItem} type="button">
@@ -14442,6 +15139,17 @@ useEffect(() => {
           {successMessage && <div className="success-message">{successMessage}</div>}
           {error && <div className="error-message">{error}</div>}
 
+          {window.FarriTeam?.member && (
+            <div className="card">
+              <h2>👥 {userProfile?.businessName || 'Your business'}</h2>
+              <p style={{color: 'var(--text-muted)'}}>
+                You're working in <strong>{userProfile?.businessName || 'this business'}</strong> as a <strong>{window.FarriTeam.role}</strong>.
+                Business settings, payment accounts and the team are managed by the owner.
+              </p>
+            </div>
+          )}
+
+          {!window.FarriTeam?.member && (<>
           <div className="card">
             <h2>Business Profile</h2>
             <form onSubmit={handleSave}>
@@ -14915,7 +15623,7 @@ useEffect(() => {
           <div className="card" style={{marginTop: '1.5rem'}}>
             <h2>💳 iPOSpays Payments</h2>
             <p style={{color: 'var(--text-muted)', marginBottom: '1rem', fontSize: '0.9rem'}}>
-              Take card payments through your iPOSpays (Dejavoo) merchant account instead of Stripe. Connect one or the other, not both. While iPOSpays is connected, the Pay Now links you text and email open an iPOSpays payment page, and Charge Card opens the same page for you to key in the customer's card. The Refund button on an invoice paid through iPOSpays voids or refunds it in iPOSpays.
+              Take payments through your iPOSpays (Dejavoo) merchant account instead of Stripe. Connect one or the other, not both. While iPOSpays is connected, the Pay Now links you text and email, and cards you key in, open an iPOSpays payment page. The Refund button on an invoice paid through iPOSpays voids or refunds it in iPOSpays.
             </p>
 
             {userProfile?.ipospaysConnected ? (
@@ -15014,6 +15722,9 @@ useEffect(() => {
             )}
           </div>
 
+          <TeamSettings />
+          </>)}
+
           <div className="card" style={{marginTop: '1.5rem'}}>
             <h2>Account Information</h2>
             <p style={{color: 'var(--text-muted)', marginBottom: '1rem'}}>
@@ -15021,7 +15732,7 @@ useEffect(() => {
             </p>
             <div style={{marginBottom: '1rem'}}>
               <strong>Booking URL:</strong><br/>
-              <code style={{background: 'rgba(13,19,32,0.9)', color: '#46C5FF', padding: '0.5rem', borderRadius: '4px', display: 'inline-block', marginTop: '0.5rem', wordBreak: 'break-all', border: '1.5px solid rgba(38,131,251,0.45)'}}>
+              <code style={{background: '#f1f5f9', color: '#1d4ed8', padding: '0.5rem', borderRadius: '4px', display: 'inline-block', marginTop: '0.5rem', wordBreak: 'break-all', border: '1.5px solid rgba(38,131,251,0.45)'}}>
                 {`${window.location.origin}?farrier=${safeFarrierId}`}
               </code>
               <div style={{marginTop: '0.5rem'}}>

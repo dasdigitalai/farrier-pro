@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FarriTech Support</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Firebase (same project as the main app — this page shares its data) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+  <script src="/api-auth.js"></script>
+
+  <!-- React -->
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.29.7/babel.min.js"></script>
+
+  <style>
+    :root {
+      --primary: #2683FB;
+      --primary-light: #1d4ed8;
+      --bg: #f1f5f9;
+      --surface: #ffffff;
+      --surface-2: #eef2f7;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --input-border: #cbd5e1;
+      --warning: #d97706;
+      --error: #dc2626;
+      --ok: #16a34a;
+      --note-bg: #fffbeb;
+      --note-border: #fcd34d;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
+    a { color: var(--primary-light); }
+    button { font-family: inherit; cursor: pointer; }
+    input, select, textarea {
+      font-family: inherit; font-size: 0.95rem; width: 100%;
+      background: #ffffff; color: var(--text); border: 1px solid var(--input-border); border-radius: 8px; padding: 0.55rem 0.7rem;
+    }
+    input::placeholder, textarea::placeholder { color: #94a3b8; opacity: 1; }
+    textarea { resize: vertical; min-height: 90px; }
+    label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem; }
+
+    .btn { border: 1px solid var(--input-border); background: var(--surface); color: var(--text); border-radius: 8px; padding: 0.5rem 0.9rem; font-size: 0.9rem; font-weight: 500; white-space: nowrap; }
+    .btn:hover { border-color: var(--primary); }
+    .btn:disabled { opacity: 0.5; cursor: default; }
+    .btn-primary { background: var(--primary); border: 1px solid var(--primary); color: #fff; font-weight: 600; }
+    .btn-primary:hover { background: #1d6fe0; }
+    .btn-sm { padding: 0.3rem 0.6rem; font-size: 0.8rem; }
+    .btn-link { background: none; border: none; color: var(--primary-light); padding: 0; }
+
+    .shell { display: flex; flex-direction: column; min-height: 100vh; }
+    .topbar { display: flex; align-items: center; gap: 1rem; padding: 0.75rem 1.25rem; background: var(--primary); color: #fff; box-shadow: 0 2px 8px rgba(15,23,42,0.12); position: sticky; top: 0; z-index: 10; flex-wrap: wrap; }
+    .brand { font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem; }
+    .tabs { display: flex; gap: 0.25rem; }
+    .tab { background: none; border: none; color: rgba(255,255,255,0.8); padding: 0.45rem 0.8rem; border-radius: 8px; font-size: 0.95rem; font-weight: 500; }
+    .tab:hover { color: #fff; }
+    .tab.active { background: rgba(255,255,255,0.2); color: #fff; font-weight: 600; }
+    .topbar .who { color: rgba(255,255,255,0.85); }
+    .topbar .btn { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.45); color: #fff; }
+    .topbar .btn:hover { background: rgba(255,255,255,0.28); }
+    .topbar .btn-primary { background: #fff; border-color: #fff; color: var(--primary); }
+    .topbar .btn-primary:hover { background: #eff6ff; }
+    .spacer { flex: 1; }
+    .who { color: var(--text-muted); font-size: 0.85rem; }
+
+    .main { display: grid; grid-template-columns: minmax(320px, 420px) 1fr; flex: 1; min-height: 0; }
+    .list-pane { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; height: calc(100vh - 58px); }
+    .detail-pane { padding: 1.25rem; overflow-y: auto; height: calc(100vh - 58px); }
+    .list-tools { padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; border-bottom: 1px solid var(--border); }
+    .chips { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+    .chip { background: none; border: 1px solid var(--border); color: var(--text-muted); border-radius: 999px; padding: 0.2rem 0.65rem; font-size: 0.8rem; }
+    .chip.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .list { overflow-y: auto; flex: 1; }
+    .row { padding: 0.75rem 0.9rem; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .row:hover { background: #f8fafc; }
+    .row.selected { background: #eff6ff; box-shadow: inset 3px 0 0 var(--primary); }
+    .row-top { display: flex; justify-content: space-between; gap: 0.5rem; align-items: baseline; }
+    .row-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row-sub { color: var(--text-muted); font-size: 0.82rem; margin-top: 0.15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .time { color: var(--text-muted); font-size: 0.75rem; white-space: nowrap; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--primary-light); margin-right: 0.35rem; }
+    .empty { color: var(--text-muted); padding: 1.5rem; text-align: center; }
+
+    .badge { display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.1rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.04); }
+    .card h3 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+    .kv { display: grid; grid-template-columns: 140px 1fr; gap: 0.35rem 0.75rem; font-size: 0.9rem; }
+    .kv dt { color: var(--text-muted); }
+    .kv dd { margin: 0; overflow-wrap: anywhere; }
+    .detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .detail-head h2 { margin: 0; font-size: 1.35rem; }
+
+    .thread { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1rem; }
+    .msg { max-width: 80%; padding: 0.6rem 0.8rem; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .msg.out { align-self: flex-end; background: #eff6ff; border-color: #bfdbfe; }
+    .msg.in { align-self: flex-start; }
+    .msg.internal { align-self: stretch; max-width: none; background: var(--note-bg); border-color: var(--note-border); }
+    .msg-meta { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.25rem; }
+    .composer { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.75rem; }
+    .composer-kinds { display: flex; gap: 0.3rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+
+    .modal-back { position: fixed; inset: 0; background: rgba(15,23,42,0.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.25rem; width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; }
+    .modal h2 { margin: 0 0 1rem; font-size: 1.15rem; }
+    .field { margin-bottom: 0.75rem; }
+    .actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; }
+
+    .center { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
+    .login { width: 100%; max-width: 380px; }
+    .err { color: var(--error); font-size: 0.85rem; margin-top: 0.5rem; }
+    .btn-danger { background: var(--error); border: 1px solid var(--error); color: #fff; font-weight: 600; }
+    .btn-danger:hover { background: #b91c1c; border-color: #b91c1c; }
+    .danger-zone { border-color: #fecaca; }
+    .danger-zone h3 { color: var(--error); }
+    .del-list { margin: 0.5rem 0 0.75rem; padding-left: 1.1rem; font-size: 0.9rem; }
+    .del-warn { background: var(--note-bg); border: 1px solid var(--note-border); border-radius: 8px; padding: 0.55rem 0.7rem; font-size: 0.85rem; margin-bottom: 0.6rem; }
+    .del-log { font-family: monospace; font-size: 0.8rem; background: var(--surface-2); border-radius: 8px; padding: 0.6rem; max-height: 180px; overflow-y: auto; }
+    .back { display: none; }
+
+    @media (max-width: 860px) {
+      .main { grid-template-columns: 1fr; }
+      .list-pane, .detail-pane { height: auto; border-right: none; }
+      .main.has-detail .list-pane { display: none; }
+      .main:not(.has-detail) .detail-pane { display: none; }
+      .back { display: inline-block; margin-bottom: 0.75rem; }
+      .grid2, .grid3 { grid-template-columns: 1fr; }
+      .kv { grid-template-columns: 110px 1fr; }
+      .msg { max-width: 92%; }
+      .detail-pane { padding: 1rem 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAQ1LaWG9lE9j5h6X0T0YQKa_j04vJZHE4",
+      authDomain: "farrier-pro.firebaseapp.com",
+      projectId: "farrier-pro",
+      storageBucket: "farrier-pro.firebasestorage.app",
+      messagingSenderId: "1010833069179",
+      appId: "1:1010833069179:web:844b6055462b55640b3ede"
+    };
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const storage = firebase.storage();
+    const ts = () => firebase.firestore.FieldValue.serverTimestamp();
+
+    // ── Data model (Firestore; only supportAdmins can read or write — see firestore.rules) ──
+    // supportFarriers/{key}  Support's own record of a farrier. key = the farrier's uid when they
+    //                        have an account (merged over farriers/{uid}), or an auto id for a
+    //                        farrier entered by hand who hasn't signed up.
+    // supportTickets/{id}    { farrierKey, farrierName, farrierPhone, phoneDigits, subject, status,
+    //                          priority, category, lastMessagePreview, lastMessageAt, unread, ... }
+    // supportTickets/{id}/messages/{id}  { kind: note|call|email|sms, direction: internal|out|in, body, authorEmail, createdAt }
+    // Texts the farrier sends back are logged onto their open ticket by api/twilio-webhook.js.
+
+    const STAGES = [
+      { id: 'new', label: 'New signup', color: '#0284c7' },
+      { id: 'onboarding', label: 'Onboarding', color: '#7c3aed' },
+      { id: 'active', label: 'Active', color: '#16a34a' },
+      { id: 'at_risk', label: 'At risk', color: '#d97706' },
+      { id: 'prospect', label: 'Prospect', color: '#64748b' },
+      { id: 'churned', label: 'Churned', color: '#dc2626' },
+    ];
+    const STATUSES = [
+      { id: 'open', label: 'Open', color: '#2563eb' },
+      { id: 'pending', label: 'Waiting on farrier', color: '#d97706' },
+      { id: 'resolved', label: 'Resolved', color: '#16a34a' },
+      { id: 'closed', label: 'Closed', color: '#64748b' },
+    ];
+    const PRIORITIES = [
+      { id: 'low', label: 'Low', color: '#64748b' },
+      { id: 'normal', label: 'Normal', color: '#2563eb' },
+      { id: 'high', label: 'High', color: '#d97706' },
+      { id: 'urgent', label: 'Urgent', color: '#dc2626' },
+    ];
+    const CATEGORIES = ['Onboarding', 'Billing', 'Payments', 'Bug', 'How-to', 'Feature request', 'Account', 'Other'];
+    const KINDS = [
+      { id: 'note', label: '📝 Internal note', direction: 'internal' },
+      { id: 'call', label: '📞 Log a call', direction: 'out' },
+      { id: 'email', label: '✉️ Log an email', direction: 'out' },
+      { id: 'sms', label: '💬 Send text', direction: 'out' },
+    ];
+    const byId = (list, id) => list.find(x => x.id === id) || list[0];
+
+    const digits10 = (p) => String(p || '').replace(/\D/g, '').slice(-10);
+    const fmtPhone = (p) => {
+      const d = String(p || '').replace(/\D/g, '');
+      if (d.length === 10) return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+      if (d.length === 11 && d[0] === '1') return `(${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7)}`;
+      return p || '';
+    };
+    const toDate = (t) => t?.toDate ? t.toDate() : (t ? new Date(t) : null);
+    const fmtWhen = (t) => {
+      const d = toDate(t);
+      if (!d || isNaN(d)) return '';
+      const mins = (Date.now() - d.getTime()) / 60000;
+      if (mins < 1) return 'just now';
+      if (mins < 60) return `${Math.floor(mins)}m ago`;
+      if (mins < 60 * 24) return `${Math.floor(mins / 60)}h ago`;
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+    };
+    const fmtDateTime = (t) => {
+      const d = toDate(t);
+      return d && !isNaN(d) ? d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+    };
+
+    function Badge({ item }) {
+      return <span className="badge" style={{ color: item.color, borderColor: item.color }}>{item.label}</span>;
+    }
+
+    // ── App: sign-in and the supportAdmins gate ──
+    function App() {
+      const [user, setUser] = useState(undefined);
+      const [allowed, setAllowed] = useState(null);
+
+      useEffect(() => auth.onAuthStateChanged(async (u) => {
+        setUser(u || null);
+        setAllowed(null);
+        if (!u) return;
+        try {
+          const d = await db.collection('supportAdmins').doc(u.uid).get();
+          setAllowed(d.exists && d.data()?.active !== false);
+        } catch (e) {
+          console.error('Admin check failed', e);
+          setAllowed(false);
+        }
+      }), []);
+
+      if (user === undefined || (user && allowed === null)) return <div className="center"><p className="who">Loading…</p></div>;
+      if (!user) return <Login />;
+      if (!allowed) return (
+        <div className="center"><div className="card login">
+          <h3>No access</h3>
+          <p className="who">{user.email} isn't a FarriTech support account.</p>
+          <button className="btn" onClick={() => auth.signOut()}>Sign out</button>
+        </div></div>
+      );
+      return <Portal user={user} />;
+    }
+
+    function Login() {
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [err, setErr] = useState('');
+      const [busy, setBusy] = useState(false);
+      const go = async (fn) => {
+        setErr(''); setBusy(true);
+        try { await fn(); } catch (e) { if (e.code !== 'auth/popup-closed-by-user') setErr(e.message.replace('Firebase: ', '')); }
+        setBusy(false);
+      };
+      return (
+        <div className="center">
+          <form className="card login" onSubmit={(e) => { e.preventDefault(); go(() => auth.signInWithEmailAndPassword(email, password)); }}>
+            <h3>🛟 FarriTech Support</h3>
+            <div className="field"><label>Email</label><input type="email" value={email} onChange={e => setEmail(e.target.value)} autoFocus /></div>
+            <div className="field"><label>Password</label><input type="password" value={password} onChange={e => setPassword(e.target.value)} /></div>
+            <button className="btn btn-primary" style={{ width: '100%' }} disabled={busy}>Sign in</button>
+            <button type="button" className="btn" style={{ width: '100%', marginTop: '0.5rem' }} disabled={busy}
+              onClick={() => go(() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()))}>Sign in with Google</button>
+            {err && <div className="err">{err}</div>}
+          </form>
+        </div>
+      );
+    }
+
+    // ── Portal: live data shared by both tabs ──
+    function Portal({ user }) {
+      const [tab, setTab] = useState('tickets');
+      const [farrierDocs, setFarrierDocs] = useState([]);
+      const [records, setRecords] = useState({});
+      const [tickets, setTickets] = useState([]);
+      const [selTicket, setSelTicket] = useState(null);
+      const [selFarrier, setSelFarrier] = useState(null);
+      const [newTicketFor, setNewTicketFor] = useState(undefined); // undefined = closed, null = pick a farrier
+      const [addingFarrier, setAddingFarrier] = useState(false);
+      // Kept here (not in the farrier's detail view) so the result stays up after the farrier leaves the list.
+      const [deleteFor, setDeleteFor] = useState(null);
+
+      useEffect(() => {
+        const errs = (what) => (e) => { console.error(what, e); alert(`Couldn't load ${what}: ${e.message}`); };
+        const u1 = db.collection('farriers').onSnapshot(s => setFarrierDocs(s.docs.map(d => ({ id: d.id, ...d.data() }))), errs('farriers'));
+        const u2 = db.collection('supportFarriers').onSnapshot(s => {
+          const m = {}; s.docs.forEach(d => { m[d.id] = { id: d.id, ...d.data() }; }); setRecords(m);
+        }, errs('support records'));
+        const u3 = db.collection('supportTickets').orderBy('updatedAt', 'desc').onSnapshot(
+          s => setTickets(s.docs.map(d => ({ id: d.id, ...d.data() }))), errs('tickets'));
+        return () => { u1(); u2(); u3(); };
+      }, []);
+
+      // One list of farriers: everyone with an account (support's record layered on top), plus
+      // farriers support entered by hand who don't have an account.
+      const farriers = useMemo(() => {
+        const out = farrierDocs.map(f => {
+          const r = records[f.id] || {};
+          const contact = [f.firstName, f.lastName].filter(Boolean).join(' ');
+          return {
+            key: f.id, account: f, hasAccount: true,
+            businessName: r.businessName || f.businessName || '',
+            contactName: r.contactName || contact,
+            email: r.email || f.email || '',
+            phone: r.phone || f.phone || '',
+            city: r.city || f.city || '',
+            state: r.state || f.state || '',
+            stage: r.stage || 'new',
+            notes: r.notes || '',
+            lastContactAt: r.lastContactAt || null,
+            createdAt: f.createdAt || r.createdAt || null,
+          };
+        });
+        Object.values(records).forEach(r => {
+          if (farrierDocs.some(f => f.id === r.id)) return;
+          out.push({ key: r.id, account: null, hasAccount: false, businessName: r.businessName || '', contactName: r.contactName || '',
+            email: r.email || '', phone: r.phone || '', city: r.city || '', state: r.state || '', stage: r.stage || 'prospect',
+            notes: r.notes || '', lastContactAt: r.lastContactAt || null, createdAt: r.createdAt || null });
+        });
+        return out.sort((a, b) => (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0));
+      }, [farrierDocs, records]);
+
+      const farrierByKey = useMemo(() => Object.fromEntries(farriers.map(f => [f.key, f])), [farriers]);
+      const openTickets = tickets.filter(t => t.status === 'open' || t.status === 'pending').length;
+
+      const openTicket = (id) => { setTab('tickets'); setSelTicket(id); };
+      const openFarrier = (key) => { setTab('farriers'); setSelFarrier(key); };
+
+      return (
+        <div className="shell">
+          <div className="topbar">
+            <div className="brand">🛟 FarriTech Support</div>
+            <div className="tabs">
+              <button className={`tab ${tab === 'tickets' ? 'active' : ''}`} onClick={() => setTab('tickets')}>Tickets{openTickets ? ` (${openTickets})` : ''}</button>
+              <button className={`tab ${tab === 'farriers' ? 'active' : ''}`} onClick={() => setTab('farriers')}>Farriers ({farriers.length})</button>
+            </div>
+            <div className="spacer" />
+            <button className="btn btn-primary btn-sm" onClick={() => setNewTicketFor(tab === 'farriers' && selFarrier ? selFarrier : null)}>+ New ticket</button>
+            <span className="who">{user.email}</span>
+            <button className="btn btn-sm" onClick={() => auth.signOut()}>Sign out</button>
+          </div>
+
+          {tab === 'tickets'
+            ? <TicketsTab tickets={tickets} selected={selTicket} setSelected={setSelTicket} farrierByKey={farrierByKey} user={user} openFarrier={openFarrier} />
+            : <FarriersTab farriers={farriers} tickets={tickets} selected={selFarrier} setSelected={setSelFarrier} user={user}
+                onNewTicket={(key) => setNewTicketFor(key)} openTicket={openTicket} onAdd={() => setAddingFarrier(true)}
+                onDelete={(f) => setDeleteFor(f)} />}
+
+          {deleteFor && (
+            <DeleteFarrierModal farrier={deleteFor} onClose={() => setDeleteFor(null)}
+              onDeleted={() => { setDeleteFor(null); setSelFarrier(null); }} />
+          )}
+
+          {newTicketFor !== undefined && (
+            <NewTicketModal farriers={farriers} initialKey={newTicketFor} user={user}
+              onClose={() => setNewTicketFor(undefined)} onCreated={(id) => { setNewTicketFor(undefined); openTicket(id); }} />
+          )}
+          {addingFarrier && (
+            <AddFarrierModal onClose={() => setAddingFarrier(false)} onAdded={(key) => { setAddingFarrier(false); openFarrier(key); }} />
+          )}
+        </div>
+      );
+    }
+
+    // ── Tickets ──
+    function TicketsTab({ tickets, selected, setSelected, farrierByKey, user, openFarrier }) {
+      const [filter, setFilter] = useState('active');
+      const [q, setQ] = useState('');
+      const shown = tickets.filter(t => {
+        if (filter === 'active' && !(t.status === 'open' || t.status === 'pending')) return false;
+        if (filter !== 'active' && filter !== 'all' && t.status !== filter) return false;
+        const s = q.trim().toLowerCase();
+        return !s || [t.subject, t.farrierName, t.lastMessagePreview, t.category].some(v => (v || '').toLowerCase().includes(s));
+      });
+      const ticket = tickets.find(t => t.id === selected);
+      return (
+        <div className={`main ${ticket ? 'has-detail' : ''}`}>
+          <div className="list-pane">
+            <div className="list-tools">
+              <input placeholder="Search tickets…" value={q} onChange={e => setQ(e.target.value)} />
+              <div className="chips">
+                {[['active', 'Open + waiting'], ...STATUSES.map(s => [s.id, s.label]), ['all', 'All']].map(([id, label]) => (
+                  <button key={id} className={`chip ${filter === id ? 'active' : ''}`} onClick={() => setFilter(id)}>{label}</button>
+                ))}
+              </div>
+            </div>
+            <div className="list">
+              {shown.map(t => (
+                <div key={t.id} className={`row ${t.id === selected ? 'selected' : ''}`} onClick={() => setSelected(t.id)}>
+                  <div className="row-top">
+                    <div className="row-title">{t.unread && <span className="dot" title="New reply" />}{t.subject || '(no subject)'}</div>
+                    <span className="time">{fmtWhen(t.lastMessageAt || t.updatedAt)}</span>
+                  </div>
+                  <div className="row-sub">{t.farrierName || 'Unknown farrier'}{t.lastMessagePreview ? ` — ${t.lastMessagePreview}` : ''}</div>
+                  <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.35rem' }}>
+                    <Badge item={byId(STATUSES, t.status)} />
+                    {t.priority && t.priority !== 'normal' && <Badge item={byId(PRIORITIES, t.priority)} />}
+                    {t.category && <span className="badge" style={{ color: 'var(--text-muted)', borderColor: 'var(--border)' }}>{t.category}</span>}
+                  </div>
+                </div>
+              ))}
+              {!shown.length && <div className="empty">No tickets here.</div>}
+            </div>
+          </div>
+          <div className="detail-pane">
+            {ticket
+              ? <TicketDetail key={ticket.id} ticket={ticket} farrier={farrierByKey[ticket.farrierKey]} user={user} onBack={() => setSelected(null)} openFarrier={openFarrier} />
+              : <div className="empty">Pick a ticket, or start one with “+ New ticket”.</div>}
+          </div>
+        </div>
+      );
+    }
+
+    // Writes one message onto a ticket and bumps the ticket and the farrier's last-contact time.
+    async function addMessage({ ticketId, farrierKey, kind, body, user, extra = {} }) {
+      const k = byId(KINDS, kind);
+      const batch = db.batch();
+      const ref = db.collection('supportTickets').doc(ticketId).collection('messages').doc();
+      batch.set(ref, { kind: k.id, direction: k.direction, body, authorEmail: user.email || '', authorUid: user.uid, createdAt: ts(), ...extra });
+      batch.update(db.collection('supportTickets').doc(ticketId), {
+        updatedAt: ts(), lastMessageAt: ts(), lastMessagePreview: `${k.id === 'note' ? 'Note: ' : ''}${body}`.slice(0, 140),
+      });
+      if (farrierKey && k.direction !== 'internal') {
+        batch.set(db.collection('supportFarriers').doc(farrierKey), { lastContactAt: ts(), updatedAt: ts() }, { merge: true });
+      }
+      await batch.commit();
+    }
+
+    async function sendText(phone, body) {
+      const res = await fetch('/api/send-sms', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: phone, body }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || `Text failed (${res.status})`);
+      return data.messageSid;
+    }
+
+    function TicketDetail({ ticket, farrier, user, onBack, openFarrier }) {
+      const [messages, setMessages] = useState([]);
+      const [kind, setKind] = useState('note');
+      const [body, setBody] = useState('');
+      const [busy, setBusy] = useState(false);
+      const endRef = useRef(null);
+      const ref = db.collection('supportTickets').doc(ticket.id);
+      const phone = farrier?.phone || ticket.farrierPhone || '';
+
+      useEffect(() => ref.collection('messages').orderBy('createdAt').onSnapshot(
+        s => setMessages(s.docs.map(d => ({ id: d.id, ...d.data() }))),
+        e => console.error('messages', e)), [ticket.id]);
+      useEffect(() => { if (ticket.unread) ref.update({ unread: false }).catch(() => {}); }, [ticket.id, ticket.unread]);
+      useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }); }, [messages.length]);
+
+      const update = (fields) => ref.update({ ...fields, updatedAt: ts() }).catch(e => alert(e.message));
+
+      const submit = async () => {
+        const text = body.trim();
+        if (!text) return;
+        setBusy(true);
+        try {
+          let extra = {};
+          if (kind === 'sms') {
+            if (!phone) throw new Error('This farrier has no phone number. Add one on their Farriers page.');
+            extra = { smsSid: await sendText(phone, text), to: phone };
+          }
+          await addMessage({ ticketId: ticket.id, farrierKey: ticket.farrierKey, kind, body: text, user, extra });
+          // Texting the farrier means we're waiting on them; a reply puts it back to Open.
+          if (kind === 'sms' && ticket.status === 'open') update({ status: 'pending' });
+          setBody('');
+        } catch (e) {
+          alert(e.message);
+        }
+        setBusy(false);
+      };
+
+      return (
+        <div>
+          <button className="btn btn-sm back" onClick={onBack}>← Tickets</button>
+          <div className="detail-head">
+            <div>
+              <h2>{ticket.subject || '(no subject)'}</h2>
+              <div className="who" style={{ marginTop: '0.25rem' }}>
+                <button className="btn-link" onClick={() => openFarrier(ticket.farrierKey)}>{ticket.farrierName || 'Unknown farrier'}</button>
+                {phone && <> · <a href={`tel:${digits10(phone)}`}>{fmtPhone(phone)}</a></>}
+                {farrier?.email && <> · <a href={`mailto:${farrier.email}`}>{farrier.email}</a></>}
+              </div>
+              <div className="who" style={{ marginTop: '0.25rem' }}>Opened {fmtDateTime(ticket.createdAt)} by {ticket.createdByEmail || 'support'}</div>
+            </div>
+          </div>
+
+          <div className="card grid3">
+            <div><label>Status</label>
+              <select value={ticket.status} onChange={e => update({ status: e.target.value, ...(e.target.value === 'resolved' ? { resolvedAt: ts() } : {}) })}>
+                {STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select></div>
+            <div><label>Priority</label>
+              <select value={ticket.priority || 'normal'} onChange={e => update({ priority: e.target.value })}>
+                {PRIORITIES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select></div>
+            <div><label>Category</label>
+              <select value={ticket.category || 'Other'} onChange={e => update({ category: e.target.value })}>
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select></div>
+          </div>
+
+          <div className="thread">
+            {messages.map(m => (
+              <div key={m.id} className={`msg ${m.direction}`}>
+                <div className="msg-meta">
+                  {byId(KINDS, m.kind).label.replace('Send text', m.direction === 'in' ? 'Text from farrier' : 'Text sent').replace('Log a call', 'Call').replace('Log an email', 'Email')}
+                  {' · '}{m.direction === 'in' ? (ticket.farrierName || 'Farrier') : (m.authorEmail || 'support')}
+                  {' · '}{fmtDateTime(m.createdAt)}
+                </div>
+                {m.body}
+              </div>
+            ))}
+            {!messages.length && <div className="empty">No messages yet.</div>}
+            <div ref={endRef} />
+          </div>
+
+          <div className="composer">
+            <div className="composer-kinds">
+              {KINDS.map(k => <button key={k.id} className={`chip ${kind === k.id ? 'active' : ''}`} onClick={() => setKind(k.id)}>{k.label}</button>)}
+            </div>
+            <textarea value={body} onChange={e => setBody(e.target.value)}
+              placeholder={{ note: 'Only support sees this.', call: 'What was said on the call?', email: 'Paste or summarize the email.', sms: phone ? `Text ${fmtPhone(phone)}. Their reply lands here.` : 'No phone number on file.' }[kind]}
+              onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }} />
+            <div className="actions" style={{ marginTop: '0.5rem' }}>
+              <button className="btn btn-primary" disabled={busy || !body.trim()} onClick={submit}>
+                {busy ? 'Saving…' : kind === 'sms' ? 'Send text' : 'Add to ticket'}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function NewTicketModal({ farriers, initialKey, user, onClose, onCreated }) {
+      const [key, setKey] = useState(initialKey || '');
+      const [q, setQ] = useState('');
+      const [subject, setSubject] = useState('');
+      const [category, setCategory] = useState('Onboarding');
+      const [priority, setPriority] = useState('normal');
+      const [kind, setKind] = useState('note');
+      const [body, setBody] = useState('');
+      const [busy, setBusy] = useState(false);
+      const farrier = farriers.find(f => f.key === key);
+      const matches = q.trim() ? farriers.filter(f => [f.businessName, f.contactName, f.email, f.phone].some(v => (v || '').toLowerCase().includes(q.trim().toLowerCase()))).slice(0, 8) : [];
+
+      const create = async () => {
+        if (!farrier) return alert('Pick a farrier.');
+        if (!subject.trim()) return alert('Add a subject.');
+        setBusy(true);
+        try {
+          let extra = {};
+          if (body.trim() && kind === 'sms') {
+            if (!farrier.phone) throw new Error('This farrier has no phone number.');
+            extra = { smsSid: await sendText(farrier.phone, body.trim()), to: farrier.phone };
+          }
+          const ref = db.collection('supportTickets').doc();
+          await ref.set({
+            farrierKey: farrier.key,
+            farrierName: farrier.businessName || farrier.contactName || farrier.email || 'Farrier',
+            farrierPhone: farrier.phone || '', phoneDigits: digits10(farrier.phone),
+            subject: subject.trim(), category, priority,
+            status: kind === 'sms' && body.trim() ? 'pending' : 'open',
+            unread: false, createdByEmail: user.email || '', createdByUid: user.uid,
+            createdAt: ts(), updatedAt: ts(), lastMessageAt: ts(), lastMessagePreview: '',
+          });
+          if (body.trim()) await addMessage({ ticketId: ref.id, farrierKey: farrier.key, kind, body: body.trim(), user, extra });
+          onCreated(ref.id);
+        } catch (e) {
+          alert(e.message);
+          setBusy(false);
+        }
+      };
+
+      return (
+        <div className="modal-back" onClick={e => e.target === e.currentTarget && onClose()}>
+          <div className="modal">
+            <h2>New ticket</h2>
+            <div className="field">
+              <label>Farrier</label>
+              {farrier ? (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span><strong>{farrier.businessName || farrier.contactName}</strong> <span className="who">{farrier.email} {fmtPhone(farrier.phone)}</span></span>
+                  <button className="btn btn-sm" onClick={() => setKey('')}>Change</button>
+                </div>
+              ) : (
+                <>
+                  <input placeholder="Search by business, name, email or phone…" value={q} onChange={e => setQ(e.target.value)} autoFocus />
+                  {matches.map(f => (
+                    <div key={f.key} className="row" onClick={() => { setKey(f.key); setQ(''); }}>
+                      <div className="row-title">{f.businessName || f.contactName || f.email}</div>
+                      <div className="row-sub">{[f.contactName, f.email, fmtPhone(f.phone)].filter(Boolean).join(' · ')}</div>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+            <div className="field"><label>Subject</label><input value={subject} onChange={e => setSubject(e.target.value)} placeholder="e.g. Help moving customers off QuickBooks" /></div>
+            <div className="grid2">
+              <div className="field"><label>Category</label><select value={category} onChange={e => setCategory(e.target.value)}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></div>
+              <div className="field"><label>Priority</label><select value={priority} onChange={e => setPriority(e.target.value)}>{PRIORITIES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></div>
+            </div>
+            <div className="field">
+              <label>First entry (optional)</label>
+              <div className="composer-kinds">{KINDS.map(k => <button key={k.id} className={`chip ${kind === k.id ? 'active' : ''}`} onClick={() => setKind(k.id)}>{k.label}</button>)}</div>
+              <textarea value={body} onChange={e => setBody(e.target.value)} placeholder="What happened, or what you're sending them." />
+            </div>
+            <div className="actions">
+              <button className="btn" onClick={onClose}>Cancel</button>
+              <button className="btn btn-primary" disabled={busy} onClick={create}>{busy ? 'Creating…' : kind === 'sms' && body.trim() ? 'Create & send text' : 'Create ticket'}</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Farriers ──
+    function FarriersTab({ farriers, tickets, selected, setSelected, user, onNewTicket, openTicket, onAdd, onDelete }) {
+      const [stage, setStage] = useState('all');
+      const [q, setQ] = useState('');
+      const s = q.trim().toLowerCase();
+      const shown = farriers.filter(f =>
+        (stage === 'all' || f.stage === stage) &&
+        (!s || [f.businessName, f.contactName, f.email, f.phone, digits10(f.phone), f.city, f.state].some(v => (v || '').toLowerCase().includes(s))));
+      const farrier = farriers.find(f => f.key === selected);
+      return (
+        <div className={`main ${farrier ? 'has-detail' : ''}`}>
+          <div className="list-pane">
+            <div className="list-tools">
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input placeholder="Search name, email, phone, town…" value={q} onChange={e => setQ(e.target.value)} />
+                <button className="btn btn-sm" onClick={onAdd} title="Add a farrier who doesn't have an account yet">+ Add</button>
+              </div>
+              <div className="chips">
+                <button className={`chip ${stage === 'all' ? 'active' : ''}`} onClick={() => setStage('all')}>All</button>
+                {STAGES.map(st => {
+                  const n = farriers.filter(f => f.stage === st.id).length;
+                  return n ? <button key={st.id} className={`chip ${stage === st.id ? 'active' : ''}`} onClick={() => setStage(st.id)}>{st.label} ({n})</button> : null;
+                })}
+              </div>
+            </div>
+            <div className="list">
+              {shown.map(f => {
+                const open = tickets.filter(t => t.farrierKey === f.key && (t.status === 'open' || t.status === 'pending')).length;
+                return (
+                  <div key={f.key} className={`row ${f.key === selected ? 'selected' : ''}`} onClick={() => setSelected(f.key)}>
+                    <div className="row-top">
+                      <div className="row-title">{f.businessName || f.contactName || f.email || '(no name)'}</div>
+                      <span className="time">{f.hasAccount ? `Joined ${fmtWhen(f.createdAt)}` : 'No account'}</span>
+                    </div>
+                    <div className="row-sub">{[f.contactName, fmtPhone(f.phone), [f.city, f.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ') || f.email}</div>
+                    <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.35rem' }}>
+                      <Badge item={byId(STAGES, f.stage)} />
+                      {open > 0 && <span className="badge" style={{ color: '#2563eb', borderColor: '#2563eb' }}>{open} open ticket{open > 1 ? 's' : ''}</span>}
+                    </div>
+                  </div>
+                );
+              })}
+              {!shown.length && <div className="empty">No farriers match.</div>}
+            </div>
+          </div>
+          <div className="detail-pane">
+            {farrier
+              ? <FarrierDetail key={farrier.key} farrier={farrier} tickets={tickets.filter(t => t.farrierKey === farrier.key)} user={user}
+                  onBack={() => setSelected(null)} onNewTicket={() => onNewTicket(farrier.key)} openTicket={openTicket} onDelete={() => onDelete(farrier)} />
+              : <div className="empty">Pick a farrier to see their details, notes and tickets.</div>}
+          </div>
+        </div>
+      );
+    }
+
+    const FARRIER_FIELDS = ['businessName', 'contactName', 'email', 'phone', 'city', 'state', 'stage', 'notes'];
+
+    function FarrierFields({ form, set }) {
+      const input = (k, label, props = {}) => (
+        <div className="field"><label>{label}</label><input value={form[k] || ''} onChange={e => set({ ...form, [k]: e.target.value })} {...props} /></div>
+      );
+      return (
+        <>
+          <div className="grid2">
+            {input('businessName', 'Business name')}
+            {input('contactName', 'Contact name')}
+            {input('phone', 'Phone', { type: 'tel' })}
+            {input('email', 'Email', { type: 'email' })}
+            {input('city', 'City')}
+            <div className="grid2">
+              {input('state', 'State', { maxLength: 2 })}
+              <div className="field"><label>Stage</label>
+                <select value={form.stage || 'new'} onChange={e => set({ ...form, stage: e.target.value })}>
+                  {STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                </select></div>
+            </div>
+          </div>
+          <div className="field"><label>Notes</label>
+            <textarea value={form.notes || ''} onChange={e => set({ ...form, notes: e.target.value })}
+              placeholder="What they use today, who does their billing, what they need…" style={{ minHeight: 120 }} /></div>
+        </>
+      );
+    }
+
+    function FarrierDetail({ farrier, tickets, user, onBack, onNewTicket, openTicket, onDelete }) {
+      const initial = () => Object.fromEntries(FARRIER_FIELDS.map(k => [k, farrier[k] || '']));
+      const [form, setForm] = useState(initial);
+      const [saving, setSaving] = useState(false);
+      const [saved, setSaved] = useState(false);
+      const dirty = FARRIER_FIELDS.some(k => (form[k] || '') !== (farrier[k] || ''));
+      const a = farrier.account;
+
+      const save = async () => {
+        setSaving(true);
+        try {
+          // Support's copy only — the farrier's own profile (farriers/{uid}) is never changed here.
+          await db.collection('supportFarriers').doc(farrier.key).set({
+            ...form, state: (form.state || '').toUpperCase(), linkedFarrierId: farrier.hasAccount ? farrier.key : null,
+            updatedAt: ts(), updatedByEmail: user.email || '',
+          }, { merge: true });
+          setSaved(true); setTimeout(() => setSaved(false), 2000);
+        } catch (e) { alert(e.message); }
+        setSaving(false);
+      };
+
+      // Same support session the main app has always used (index.html → supportSessions).
+      const loginAs = async () => {
+        const reason = prompt('Reason for logging in as this farrier:', 'Troubleshooting');
+        if (!reason) return;
+        try {
+          const ref = await db.collection('supportSessions').add({
+            supportAgentUid: user.uid, targetFarrierId: farrier.key, reason,
+            createdAt: ts(), expiresAt: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 30 * 60 * 1000)), endedAt: null,
+          });
+          window.open(`/?supportSession=${ref.id}`, '_blank');
+        } catch (e) { alert(e.message); }
+      };
+
+      return (
+        <div>
+          <button className="btn btn-sm back" onClick={onBack}>← Farriers</button>
+          <div className="detail-head">
+            <div>
+              <h2>{farrier.businessName || farrier.contactName || farrier.email || '(no name)'}</h2>
+              <div className="who" style={{ marginTop: '0.25rem' }}>
+                {farrier.phone && <a href={`tel:${digits10(farrier.phone)}`}>{fmtPhone(farrier.phone)}</a>}
+                {farrier.phone && farrier.email && ' · '}
+                {farrier.email && <a href={`mailto:${farrier.email}`}>{farrier.email}</a>}
+                {farrier.lastContactAt && <> · Last contact {fmtWhen(farrier.lastContactAt)}</>}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary btn-sm" onClick={onNewTicket}>+ New ticket</button>
+              {farrier.hasAccount && <button className="btn btn-sm" onClick={loginAs}>Log in as farrier ↗</button>}
+            </div>
+          </div>
+
+          <div className="card">
+            <h3>Support info</h3>
+            <FarrierFields form={form} set={setForm} />
+            <div className="actions" style={{ marginTop: 0 }}>
+              {saved && <span className="who" style={{ alignSelf: 'center' }}>Saved ✓</span>}
+              {dirty && <button className="btn" onClick={() => setForm(initial())}>Undo</button>}
+              <button className="btn btn-primary" disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+
+          <div className="card">
+            <h3>Tickets</h3>
+            {tickets.map(t => (
+              <div key={t.id} className="row" style={{ padding: '0.6rem 0' }} onClick={() => openTicket(t.id)}>
+                <div className="row-top">
+                  <div className="row-title">{t.unread && <span className="dot" />}{t.subject}</div>
+                  <span className="time">{fmtWhen(t.lastMessageAt || t.updatedAt)}</span>
+                </div>
+                <div style={{ marginTop: '0.3rem' }}><Badge item={byId(STATUSES, t.status)} /></div>
+              </div>
+            ))}
+            {!tickets.length && <p className="who" style={{ margin: 0 }}>No tickets yet.</p>}
+          </div>
+
+          <div className="card">
+            <h3>FarriTech account</h3>
+            {a ? (
+              <dl className="kv">
+                <dt>Signed up</dt><dd>{fmtDateTime(a.createdAt) || '—'}</dd>
+                <dt>Setup wizard</dt><dd>{a.setupCompleted ? 'Completed' : 'Not finished'}</dd>
+                <dt>Status</dt><dd>{a.status || '—'}</dd>
+                <dt>Subscription</dt><dd>{a.subscriptionId || '—'}</dd>
+                <dt>Google Calendar</dt><dd>{a.googleCalendarConnected ? 'Connected' : 'Not connected'}</dd>
+                <dt>Last seen</dt><dd>{fmtDateTime(a.lastSeen) || '—'}</dd>
+                <dt>Name on account</dt><dd>{[a.firstName, a.lastName].filter(Boolean).join(' ') || '—'}</dd>
+                <dt>Address</dt><dd>{[a.address, a.city, a.state, a.zip].filter(Boolean).join(', ') || '—'}</dd>
+                <dt>Booking link</dt><dd>{a.bookingUrl ? <a href={a.bookingUrl} target="_blank" rel="noreferrer">{a.bookingUrl}</a> : '—'}</dd>
+                <dt>Account ID</dt><dd style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{farrier.key}</dd>
+              </dl>
+            ) : <p className="who" style={{ margin: 0 }}>No FarriTech account yet — entered by support.</p>}
+          </div>
+
+          <div className="card danger-zone">
+            <h3>Delete</h3>
+            <p className="who" style={{ marginTop: 0 }}>
+              {farrier.hasAccount
+                ? 'Permanently removes this farrier and all their horses, customers, invoices, appointments and other records.'
+                : 'Removes this support record and its tickets.'}
+            </p>
+            <button className="btn btn-danger btn-sm" onClick={onDelete}>
+              {farrier.hasAccount ? 'Delete farrier…' : 'Delete record…'}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Delete a farrier and everything that belongs to them ──
+    // Every record below carries farrierId = the farrier's uid. Support staff can delete these
+    // because firestore.rules grants isSupportAdmin() read + delete on each of them.
+    const FARRIER_DATA = [
+      ['appointments', 'appointments'], ['customers', 'customers'], ['horses', 'horses'],
+      ['invoices', 'invoices'], ['services', 'services'], ['mileage_logs', 'mileage logs'],
+      ['inventoryItems', 'inventory items'], ['inventoryTransactions', 'inventory transactions'],
+    ];
+
+    // Everything tied to this farrier. `key` is their uid when they have an account.
+    async function findFarrierRecords(key, hasAccount) {
+      const out = { data: {}, members: [], invites: [], sessions: [], tickets: [] };
+      if (hasAccount) {
+        for (const [c] of FARRIER_DATA) out.data[c] = (await db.collection(c).where('farrierId', '==', key).get()).docs;
+        out.members = (await db.collection('businessMembers').where('businessId', '==', key).get()).docs;
+        out.invites = (await db.collection('businessInvites').where('businessId', '==', key).get()).docs;
+        out.sessions = (await db.collection('supportSessions').where('targetFarrierId', '==', key).get()).docs;
+      }
+      out.tickets = (await db.collection('supportTickets').where('farrierKey', '==', key).get()).docs;
+      return out;
+    }
+
+    async function deleteRefs(refs) {
+      for (let i = 0; i < refs.length; i += 400) {
+        const batch = db.batch();
+        refs.slice(i, i + 400).forEach(r => batch.delete(r));
+        await batch.commit();
+      }
+    }
+
+    // Deletes the farrier's data first and their profile (farriers/{uid}) last, so if anything
+    // fails part-way the farrier is still in the list and Delete can simply be run again.
+    async function deleteFarrier({ key, hasAccount, alsoSupport, log }) {
+      if (key === auth.currentUser?.uid) throw new Error("You can't delete your own account here.");
+      const rec = await findFarrierRecords(key, hasAccount);
+
+      if (hasAccount) {
+        // Horse photos live in Storage, not Firestore. Best effort: a failure here doesn't stop the rest.
+        const paths = rec.data.horses.flatMap(d => (d.data().photos || []).map(p => p.storagePath).filter(Boolean));
+        let photoFails = 0;
+        for (const path of paths) {
+          try { await storage.ref(path).delete(); } catch (e) { if (e.code !== 'storage/object-not-found') photoFails++; }
+        }
+        if (paths.length) log(`Photos: ${paths.length - photoFails} of ${paths.length} removed${photoFails ? ` (${photoFails} could not be deleted from Storage; remove the horse-photos/${key} folder in the Firebase console)` : ''}`);
+
+        // Payments are a subcollection of each invoice.
+        let payments = 0;
+        for (const inv of rec.data.invoices) {
+          const pay = await inv.ref.collection('payments').get();
+          payments += pay.size;
+          await deleteRefs(pay.docs.map(d => d.ref));
+        }
+        if (payments) log(`Invoice payments: ${payments} deleted`);
+
+        for (const [c, label] of FARRIER_DATA) {
+          await deleteRefs(rec.data[c].map(d => d.ref));
+          log(`${label[0].toUpperCase() + label.slice(1)}: ${rec.data[c].length} deleted`);
+        }
+
+        // Team: this business's members lose access; the farrier's own membership (if they were a member) goes too.
+        await deleteRefs([...rec.members, ...rec.invites].map(d => d.ref));
+        await db.collection('businessMembers').doc(key).delete();
+        if (rec.members.length || rec.invites.length) log(`Team: ${rec.members.length} members and ${rec.invites.length} invites removed`);
+        await deleteRefs(rec.sessions.map(d => d.ref));
+        await db.collection('farrierSecrets').doc(key).delete(); // payment keys, Google Calendar token
+        log('Payment keys and calendar token deleted');
+      }
+
+      if (alsoSupport) {
+        for (const t of rec.tickets) {
+          await deleteRefs((await t.ref.collection('messages').get()).docs.map(d => d.ref));
+        }
+        await deleteRefs(rec.tickets.map(d => d.ref));
+        await db.collection('supportFarriers').doc(key).delete();
+        log(`Support record and ${rec.tickets.length} tickets deleted`);
+      }
+
+      if (hasAccount) {
+        await db.collection('farriers').doc(key).delete();
+        log('Farrier profile deleted');
+      }
+    }
+
+    function DeleteFarrierModal({ farrier, onClose, onDeleted }) {
+      const [rec, setRec] = useState(null);
+      const [alsoSupport, setAlsoSupport] = useState(true);
+      const [typed, setTyped] = useState('');
+      const [busy, setBusy] = useState(false);
+      const [lines, setLines] = useState([]);
+      const [error, setError] = useState('');
+      const [done, setDone] = useState(false);
+      const confirmWord = (farrier.email || farrier.businessName || 'DELETE').trim();
+      const a = farrier.account;
+
+      useEffect(() => {
+        findFarrierRecords(farrier.key, farrier.hasAccount).then(setRec).catch(e => setError(e.message));
+      }, []);
+
+      const counts = rec ? [
+        ...FARRIER_DATA.map(([c, label]) => [label, rec.data[c]?.length || 0]),
+        ['team members', rec.members.length], ['support tickets', rec.tickets.length],
+      ].filter(([, n]) => n) : [];
+
+      const run = async () => {
+        setBusy(true); setError(''); setLines([]);
+        try {
+          await deleteFarrier({ key: farrier.key, hasAccount: farrier.hasAccount, alsoSupport, log: m => setLines(l => [...l, m]) });
+          setDone(true);
+        } catch (e) {
+          console.error(e);
+          setError(`Stopped part-way: ${e.message}. Nothing is lost by running Delete again.`);
+        }
+        setBusy(false);
+      };
+
+      return (
+        <div className="modal-back" onClick={e => e.target === e.currentTarget && !busy && (done ? onDeleted() : onClose())}>
+          <div className="modal">
+            <h2>{farrier.hasAccount ? 'Delete farrier and all their records' : 'Delete support record'}</h2>
+            {!done && (
+              <>
+                <p style={{ margin: '0 0 0.5rem' }}>
+                  <strong>{farrier.businessName || farrier.contactName || farrier.email}</strong>
+                  {farrier.email && farrier.businessName ? <> ({farrier.email})</> : null}
+                </p>
+                {!rec && !error && <p className="who">Counting records…</p>}
+                {rec && (
+                  <>
+                    {farrier.hasAccount && (
+                      <>
+                        <p style={{ margin: 0, fontSize: '0.9rem' }}>This permanently deletes:</p>
+                        <ul className="del-list">
+                          <li>their farrier profile, payment keys and calendar token</li>
+                          {counts.map(([label, n]) => <li key={label}>{n} {label}</li>)}
+                          {!counts.length && <li>no other records found</li>}
+                        </ul>
+                      </>
+                    )}
+                    {a?.subscriptionId && (
+                      <div className="del-warn">⚠️ This farrier has a subscription ({a.subscriptionId}). Deleting does <strong>not</strong> cancel it. Cancel it in Stripe separately.</div>
+                    )}
+                    {rec.members.length > 0 && (
+                      <div className="del-warn">⚠️ {rec.members.length} team member{rec.members.length === 1 ? '' : 's'} work in this business and will lose access to its records.</div>
+                    )}
+                    <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.9rem', color: 'var(--text)' }}>
+                      <input type="checkbox" style={{ width: 'auto' }} checked={alsoSupport} onChange={e => setAlsoSupport(e.target.checked)} />
+                      Also delete the support record, notes and tickets
+                    </label>
+                    <div className="field" style={{ marginTop: '0.75rem' }}>
+                      <label>Type <strong>{confirmWord}</strong> to confirm</label>
+                      <input value={typed} onChange={e => setTyped(e.target.value)} disabled={busy} autoFocus />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+            {lines.length > 0 && <div className="del-log">{lines.map((l, i) => <div key={i}>{l}</div>)}</div>}
+            {error && <div className="err">{error}</div>}
+            {done && (
+              <>
+                <p>✅ Deleted.</p>
+                {farrier.hasAccount && (
+                  <div className="del-warn">Their login still exists. In the Firebase console go to Authentication → Users, find <strong>{farrier.email || farrier.key}</strong> and delete it, or they could sign in again and start a blank account.</div>
+                )}
+              </>
+            )}
+            <div className="actions">
+              {done
+                ? <button className="btn btn-primary" onClick={onDeleted}>Done</button>
+                : <>
+                    <button className="btn" disabled={busy} onClick={onClose}>Cancel</button>
+                    <button className="btn btn-danger" disabled={busy || !rec || typed.trim().toLowerCase() !== confirmWord.toLowerCase()} onClick={run}>
+                      {busy ? 'Deleting…' : 'Delete permanently'}
+                    </button>
+                  </>}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function AddFarrierModal({ onClose, onAdded }) {
+      const [form, setForm] = useState({ stage: 'prospect' });
+      const [busy, setBusy] = useState(false);
+      const add = async () => {
+        if (!form.businessName && !form.contactName) return alert('Add a business or contact name.');
+        setBusy(true);
+        try {
+          const ref = db.collection('supportFarriers').doc();
+          await ref.set({ ...Object.fromEntries(FARRIER_FIELDS.map(k => [k, form[k] || ''])), state: (form.state || '').toUpperCase(),
+            linkedFarrierId: null, createdAt: ts(), updatedAt: ts(), createdByEmail: auth.currentUser?.email || '' });
+          onAdded(ref.id);
+        } catch (e) { alert(e.message); setBusy(false); }
+      };
+      return (
+        <div className="modal-back" onClick={e => e.target === e.currentTarget && onClose()}>
+          <div className="modal">
+            <h2>Add a farrier</h2>
+            <p className="who" style={{ marginTop: '-0.5rem' }}>For someone without a FarriTech account. Farriers who sign up appear here on their own.</p>
+            <FarrierFields form={form} set={setForm} />
+            <div className="actions">
+              <button className="btn" onClick={onClose}>Cancel</button>
+              <button className="btn btn-primary" disabled={busy} onClick={add}>{busy ? 'Adding…' : 'Add farrier'}</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

@@ -18,7 +18,8 @@
 //
 // Invoice fields:
 //   iposOpenRef            reference id of the payment page currently on offer
-//   iposLinks.{ref}        { url, chargeCents, creditCents, createdAt } for every page made
+//   iposLinks.{ref}        { url, chargeCents, creditCents, method, createdAt } for every page made
+//                          (method 'card_keyed' = a page the farrier opened to key in a card)
 //   iposTransactionId      iPOSpays transaction id once paid (the Refund button voids or refunds it)
 import crypto from 'crypto';
 import '../../lib/pricing.js';
@@ -244,10 +245,14 @@ function pageRequest(creds, invoiceId, invoice, farrier, ref, chargeCents, cashC
 
 // Makes a new iPOSpays payment page for what's owed (card price unless waived), after
 // closing the one currently on offer. Returns { url, ref, chargeCents, cashCents }.
-export async function createIposPage(creds, invoiceId, invoice) {
-  const cashCents = P.balanceCents(invoice);
+// A keyed card payment (method 'card_keyed') is the same page, opened on the farrier's own
+// screen so they can type the card in; `applyCents` pays off only part of the balance.
+// The card number goes straight to iPOSpays and never passes through FarriTech.
+export async function createIposPage(creds, invoiceId, invoice, { method = 'card_link', applyCents = 0 } = {}) {
+  const balance = P.balanceCents(invoice);
+  const cashCents = applyCents > 0 ? Math.min(applyCents, balance) : balance;
   if (cashCents <= 0) throw new PaymentError('Nothing is owed on this invoice.');
-  const chargeCents = P.getChargeCents(invoice, 'card_link', cashCents);
+  const chargeCents = P.getChargeCents(invoice, method, cashCents);
 
   const closed = await closeIposPages(creds, invoiceId, invoice);
   if (closed.paid) throw new PaymentError('Customer already paid by card.', 409);
@@ -274,7 +279,7 @@ export async function createIposPage(creds, invoiceId, invoice) {
   // Keep the last few pages: a callback for an older one can still arrive.
   const links = Object.fromEntries(Object.entries(invoice.iposLinks || {})
     .sort((a, b) => new Date(b[1]?.createdAt) - new Date(a[1]?.createdAt)).slice(0, 9));
-  links[ref] = { url: d.information, chargeCents, creditCents: cashCents, createdAt: new Date() };
+  links[ref] = { url: d.information, chargeCents, creditCents: cashCents, method, createdAt: new Date() };
   const paymentUrl = payUrlFor(invoiceId);
   await patchDoc(`invoices/${invoiceId}`, {
     iposOpenRef: ref,
@@ -290,7 +295,7 @@ export async function createIposPage(creds, invoiceId, invoice) {
 // The page on offer, if it's still good for `chargeCents` (so /pay/{id} can reuse it).
 export function reusableIposPage(invoice, chargeCents) {
   const link = invoice.iposOpenRef && invoice.iposLinks?.[invoice.iposOpenRef];
-  if (!link?.url || link.chargeCents !== chargeCents) return null;
+  if (!link?.url || link.chargeCents !== chargeCents || link.method === 'card_keyed') return null;
   const age = Date.now() - new Date(link.createdAt).getTime();
   return age < (LINK_EXPIRY_DAYS - 1) * 86400e3 ? link.url : null;
 }
@@ -339,15 +344,16 @@ export async function syncIposPayment(creds, invoiceId, ref) {
   if (amountCents !== link.chargeCents) console.warn('iPOSpays amount differs from the page:', invoiceId, ref, amountCents, link.chargeCents);
   const last4 = String(resp.cardLast4Digit ?? '').replace(/\D/g, '').slice(-4);
   const brand = resp.cardType ? String(resp.cardType).charAt(0).toUpperCase() + String(resp.cardType).slice(1).toLowerCase() : 'Card';
+  const keyed = link.method === 'card_keyed';
   const result = await applyPayment(invoiceId, {
     paymentId: `ipos_${ref}`,
-    method: 'card_link',
+    method: keyed ? 'card_keyed' : 'card_link',
     amountCents,
     creditCents: link.creditCents,
     source: 'ipospays',
     reference: `iPOSpays ${resp.transactionId || ref}`,
     last4, brand: last4 ? brand : '',
-    paidVia: 'ipospays_link',
+    paidVia: keyed ? 'ipospays_keyed' : 'ipospays_link',
     processorDetails: {
       processor: 'ipospays',
       referenceId: ref,
@@ -404,11 +410,18 @@ export async function refundIposPayment(creds, invoiceId, invoice, cents) {
     return { ok: !!r?.ok && Number(resp?.responseCode) === 200, resp, d, status: r?.status };
   };
 
+  // Void only while the payment is still in the open batch. A void request on a settled
+  // payment isn't declined: iPOSpays approves it and runs a refund (sandbox, 2026-10-13), and
+  // its answer just echoes transactionType 2, so the batch has to be checked first.
   const full = cents === left && already === 0;
+  const unsettled = full ? await inOpenBatch(creds, rrn) : false;
   let kind = 'refund';
-  let result = full ? await send(2, '') : null;
-  if (result?.ok) kind = 'void';
-  else result = await send(3, full ? '' : String(cents));
+  let result = null;
+  if (unsettled) {
+    result = await send(2, '');
+    if (result.ok) kind = 'void';
+  }
+  if (!result?.ok) result = await send(3, full ? '' : String(cents));
   if (!result.ok) {
     const why = result.resp?.errResponseMessage || result.resp?.responseMessage || errorText(result.d, result.status ? `HTTP ${result.status}` : 'no response');
     throw new PaymentError(`iPOSpays didn’t take the refund: ${why}. You can refund it in the iPOSpays portal instead.`, 400);
@@ -427,6 +440,30 @@ export async function refundIposPayment(creds, invoiceId, invoice, cents) {
     ...(fully ? { status: 'refunded', refundedAt: new Date() } : {}),
   });
   return { kind, amountCents: cents, refundId: String(result.resp.transactionId || '') };
+}
+
+// Is the payment with this RRN still in the merchant's open (unsettled) batch, and not voided?
+// iPOS Transact "openbatch" (transactionType 9) lists it under batch_profiles[].batch_details[].
+// Any failure counts as "no", so the payment gets a refund rather than a void.
+async function inOpenBatch(creds, rrn) {
+  try {
+    const r = await fetch(`${hosts(creds.mode).payment}/api/v3/iposTransact`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', token: await authToken(creds) },
+      body: JSON.stringify({
+        merchantAuthentication: { merchantId: creds.tpn, transactionReferenceId: newReferenceId() },
+        transactionRequest: { transactionType: 9 },
+      }),
+    });
+    const d = await readJson(r);
+    const batch = d.iposhpresponse || d.iposHPResponse || d.data || d;
+    const details = (batch?.batch_profiles || []).flatMap(p => p?.batch_details || []);
+    const found = details.find(t => String(t?.rrn || '') === rrn);
+    console.log('iPOSpays open batch:', r.status, details.length, 'transactions, payment', found ? `found (voidFlag ${found.voidFlag})` : 'not found');
+    return !!found && String(found.voidFlag || 'N').toUpperCase() !== 'Y';
+  } catch (e) {
+    console.warn('iPOSpays open batch check failed:', e.message);
+    return false;
+  }
 }
 
 // Closes every payment page still on offer for the invoice, so the customer can't pay

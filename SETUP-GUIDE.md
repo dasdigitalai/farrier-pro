@@ -258,6 +258,17 @@ exports.handler = async (event) => {
 };
 ```
 
+#### New-signup text alerts
+`/api/notify-signup` (code in `api/_lib/signup-alert.js`, served by `api/send-sms.js`) texts you whenever a new farrier creates a FarriTech account
+(business name, contact name, email, phone, city/state). In Vercel → Settings →
+Environment Variables, add:
+
+- `SIGNUP_ALERT_PHONE` — the number to text, e.g. `5551234567` (comma-separate several)
+
+It uses the same `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and
+`TWILIO_MESSAGING_SERVICE_SID` as `api/send-sms.js`. Redeploy after adding the variable.
+Each account texts once; the profile is stamped `signupNotifiedAt`.
+
 ### 3. Google Calendar Sync
 
 Currently, the OAuth flow connects each farrier's calendar. To actually create/update events:

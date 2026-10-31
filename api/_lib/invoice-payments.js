@@ -321,7 +321,7 @@ export async function sendUpdatedPayLink(invoice, invoiceId, amountCents) {
   <p style="color:#9ca3af;font-size:12px;">Powered by FarriTech</p>
 </body></html>`;
     const r = await fetch(`${APP_URL}/api/send-email`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
       body: JSON.stringify({ to: invoice.customerEmail, subject: `Updated payment link for Invoice #${number}`, html }),
     }).catch(() => null);
     if (r?.ok) sent.push('email');
