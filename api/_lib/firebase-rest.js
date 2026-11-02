@@ -141,6 +141,25 @@ export async function queryIn(collection, field, values) {
     ({ id: doc.name.split('/').pop(), ...Object.fromEntries(Object.entries(doc.fields || {}).map(([k, v]) => [k, dec(v)])) }));
 }
 
+// Documents in `collection` with farrierId == `farrierId`, read AS THE CALLER (their own ID
+// token, not the server user), so Firestore's rules decide what they can see — the same
+// query the app itself makes. `fields` limits what is fetched. Returns [{ id, ...fields }].
+export async function queryByFarrierAs(idToken, collection, farrierId, fields = [], limit = 5000) {
+  const structuredQuery = {
+    from: [{ collectionId: collection }],
+    where: { fieldFilter: { field: { fieldPath: 'farrierId' }, op: 'EQUAL', value: enc(farrierId) } },
+    limit,
+    ...(fields.length ? { select: { fields: fields.map(f => ({ fieldPath: f })) } } : {}),
+  };
+  const r = await fetch(`${DOCS}:runQuery`, {
+    method: 'POST', headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ structuredQuery }),
+  });
+  if (!r.ok) throw new Error(`Firestore query ${collection} failed: ${r.status} ${await r.text()}`);
+  return (await r.json()).filter(x => x.document).map(({ document: doc }) =>
+    ({ id: doc.name.split('/').pop(), ...Object.fromEntries(Object.entries(doc.fields || {}).map(([k, v]) => [k, dec(v)])) }));
+}
+
 // Writes only the given fields (merge). `deleteFields` removes fields. Creates the doc if missing.
 export async function patchDoc(path, fields = {}, deleteFields = []) {
   const { idToken } = await serverAuth();
