@@ -5,6 +5,9 @@ A tab in the desktop app where the owner or a manager types a question and gets 
 - "Who owes me money this week?"
 - "How many active customers do I have?"
 - "How many horses did I shoe last week?"
+- "How much did I collect last month?"
+- "Did I ever shoe a horse named Bonnie?"
+- "What farms do I have in Loxahatchee?"
 
 ## Turn it on (one step)
 
@@ -39,12 +42,22 @@ decide what is visible, exactly as in the app. Team members with the `farrier` r
 - **Horses worked on:** distinct horses on non-cancelled invoices dated in the range (invoice date,
   in the browser's time zone). Work that was never invoiced isn't counted. "Shoe" = the shoeing
   services in the by-service breakdown (not trims); the answer says which it counted.
+- **Collected:** money received, counted on the day each payment was made (card payments include the
+  card price), cancelled invoices left out, refunds shown separately, with "invoiced in the same
+  period" for comparison. Same rules as the Business Dashboard.
+- **Horses worked on** counts a "Multiple horses" invoice line by its quantity (those horses have no
+  names, so they can't be matched to each other).
+- **One horse** (`find_horse`): looks up a name on invoices and in Horses, lists each horse with that
+  name (different owners), the services and dates. Partial names work.
+- **Farms by place** (`find_customers`): matches the city, ZIP or street saved on the customer record
+  (and name / farm name). A customer with no address on file won't match a place search. It returns
+  name, farm, city and address, never phone or email.
 - Weeks run Monday–Sunday.
 
 ## Adding a question type
 
 Add a function to `api/_lib/ask-tools.js`, list it in `TOOLS` (name, description, schema, which
-collections it `needs`), and add a test to `scripts/ask-ai.test.mjs`. Run:
+collections it `needs`), add any new fields it reads to `COLLECTIONS` in `api/_lib/ask-ai.js`, and add a test to `scripts/ask-ai.test.mjs`. Run:
 
 ```
 node --test scripts/ask-ai.test.mjs

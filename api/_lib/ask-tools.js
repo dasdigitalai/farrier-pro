@@ -157,14 +157,21 @@ export function countCustomers({ customers, invoices, appointments }, { today, t
 export function countHorsesServiced({ invoices }, { tz }, input = {}) {
   const [from, to] = checkRange(input.from, input.to);
   const byService = new Map();
+  const unnamedByService = new Map(); // "Multiple horses" lines: qty horses nobody named, so they can't be de-duplicated
   const horses = new Set();
-  let invoicesInRange = 0, linesWithoutHorse = 0;
+  let invoicesInRange = 0, linesWithoutHorse = 0, unnamed = 0;
   for (const inv of invoices) {
     if (!live(inv)) continue;
     const d = localDate(inv.createdAt, tz);
     if (!d || d < from || d > to) continue;
     invoicesInRange++;
     for (const item of (Array.isArray(inv.items) ? inv.items : [])) {
+      if (!item.horseId && item.horseName === P.MULTIPLE_HORSES) {
+        // One line covering several horses the farrier didn't name (a polo string, a barn): qty horses.
+        const qty = P.itemQty(item), svc = String(item.description || item.name || '').trim() || 'Other';
+        unnamed += qty; unnamedByService.set(svc, (unnamedByService.get(svc) || 0) + qty);
+        continue;
+      }
       const horseKey = item.horseId ? 'id:' + item.horseId
         : item.horseName ? 'name:' + (inv.customerId || norm(inv.customerName)) + ':' + norm(item.horseName) : null;
       if (!horseKey) { linesWithoutHorse++; continue; }
@@ -176,12 +183,144 @@ export function countHorsesServiced({ invoices }, { tz }, input = {}) {
   }
   return {
     from, to,
-    horses_serviced: horses.size,
+    horses_serviced: horses.size + unnamed,
+    horses_in_multi_horse_lines: unnamed,
     invoices_in_range: invoicesInRange,
-    by_service: [...byService.entries()].map(([service, set]) => ({ service, horses: set.size }))
+    by_service: [...new Set([...byService.keys(), ...unnamedByService.keys()])]
+      .map(service => ({ service, horses: (byService.get(service)?.size || 0) + (unnamedByService.get(service) || 0) }))
       .sort((a, b) => b.horses - a.horses || a.service.localeCompare(b.service)).slice(0, 40),
     lines_without_a_horse: linesWithoutHorse,
-    basis: 'Distinct horses on non-cancelled invoices dated in the range (by invoice date). A horse on two invoices counts once; "by_service" counts a horse once per service line it had. Work that was never invoiced is not counted.',
+    basis: 'Distinct horses on non-cancelled invoices dated in the range (by invoice date). A named horse on two invoices counts once; "by_service" counts a horse once per service. Lines billed as "Multiple horses" count their quantity (those horses have no names, so they cannot be matched to each other). Work that was never invoiced is not counted.',
+  };
+}
+
+// ── Tool: find customers / farms by place or name ──
+// Matches partial text, case-insensitively, on the customer's city, ZIP, street address (a
+// state only by its exact code), and on name or farm name. Phone and email are never returned.
+export function findCustomers({ customers }, ctx, input = {}) {
+  const place = norm(input.place), name = norm(input.name);
+  if (!place && !name) throw new ToolInputError('Give a place (city, ZIP or street) and/or a name or farm name to search for.');
+  if (place.length > 60 || name.length > 60) throw new ToolInputError('Search text is too long.');
+  const rows = customers.filter(c => {
+    if (name && !(norm(c.name).includes(name) || norm(c.farmName).includes(name))) return false;
+    if (place && !(norm(c.city).includes(place) || norm(c.zip).includes(place) || norm(c.address).includes(place) || norm(c.state) === place)) return false;
+    return true;
+  }).map(c => ({ customer: c.name || 'Unknown', farm: c.farmName || '', city: c.city || '', address: c.address || '' }))
+    .sort((a, b) => (a.farm || a.customer).localeCompare(b.farm || b.customer));
+  return {
+    searched: { place: input.place || '', name: input.name || '' },
+    matches: rows.length,
+    with_a_farm_name: rows.filter(r => r.farm).length,
+    customers: rows.slice(0, 40),
+    ...(rows.length > 40 ? { not_shown: rows.length - 40 } : {}),
+    basis: 'Customer records whose city, ZIP or street address contains the place, and/or whose name or farm name contains the name. A customer with no address on file will not match a place search.',
+  };
+}
+
+// ── Tool: one horse's history ──
+export function findHorse({ invoices, horses }, { tz }, input = {}) {
+  const q = norm(input.name);
+  if (q.length < 2 || q.length > 60) throw new ToolInputError('name must be 2 to 60 characters.');
+  const exactDocs = horses.filter(h => norm(h.name) === q);
+  const docs = exactDocs.length ? exactDocs : horses.filter(h => norm(h.name).includes(q));
+  const docById = new Map(docs.map(h => [h.id, h]));
+  // If a horse is on file under exactly this name, "Bonnie Blue" is someone else's horse; otherwise match loosely.
+  const nameMatch = (n) => { n = norm(n); return exactDocs.length ? n === q : (n === q || n.includes(q)); };
+
+  const groups = new Map();
+  for (const inv of invoices) {
+    if (!live(inv)) continue;
+    const date = localDate(inv.createdAt, tz);
+    if (!date) continue;
+    for (const item of (Array.isArray(inv.items) ? inv.items : [])) {
+      if (!item.horseId && item.horseName === P.MULTIPLE_HORSES) continue;
+      if (!(docById.has(item.horseId) || nameMatch(item.horseName))) continue;
+      const key = item.horseId || 'name:' + custKey(inv) + ':' + norm(item.horseName);
+      const doc = docById.get(item.horseId);
+      const g = groups.get(key) || { horse: doc?.name || item.horseName, customer: doc?.customerName || inv.customerName || '', invoiceIds: new Set(), services: new Map(), visits: new Map() };
+      const service = String(item.description || item.name || '').trim() || 'Other';
+      g.invoiceIds.add(inv.id);
+      g.services.set(service, (g.services.get(service) || 0) + 1);
+      const v = g.visits.get(date) || new Set(); v.add(service); g.visits.set(date, v);
+      groups.set(key, g);
+    }
+  }
+  const out = [];
+  for (const [key, g] of groups) {
+    const dates = [...g.visits.keys()].sort();
+    out.push({
+      horse: g.horse, customer: g.customer,
+      invoices: g.invoiceIds.size,
+      first_invoiced: dates[0], last_invoiced: dates.at(-1),
+      services: [...g.services.entries()].map(([service, times]) => ({ service, times })).sort((a, b) => b.times - a.times || a.service.localeCompare(b.service)),
+      recent_visits: dates.slice(-5).reverse().map(d => ({ date: d, services: [...g.visits.get(d)].join(', ') })),
+      on_file_as_a_horse: docById.has(key),
+    });
+  }
+  // Horses on file under this name that were never invoiced.
+  for (const h of docs) {
+    if (groups.has(h.id)) continue;
+    out.push({ horse: h.name, customer: h.customerName || '', invoices: 0, on_file_as_a_horse: true, last_service_recorded_on_horse: localDate(h.lastServiceDate, tz) || 'none',
+      note: 'On file, but on no invoice.' });
+  }
+  out.sort((a, b) => (b.last_invoiced || '').localeCompare(a.last_invoiced || ''));
+  return {
+    searched_for: String(input.name).trim(),
+    horses_found: out.length,
+    horses: out.slice(0, 10),
+    ...(out.length > 10 ? { horses_not_shown: out.length - 10 } : {}),
+    basis: 'Invoice lines for this horse name on non-cancelled invoices (dates are invoice dates), plus horses on file with that name. Work that was never invoiced is not included.',
+  };
+}
+
+// ── Tool: money collected ──
+// Same rules as the Business Dashboard (lib/owner-dashboard.js): "collected" is what came in,
+// counted on the day each payment was made (card price included), cancelled invoices left out,
+// refunds reported separately. Invoices from before payments[] was kept count their paidAmount
+// (or total) once, on paidAt.
+const METHOD_LABELS = { card: 'Card', cash: 'Cash', check: 'Check', other: 'Zelle, Venmo & other' };
+function methodKind(method) {
+  const m = String(method || '').toLowerCase();
+  if (/card|credit|stripe|ipos|tap/.test(m)) return 'card';
+  if (m === 'cash') return 'cash';
+  if (m === 'check') return 'check';
+  return 'other';
+}
+const toCents = (dollars) => Math.round((Number(dollars) || 0) * 100);
+
+function paymentsOf(inv) {
+  const list = Array.isArray(inv.payments) ? inv.payments : [];
+  if (list.length) return list.map(p => ({ cents: toCents(p.amount), date: p.date || inv.paidAt || inv.createdAt, kind: methodKind(p.method) }));
+  if (inv.status === 'paid' && (inv.paidAmount || inv.total)) {
+    return [{ cents: toCents(inv.paidAmount || inv.total), date: inv.paidAt || inv.createdAt, kind: methodKind(inv.paymentMethod) }];
+  }
+  return [];
+}
+
+export function getMoneyCollected({ invoices }, { tz }, input = {}) {
+  const [from, to] = checkRange(input.from, input.to);
+  const inRange = (v) => { const d = localDate(v, tz); return !!d && d >= from && d <= to; };
+  let collected = 0, paymentCount = 0, refunds = 0, invoiced = 0, invoicedCount = 0;
+  const byKind = { card: 0, cash: 0, check: 0, other: 0 };
+  for (const inv of invoices) {
+    if (!live(inv)) continue;
+    for (const p of paymentsOf(inv)) {
+      if (p.cents <= 0 || !inRange(p.date)) continue;
+      collected += p.cents; paymentCount++; byKind[p.kind] += p.cents;
+    }
+    for (const r of (Array.isArray(inv.refunds) ? inv.refunds : [])) if (inRange(r.date)) refunds += toCents(r.amount);
+    if (inRange(inv.createdAt)) { invoiced += toCents(inv.total); invoicedCount++; }
+  }
+  return {
+    from, to,
+    total_collected: dollars(collected),
+    payments: paymentCount,
+    refunds: dollars(refunds),
+    collected_after_refunds: dollars(collected - refunds),
+    by_method: Object.entries(byKind).filter(([, c]) => c > 0).map(([k, c]) => ({ method: METHOD_LABELS[k], collected: dollars(c) })),
+    for_comparison_invoiced_in_range: dollars(invoiced),
+    invoices_created_in_range: invoicedCount,
+    basis: 'Money received, counted on the day each payment was made (card payments include the card price). Cancelled invoices are excluded. Refunds are shown separately. "Invoiced" is what was billed in the range, paid or not, so it can differ from what was collected.',
   };
 }
 
@@ -227,6 +366,49 @@ export const TOOLS = [
     },
     needs: ['invoices'],
     run: countHorsesServiced,
+  },
+  {
+    name: 'find_customers',
+    description: 'Find customers or farms by place (city, ZIP, street) and/or by name or farm name. Use for "what farms do I have in Loxahatchee", "who do I have on Southern Blvd", "do I have a customer named Smith". ' +
+      'Partial text works; if nothing matches, try a shorter piece of the place name. Returns name, farm name, city and street address (never phone or email).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        place: { type: 'string', description: 'City, ZIP or street text to look for, e.g. "Loxahatchee".' },
+        name: { type: 'string', description: 'Part of a customer name or farm name.' },
+      },
+    },
+    needs: ['customers'],
+    run: findCustomers,
+  },
+  {
+    name: 'find_horse',
+    description: 'Look up one horse by name: whether it is on file, who owns it, which services it has had, how many times, and the dates of the first, last and recent visits. ' +
+      'Use for "did I ever shoe a horse named Bonnie", "when did I last do Rex". Several horses can share a name (different owners): each is listed. ' +
+      'To say whether a horse was SHOD, look at the service names (full set, reset, etc.) and say which you counted.',
+    input_schema: {
+      type: 'object',
+      properties: { name: { type: 'string', description: 'The horse\'s name, e.g. "Bonnie". Partial names work.' } },
+      required: ['name'],
+    },
+    needs: ['invoices', 'horses'],
+    run: findHorse,
+  },
+  {
+    name: 'get_money_collected',
+    description: 'How much money the farrier actually collected (payments received) between two dates, with a breakdown by payment method (card, cash, check, other), refunds, ' +
+      'and for comparison how much was invoiced in the same period. Use for "how much did I collect / get paid / take in". ' +
+      'This is payments by the day they were made, not invoices by invoice date.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'First day, YYYY-MM-DD.' },
+        to: { type: 'string', description: 'Last day, YYYY-MM-DD.' },
+      },
+      required: ['from', 'to'],
+    },
+    needs: ['invoices'],
+    run: getMoneyCollected,
   },
 ];
 

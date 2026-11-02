@@ -26,8 +26,9 @@ const REFUSAL_ANSWER = 'I can\'t help with that one. Try asking about who owes y
 
 // Only the fields the tools read — keeps the Firestore reads small.
 const COLLECTIONS = {
-  invoices: ['createdAt', 'status', 'total', 'paidAmount', 'payments', 'cardPriceRate', 'items', 'customerId', 'customerName'],
-  customers: ['name'],
+  invoices: ['createdAt', 'status', 'total', 'paidAmount', 'paidAt', 'paymentMethod', 'payments', 'refunds', 'cardPriceRate', 'items', 'customerId', 'customerName'],
+  customers: ['name', 'farmName', 'city', 'address', 'zip', 'state'],
+  horses: ['name', 'customerName', 'lastServiceDate'],
   appointments: ['customerId', 'customerName', 'requestedDate', 'date', 'status'],
 };
 
@@ -50,6 +51,9 @@ ${ranges}
 Rules:
 - Every number in your answer must come from a tool result. If a tool didn't return it, don't state it. If you aren't sure which tool fits, say what you can answer instead of guessing.
 - Call whatever tools you need, then answer. For "who owes me money this week", look at invoices dated this week, then also mention the all-time unpaid total in one sentence.
+- "How much did I collect / get paid / take in" means money received: use get_money_collected. Lead with the total collected, then the method breakdown in a line, and mention refunds only if there were any. If the invoiced figure differs a lot, say so in one short sentence. "How much did I bill / invoice" is the invoiced figure from the same tool.
+- For "what farms / who do I have in [place]" use find_customers. List farm names (with the owner's name when there is one); customers with no farm name are people, so list them as customers. Say how many there were. If none match, say so and mention it only searches the city, ZIP and address saved on customer records.
+- For questions about one named horse ("did I ever shoe Bonnie", "when did I last do Rex"), use find_horse. Say whether it's on file, the owner, and the last visit; if several horses share the name, list each owner. Judge "shod" from the service names and say which you went by. If nothing is found, say so plainly and mention it only searches invoices and horses on file.
 - For "how many did I shoe", add up only the shoeing services from the by-service breakdown (full sets, resets, shoe-type work, not trims) and say which services you counted. If it's unclear which services are shoeing, give the breakdown instead.
 - Say what a figure is based on when it could be misread (for example how "active customer" is defined), in a short clause, not a paragraph.
 - Write for a busy farrier on a phone: plain, friendly, brief. Lead with the answer. Format money as $1,234.50. For lists of people, one per line like "Jane Smith: $240.00". No markdown symbols (no **, #, or bullets with *); the screen shows plain text.

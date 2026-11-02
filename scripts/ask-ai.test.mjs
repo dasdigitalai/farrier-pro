@@ -1,7 +1,7 @@
 // Tests for Ask FarriTech: node --test scripts/ask-ai.test.mjs  (no network, no Firestore, no API key)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getMoneyOwed, countCustomers, countHorsesServiced, namedRanges, localDate, ToolInputError } from '../api/_lib/ask-tools.js';
+import { getMoneyOwed, getMoneyCollected, countCustomers, countHorsesServiced, findHorse, findCustomers, namedRanges, localDate, ToolInputError } from '../api/_lib/ask-tools.js';
 import { askAI, systemPrompt } from '../api/_lib/ask-ai.js';
 
 const TZ = 'America/New_York';
@@ -9,19 +9,32 @@ const TODAY = '2026-11-02'; // a Monday
 const ctx = { today: TODAY, tz: TZ };
 
 const invoices = [
+  { id: 'i6', status: 'paid', total: 120, customerId: 'c1', customerName: 'Jane Smith', createdAt: '2026-09-01T15:00:00Z', paidAmount: 120, items: [{ description: 'Full Set', horseId: 'hb1', horseName: 'Bonnie' }] },
+  { id: 'i7', status: 'paid', total: 170, customerId: 'c1', customerName: 'Jane Smith', createdAt: '2026-10-13T15:00:00Z', paidAmount: 170, items: [{ description: 'Full Set', horseId: 'hb1', horseName: 'Bonnie' }, { description: 'Trim', horseId: 'h1', horseName: 'Rex' }] },
   { id: 'i1', status: 'outstanding', total: 240, customerId: 'c1', customerName: 'Jane Smith', createdAt: '2026-11-02T15:00:00Z',
     items: [{ description: 'Full Set', horseId: 'h1', horseName: 'Rex' }, { description: 'Full Set', horseId: 'h2', horseName: 'Dot' }] },
   { id: 'i2', status: 'partial', total: 300, customerId: 'c2', customerName: 'Bob Jones', createdAt: '2026-10-20T15:00:00Z',
-    payments: [{ amount: 100, creditAmount: 100 }], items: [{ description: 'Trim', horseId: 'h3', horseName: 'Moe' }] },
-  { id: 'i3', status: 'paid', total: 500, customerId: 'c1', customerName: 'Jane Smith', createdAt: '2026-10-28T15:00:00Z', paidAmount: 500,
+    payments: [{ amount: 100, creditAmount: 100, date: '2026-10-27T14:00:00Z', method: 'cash' }], items: [{ description: 'Trim', horseId: 'h3', horseName: 'Moe' }] },
+  { id: 'i3', status: 'paid', total: 500, customerId: 'c1', customerName: 'Jane Smith', createdAt: '2026-10-28T15:00:00Z', paidAmount: 500, paidAt: '2026-10-29T16:00:00Z', paymentMethod: 'check', refunds: [{ amount: 50, date: '2026-10-30T12:00:00Z' }],
     items: [{ description: 'Full Set', horseId: 'h1', horseName: 'Rex' }, { description: 'Trim', horseId: 'h4', horseName: 'Lu' }, { description: 'Trip fee' }] },
-  { id: 'i4', status: 'cancelled', total: 999, customerId: 'c3', customerName: 'Cancelled Cathy', createdAt: '2026-10-28T15:00:00Z', items: [{ description: 'Full Set', horseId: 'h9' }] },
+  { id: 'i4', status: 'cancelled', total: 999, customerId: 'c3', customerName: 'Cancelled Cathy', createdAt: '2026-10-28T15:00:00Z', payments: [{ amount: 999, date: '2026-10-28T15:00:00Z', method: 'cash' }], items: [{ description: 'Full Set', horseId: 'h9' }] },
   // 10pm Sunday Nov 1 in New York is already Monday in UTC: must count as LAST week.
   { id: 'i5', status: 'paid', total: 100, customerName: 'No Id Nate', createdAt: '2026-11-02T03:00:00Z', items: [{ description: 'Reset', horseName: 'Biscuit' }] },
 ];
-const customers = [{ id: 'c1', name: 'Jane Smith' }, { id: 'c2', name: 'Bob Jones' }, { id: 'c3', name: 'Cancelled Cathy' }, { id: 'c4', name: 'Dormant Dan' }, { id: 'c5', name: 'No Id Nate' }];
+const customers = [
+  { id: 'c1', name: 'Jane Smith', farmName: 'Sunny Acres', city: 'Loxahatchee', address: '100 Southern Blvd', zip: '33470', state: 'FL' },
+  { id: 'c2', name: 'Bob Jones', farmName: 'Jones Polo', city: 'Loxahatchee Groves', address: '5 B Rd', zip: '33470', state: 'FL' },
+  { id: 'c3', name: 'Cancelled Cathy', city: 'Wellington', address: '9 Pierson Rd', zip: '33414', state: 'FL' },
+  { id: 'c4', name: 'Dormant Dan', farmName: 'Dan Stables', city: 'Wellington', address: '1 Flamingo Rd', zip: '33414', state: 'FL' },
+  { id: 'c5', name: 'No Id Nate' }, // no address on file
+];
+const horses = [
+  { id: 'hb1', name: 'Bonnie', customerName: 'Jane Smith', lastServiceDate: '2026-10-13T15:00:00Z' },
+  { id: 'hb2', name: 'Bonnie', customerName: 'Bob Jones' },
+  { id: 'h1', name: 'Rex', customerName: 'Jane Smith' },
+];
 const appointments = [{ id: 'a1', customerId: 'c4', requestedDate: '2026-12-01', status: 'confirmed' }, { id: 'a2', customerName: 'Dormant Dan', requestedDate: '2025-01-01', status: 'completed' }];
-const data = { invoices, customers, appointments };
+const data = { invoices, customers, appointments, horses };
 
 test('local dates use the business timezone, not UTC', () => {
   assert.equal(localDate('2026-11-02T03:00:00Z', TZ), '2026-11-01');
@@ -57,7 +70,7 @@ test('who owes me this week: only invoices dated in range, plus the all-time tot
 });
 
 test('who owes me: nobody owes anything', () => {
-  const r = getMoneyOwed({ invoices: [invoices[2]] }, ctx, {});
+  const r = getMoneyOwed({ invoices: [invoices.find(i => i.id === 'i3')] }, ctx, {});
   assert.equal(r.all_time.total_owed, 0);
   assert.deepEqual(r.all_time.customers, []);
 });
@@ -86,6 +99,88 @@ test('horses serviced: distinct horses, cancelled excluded, timezone-correct, by
   // The same horse on two invoices counts once.
   const twice = countHorsesServiced(data, ctx, { from: '2026-10-26', to: '2026-11-08' });
   assert.equal(twice.horses_serviced, 4); // Rex (on i1 AND i3, counted once), Dot, Lu, Biscuit
+});
+
+test('money collected: payments by the day they were made, refunds apart, cancelled ignored', () => {
+  const r = getMoneyCollected(data, ctx, { from: '2026-10-26', to: '2026-11-01' });
+  // i2 cash $100 (payments[]), i3 check $500 (legacy paidAmount on paidAt), i5 $100 (no paidAt: falls back to the invoice day, 10pm Sunday NY).
+  // i4 is cancelled (its $999 is ignored); i1 is unpaid.
+  assert.equal(r.total_collected, 700);
+  assert.equal(r.payments, 3);
+  assert.equal(r.refunds, 50);
+  assert.equal(r.collected_after_refunds, 650);
+  assert.deepEqual(r.by_method, [{ method: 'Cash', collected: 100 }, { method: 'Check', collected: 500 }, { method: 'Zelle, Venmo & other', collected: 100 }]);
+  // Invoiced in the same range: i2 (Oct 20) no, i3 $500 (Oct 28) + i5 $100 (Nov 1 NY) = 600; i1 is Nov 2.
+  assert.equal(r.for_comparison_invoiced_in_range, 600);
+  assert.equal(r.invoices_created_in_range, 2);
+});
+
+test('money collected: a quiet period is zero, not an error; card payments are labelled Card', () => {
+  const none = getMoneyCollected(data, ctx, { from: '2026-01-01', to: '2026-01-31' });
+  assert.equal(none.total_collected, 0);
+  assert.deepEqual(none.by_method, []);
+  const card = getMoneyCollected({ invoices: [{ id: 'x', status: 'paid', total: 103, createdAt: '2026-11-02T15:00:00Z', payments: [{ amount: 103, date: '2026-11-02T15:00:00Z', method: 'card_link' }] }] }, ctx, { from: '2026-11-02', to: '2026-11-02' });
+  assert.deepEqual(card.by_method, [{ method: 'Card', collected: 103 }]);
+  assert.throws(() => getMoneyCollected(data, ctx, { from: '2026-11-05', to: '2026-11-01' }), ToolInputError);
+});
+
+test('horses serviced: a "Multiple horses" line counts its quantity, not one horse', () => {
+  const inv = [
+    { id: 'm1', status: 'paid', total: 600, customerId: 'c1', createdAt: '2026-11-03T15:00:00Z', items: [
+      { description: 'Full Set', horseName: 'Multiple horses', qty: 12, note: 'polo string' },
+      { description: 'Full Set', horseId: 'h1', horseName: 'Rex' } ] },
+    { id: 'm2', status: 'paid', total: 100, customerId: 'c1', createdAt: '2026-11-04T15:00:00Z', items: [{ description: 'Trim', horseName: 'Multiple horses', qty: 3 }] },
+  ];
+  const r = countHorsesServiced({ invoices: inv }, ctx, { from: '2026-11-02', to: '2026-11-08' });
+  assert.equal(r.horses_serviced, 16); // 12 + Rex + 3
+  assert.equal(r.horses_in_multi_horse_lines, 15);
+  assert.deepEqual(r.by_service, [{ service: 'Full Set', horses: 13 }, { service: 'Trim', horses: 3 }]);
+  // A line with no qty (older invoices) is one horse.
+  const one = countHorsesServiced({ invoices: [{ id: 'o', status: 'paid', createdAt: '2026-11-03T15:00:00Z', items: [{ description: 'Trim', horseName: 'Multiple horses' }] }] }, ctx, { from: '2026-11-02', to: '2026-11-08' });
+  assert.equal(one.horses_serviced, 1);
+});
+
+test('find horse: "did I ever shoe Bonnie" - history, owner, services, and a second Bonnie on file', () => {
+  const r = findHorse(data, ctx, { name: 'bonnie' });
+  assert.equal(r.horses_found, 2);
+  const jane = r.horses[0]; // most recently invoiced first
+  assert.equal(jane.customer, 'Jane Smith');
+  assert.equal(jane.invoices, 2);
+  assert.equal(jane.first_invoiced, '2026-09-01');
+  assert.equal(jane.last_invoiced, '2026-10-13');
+  assert.deepEqual(jane.services, [{ service: 'Full Set', times: 2 }]);
+  assert.deepEqual(jane.recent_visits.map(v => v.date), ['2026-10-13', '2026-09-01']);
+  const bob = r.horses[1]; // on file, never invoiced
+  assert.equal(bob.customer, 'Bob Jones');
+  assert.equal(bob.invoices, 0);
+  assert.equal(bob.note, 'On file, but on no invoice.');
+});
+
+test('find horse: not found is an empty list; "Bonnie Blue" is not Bonnie when a Bonnie is on file; bad input rejected', () => {
+  assert.equal(findHorse(data, ctx, { name: 'Zorro' }).horses_found, 0);
+  const blue = findHorse({ invoices: [...invoices, { id: 'ib', status: 'paid', customerName: 'Z', createdAt: '2026-10-01T15:00:00Z', items: [{ description: 'Trim', horseName: 'Bonnie Blue' }] }], horses }, ctx, { name: 'Bonnie' });
+  assert.equal(blue.horses_found, 2); // Bonnie Blue's trim is not counted as Bonnie's
+  // With no Bonnie on file at all, a looser match finds "Bonnie Blue" from the invoice line alone.
+  const loose = findHorse({ invoices: [{ id: 'ib', status: 'paid', customerName: 'Z', createdAt: '2026-10-01T15:00:00Z', items: [{ description: 'Trim', horseName: 'Bonnie Blue' }] }], horses: [] }, ctx, { name: 'Bonnie' });
+  assert.equal(loose.horses[0].horse, 'Bonnie Blue');
+  // Cancelled invoices don't count as work done.
+  assert.equal(findHorse({ invoices: [{ id: 'ic', status: 'cancelled', customerName: 'Z', createdAt: '2026-10-01T15:00:00Z', items: [{ description: 'Trim', horseName: 'Ghost' }] }], horses: [] }, ctx, { name: 'Ghost' }).horses_found, 0);
+  assert.throws(() => findHorse(data, ctx, { name: 'a' }), ToolInputError);
+});
+
+test('find customers: "what farms do I have in Loxahatchee" matches city, partial city, ZIP and street; never phone/email', () => {
+  const r = findCustomers(data, ctx, { place: 'Loxahatchee' });
+  assert.equal(r.matches, 2); // Loxahatchee and Loxahatchee Groves
+  assert.deepEqual(r.customers.map(c => c.farm), ['Jones Polo', 'Sunny Acres']);
+  assert.equal(r.with_a_farm_name, 2);
+  assert.equal(findCustomers(data, ctx, { place: '33470' }).matches, 2);
+  assert.equal(findCustomers(data, ctx, { place: 'southern blvd' }).matches, 1);
+  assert.deepEqual(findCustomers(data, ctx, { place: 'Wellington' }).customers.map(c => c.customer), ['Cancelled Cathy', 'Dormant Dan']); // sorted by farm name, else customer name
+  assert.equal(findCustomers(data, ctx, { place: 'FL' }).matches, 4); // customers with state FL
+  assert.equal(findCustomers(data, ctx, { place: 'wellington', name: 'dan' }).matches, 1);
+  assert.equal(findCustomers(data, ctx, { place: 'Nowhere' }).matches, 0);
+  assert.equal(Object.keys(r.customers[0]).sort().join(), 'address,city,customer,farm');
+  assert.throws(() => findCustomers(data, ctx, {}), ToolInputError);
 });
 
 test('bad date input is rejected as the model\'s mistake', () => {
