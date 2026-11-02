@@ -28,8 +28,8 @@ const REFUSAL_ANSWER = 'I can\'t help with that one. Try asking about who owes y
 const COLLECTIONS = {
   invoices: ['createdAt', 'status', 'total', 'paidAmount', 'paidAt', 'paymentMethod', 'payments', 'refunds', 'cardPriceRate', 'items', 'customerId', 'customerName'],
   customers: ['name', 'farmName', 'city', 'address', 'zip', 'state'],
-  horses: ['name', 'customerName', 'lastServiceDate'],
-  appointments: ['customerId', 'customerName', 'requestedDate', 'date', 'status'],
+  horses: ['name', 'customerId', 'customerName', 'lastServiceDate', 'shoeingCycleWeeks'],
+  appointments: ['customerId', 'customerName', 'requestedDate', 'date', 'status', 'horseIds', 'horseRequests'],
 };
 
 // A small guard on spend: a handful of questions a minute per person is plenty.
@@ -54,6 +54,7 @@ Rules:
 - "How much did I collect / get paid / take in" means money received: use get_money_collected. Lead with the total collected, then the method breakdown in a line, and mention refunds only if there were any. If the invoiced figure differs a lot, say so in one short sentence. "How much did I bill / invoice" is the invoiced figure from the same tool.
 - "What's my average invoice" means get_invoice_stats. Use the period the user named, or all time if they named none, and say which. Give the average with how many invoices it's based on; add the median in a short clause only if it differs a lot from the average.
 - For "what farms / who do I have in [place]" use find_customers. List farm names (with the owner's name when there is one); customers with no farm name are people, so list them as customers. Say how many there were. If none match, say so and mention it only searches the city, ZIP and address saved on customer records.
+- "How many horses are due in the next X weeks" means get_horses_due (convert months to weeks). Lead with the total, then in one line how many are overdue and how many are already booked. If some horses have no shoeing cycle set, say how many in one short sentence, because they can't be counted until a cycle is set on the horse. For a short list, name the horses with their owners and dates; for a long one, summarize by owner.
 - For questions about one named horse ("did I ever shoe Bonnie", "when did I last do Rex"), use find_horse. Say whether it's on file, the owner, and the last visit; if several horses share the name, list each owner. Judge "shod" from the service names and say which you went by. If nothing is found, say so plainly and mention it only searches invoices and horses on file.
 - For "how many did I shoe", add up only the shoeing services from the by-service breakdown (full sets, resets, shoe-type work, not trims) and say which services you counted. If it's unclear which services are shoeing, give the breakdown instead.
 - Say what a figure is based on when it could be misread (for example how "active customer" is defined), in a short clause, not a paragraph.

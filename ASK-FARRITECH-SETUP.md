@@ -8,6 +8,7 @@ question and gets an answer:
 - "How many active customers do I have?"
 - "How many horses did I shoe last week?"
 - "How much did I collect last month?"
+- "How many horses are due in the next 4 weeks?"
 - "What is my average invoice?"
 - "Did I ever shoe a horse named Bonnie?"
 - "What farms do I have in Loxahatchee?"
@@ -50,6 +51,14 @@ decide what is visible, exactly as in the app. Team members with the `farrier` r
   period" for comparison. Same rules as the Business Dashboard.
 - **Horses worked on** counts a "Multiple horses" invoice line by its quantity (those horses have no
   names, so they can't be matched to each other).
+- **Horses due** (`get_horses_due`): the same rules as the **Upcoming Service** tab. A horse's next service is
+  its soonest booked appointment from today on, otherwise its last service plus the **shoeing cycle (weeks)**
+  on the horse record. Its last service is the latest of a past appointment, an invoice line for the horse,
+  and the horse record's last service date. "Due in the next N weeks" means that date is before today + N
+  weeks; overdue horses are included and counted separately, as are horses already booked. Horses with no
+  shoeing cycle set (and no booking) have no due date, so they can't be counted; the answer says how many.
+  It counts calendar days; around a clock change (spring/fall) the Upcoming tab can show a due date a day
+  earlier, because it adds 24-hour days.
 - **Invoice size** (`get_invoice_stats`): count, total, average, median, largest and smallest for a
   period (or all time), non-cancelled invoices by invoice date, paid or not.
 - **One horse** (`find_horse`): looks up a name on invoices and in Horses, lists each horse with that

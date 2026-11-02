@@ -1,8 +1,9 @@
 // Tests for Ask FarriTech: node --test scripts/ask-ai.test.mjs  (no network, no Firestore, no API key)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getMoneyOwed, getMoneyCollected, getInvoiceStats, countCustomers, countHorsesServiced, findHorse, findCustomers, namedRanges, localDate, ToolInputError } from '../api/_lib/ask-tools.js';
+import { getHorsesDue, getMoneyOwed, getMoneyCollected, getInvoiceStats, countCustomers, countHorsesServiced, findHorse, findCustomers, namedRanges, localDate, ToolInputError } from '../api/_lib/ask-tools.js';
 import { askAI, systemPrompt } from '../api/_lib/ask-ai.js';
+import '../lib/horse-history.js'; // the app's own next-service logic (globalThis.FarriHorseHistory), used as the reference below
 
 const TZ = 'America/New_York';
 const TODAY = '2026-11-02'; // a Monday
@@ -202,6 +203,120 @@ test('find customers: "what farms do I have in Loxahatchee" matches city, partia
   assert.throws(() => findCustomers(data, ctx, {}), ToolInputError);
 });
 
+// ── Horses due ──
+const dueData = (() => {
+  const h = (id, name, owner, extra = {}) => ({ id, name, customerId: owner === 'Jane' ? 'c1' : 'c2', customerName: owner === 'Jane' ? 'Jane Smith' : 'Bob Jones', ...extra });
+  return {
+    customers: [{ id: 'c1', name: 'Jane Smith', farmName: 'Sunny Acres' }, { id: 'c2', name: 'Bob Jones' }],
+    horses: [
+      h('h1', 'Rex', 'Jane', { shoeingCycleWeeks: 6, lastServiceDate: '2026-09-28T15:00:00Z' }),   // due 11-09
+      h('h2', 'Dot', 'Jane', { shoeingCycleWeeks: 6 }),                                            // last service from an invoice: 09-01, due 10-13 = overdue
+      h('h3', 'Moe', 'Bob', { shoeingCycleWeeks: 8, lastServiceDate: '2026-10-20T15:00:00Z' }),   // due 12-15: outside 4 weeks (and a cancelled booking must not count)
+      h('h4', 'Lu', 'Jane', { shoeingCycleWeeks: 6, lastServiceDate: '2026-08-30T15:00:00Z' }),   // booked 11-12
+      h('h5', 'Biscuit', 'Jane', { lastServiceDate: '2026-10-01T15:00:00Z' }),                      // no cycle set
+      h('h6', 'Penny', 'Jane', { shoeingCycleWeeks: 6 }),                                          // cycle set, never serviced
+      h('h7', 'Atlas', 'Bob', { shoeingCycleWeeks: 4, lastServiceDate: '2026-10-05T15:00:00Z' }), // due today (11-02)
+      h('h8', 'Daisy', 'Jane', { shoeingCycleWeeks: 4, lastServiceDate: '2026-11-02T15:00:00Z' }),// due 11-30 = the day the 4-week window ends: not inside it
+      // no ids anywhere: matched by name + owner. Last service from a past appointment 10-01; calendar days: 10-01 + 6 weeks = 11-12.
+      // (The app's Upcoming tab adds 24-hour days to midnight, so across the Nov 1 clock change it shows 11-11. Same one-day slip each spring and fall; not copied here.)
+      { id: 'h9', name: 'Duke', customerName: 'Jane Smith', shoeingCycleWeeks: 6 },
+    ],
+    invoices: [{ id: 'iv1', status: 'paid', customerId: 'c1', customerName: 'Jane Smith', createdAt: '2026-09-01T15:00:00Z', items: [{ description: 'Full Set', horseId: 'h2', horseName: 'Dot' }] }],
+    appointments: [
+      { id: 'a1', status: 'confirmed', customerId: 'c1', requestedDate: '2026-11-12', horseRequests: [{ horseId: 'h4', horseName: 'Lu', services: ['Full Set'] }] },
+      { id: 'a2', status: 'cancelled', customerId: 'c2', requestedDate: '2026-11-10', horseRequests: [{ horseId: 'h3', horseName: 'Moe' }] },
+      { id: 'a3', status: 'completed', customerName: 'Jane Smith', requestedDate: '2026-10-01', horseRequests: [{ horseName: 'Duke', services: ['Trim'] }] },
+    ],
+  };
+})();
+
+test('horses due in the next 4 weeks: the Upcoming Service rules (booked, estimated, overdue, boundaries)', () => {
+  const r = getHorsesDue(dueData, ctx, { weeks: 4 });
+  assert.deepEqual(r.window, { from: '2026-11-02', to_before: '2026-11-30', weeks: 4 });
+  assert.equal(r.horses_due, 5);
+  assert.deepEqual(r.horses.map(x => [x.horse, x.due_date, x.status]), [
+    ['Dot', '2026-10-13', 'overdue'], ['Atlas', '2026-11-02', 'due'], ['Rex', '2026-11-09', 'due'], ['Duke', '2026-11-12', 'due'], ['Lu', '2026-11-12', 'booked'],
+  ]);
+  assert.equal(r.overdue, 1); assert.equal(r.due_not_yet_booked, 3); assert.equal(r.already_booked, 1);
+  assert.equal(r.owners_with_horses_due, 2);
+  assert.equal(r.horses_on_file, 9);
+  assert.equal(r.horses_with_no_due_date, 2); assert.equal(r.of_which_no_shoeing_cycle_set, 1); assert.equal(r.of_which_cycle_set_but_never_serviced, 1);
+  assert.equal(r.horses.find(x => x.horse === 'Rex').farm, 'Sunny Acres');
+  assert.equal(r.horses.find(x => x.horse === 'Rex').last_service, '2026-09-28');
+});
+
+test('horses due: the window grows with the weeks asked for, and bad input is the model\'s mistake', () => {
+  const d = (w) => getHorsesDue(dueData, ctx, { weeks: w }).horses.map(x => x.horse);
+  assert.ok(!d(4).includes('Daisy') && d(5).includes('Daisy'));          // 11-30 is outside 4 weeks, inside 5
+  assert.ok(!d(6).includes('Moe') && d(7).includes('Moe'));              // Moe is due 12-15: 6 weeks ends 12-14, 7 weeks ends 12-21
+  for (const bad of [0, 53, 2.5, '4', undefined, null]) assert.throws(() => getHorsesDue(dueData, ctx, { weeks: bad }), ToolInputError);
+  assert.equal(getHorsesDue({ horses: [], appointments: [], invoices: [], customers: [] }, ctx, { weeks: 4 }).horses_due, 0);
+});
+
+// A small seeded random generator, so the comparison below is the same every run.
+const rng = (seed) => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+
+test('horses due: agrees with the app\'s own FarriHorseHistory (Upcoming Service tab) on random data', () => {
+  const savedTZ = process.env.TZ; process.env.TZ = 'America/New_York'; // the app runs in the farrier's browser time zone
+  try {
+    const FHH = globalThis.FarriHorseHistory;
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const rand = rng(seed), pick = (a) => a[Math.floor(rand() * a.length)], int = (a, b) => a + Math.floor(rand() * (b - a + 1));
+      const today = '2026-06-15'; // mid-summer: no clock change between the data and the window, where the app's 24-hour-day arithmetic would differ by a day
+      const dayStr = (off) => { const d = new Date(2026, 5, 15 + off); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+      // (Around a clock change the app's 24-hour-day arithmetic is a day off and these calendar-day rules are right; see the Duke case above.)
+      const stamp = (off) => new Date(2026, 5, 15 + off, int(2, 22), int(0, 59)).toISOString();
+      const customers = [...Array(8)].map((_, i) => ({ id: 'c' + i, name: 'Owner ' + i, farmName: i % 2 ? 'Farm ' + i : '' }));
+      const horses = [...Array(70)].map((_, i) => {
+        const c = pick(customers), twin = i % 9 === 0; // some names shared by different owners
+        return { id: 'h' + i, name: twin ? 'Twin' : 'Horse' + i, customerId: rand() < 0.8 ? c.id : '', customerName: c.name,
+          shoeingCycleWeeks: pick([null, undefined, 0, 4, 5, 6, 8, 10]), ...(rand() < 0.7 ? { lastServiceDate: stamp(-int(1, 100)) } : {}) };
+      });
+      const hAny = () => pick(horses);
+      const appointments = [...Array(120)].map((_, i) => {
+        const hs = [hAny(), ...(rand() < 0.3 ? [hAny()] : [])], c = customers.find(x => x.id === hs[0].customerId) || pick(customers);
+        const how = rand();
+        return { id: 'a' + i, status: pick(['confirmed', 'completed', 'cancelled', 'pending']), customerId: rand() < 0.8 ? c.id : '', customerName: c.name, requestedDate: dayStr(int(-70, 70)),
+          ...(how < 0.4 ? { horseRequests: hs.map(x => ({ horseId: x.id, horseName: x.name, services: ['Trim'] })) }
+            : how < 0.7 ? { horseIds: hs.map(x => x.id) }
+            : { horseRequests: hs.map(x => ({ horseName: x.name, services: ['Trim'] })) }) };
+      });
+      const invoices = [...Array(120)].map((_, i) => {
+        const hs = [hAny(), ...(rand() < 0.3 ? [hAny()] : [])], c = customers.find(x => x.id === hs[0].customerId) || pick(customers);
+        return { id: 'v' + i, status: pick(['paid', 'outstanding', 'cancelled', 'partial']), customerId: rand() < 0.8 ? c.id : '', customerName: c.name, createdAt: rand() < 0.95 ? stamp(-int(1, 110)) : undefined,
+          items: hs.map(x => rand() < 0.6 ? { description: 'Full Set', horseId: x.id, horseName: x.name } : { description: 'Trim', horseName: x.name }) };
+      });
+
+      const now = new Date(2026, 5, 15, 12);
+      const todayMidnight = new Date(2026, 5, 15);
+      const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      for (const weeks of [1, 2, 4, 6, 8, 20]) {
+        const end = new Date(todayMidnight.getTime() + weeks * 7 * 86400e3);
+        const expected = {};
+        let noDate = 0;
+        for (const h of horses) {
+          const next = FHH.build(h, appointments, invoices, now).nextService;
+          if (!next) { noDate++; continue; }
+          if (!(next.date < end)) continue;
+          const owner = customers.find(c => c.id === h.customerId)?.name || h.customerName;
+          expected[h.name + '|' + owner + '|' + h.id] = { date: fmt(next.date), status: !next.estimated ? 'booked' : next.overdue ? 'overdue' : 'due' };
+        }
+        const got = getHorsesDue({ horses, appointments, invoices, customers }, { today, tz: 'America/New_York' }, { weeks });
+        const gotAll = getHorsesDue({ horses, appointments, invoices, customers }, { today, tz: 'America/New_York' }, { weeks });
+        assert.equal(gotAll.horses_due, Object.keys(expected).length, `seed ${seed}, ${weeks} weeks: how many are due`);
+        assert.equal(got.horses_with_no_due_date, noDate, `seed ${seed}, ${weeks} weeks: horses with no due date`);
+        // Same horses, same dates, same status (rows are capped at 40, so compare the shown rows against the reference).
+        const shown = got.horses.map(r => `${r.horse}|${r.owner}|${r.due_date}|${r.status}`).sort();
+        const wantAll = Object.entries(expected).map(([k, v]) => `${k.split('|').slice(0, 2).join('|')}|${v.date}|${v.status}`).sort();
+        if (got.horses_due <= 40) assert.deepEqual(shown, wantAll, `seed ${seed}, ${weeks} weeks: the horses and dates`);
+        else for (const row of shown) assert.ok(wantAll.includes(row), `seed ${seed}, ${weeks} weeks: shown row ${row} is in the reference`);
+        assert.equal(got.overdue, Object.values(expected).filter(v => v.status === 'overdue').length, `seed ${seed}, ${weeks} weeks: overdue`);
+        assert.equal(got.already_booked, Object.values(expected).filter(v => v.status === 'booked').length, `seed ${seed}, ${weeks} weeks: booked`);
+      }
+    }
+  } finally { if (savedTZ === undefined) delete process.env.TZ; else process.env.TZ = savedTZ; }
+});
+
 test('bad date input is rejected as the model\'s mistake', () => {
   assert.throws(() => countHorsesServiced(data, ctx, { from: '2026-13-01', to: '2026-11-01' }), ToolInputError);
   assert.throws(() => countHorsesServiced(data, ctx, { from: '2026-11-05', to: '2026-11-01' }), ToolInputError);
@@ -245,6 +360,18 @@ test('askAI: a bad tool input goes back to the model as an error so it can retry
   assert.equal(client.calls[1].messages.at(-1).content[0].is_error, true);
   assert.equal(out.facts.length, 1);
   assert.equal(out.facts[0].result.horses_serviced, 3);
+});
+
+test('askAI: "horses due in the next 4 weeks" loads what the tool needs and returns the numbers behind the answer', async () => {
+  const loaded = [];
+  const client = fakeClient([toolUse('get_horses_due', { weeks: 4 }), say('5 horses are due in the next 4 weeks.')]);
+  const out = await askAI({ caller: { uid: 'u-due', idToken: 't' }, biz, body: { question: 'How many horses are due in the next 4 weeks?', timezone: TZ } },
+    { client, now, load: async (n) => { loaded.push(n); return dueData[n] || []; } });
+  assert.deepEqual([...loaded].sort(), ['appointments', 'customers', 'horses', 'invoices']);
+  assert.equal(out.facts[0].tool, 'get_horses_due');
+  assert.equal(out.facts[0].result.horses_due, 5);
+  assert.match(client.calls[0].system, /get_horses_due/);
+  assert.ok(client.calls[0].tools.some(t => t.name === 'get_horses_due' && t.input_schema.required.includes('weeks')));
 });
 
 test('askAI: only loads the collections a tool needs', async () => {

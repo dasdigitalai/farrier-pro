@@ -4365,7 +4365,7 @@ async function loadBusinessDashboard() {
 // /api/stripe-payment action 'ask_ai') lets Claude pick a read-only calculation over this business's own
 // records; nothing is changed. Same as the desktop "Ask FarriTech" tab. Owners and managers only, and it
 // needs a connection (the answer is worked out on the server, not from this phone's synced copy).
-const ASK_EXAMPLES = ['Who owes me money this week?', 'How many active customers do I have?', 'How many horses did I shoe last week?', 'How much did I collect last month?', 'What is my average invoice?'];
+const ASK_EXAMPLES = ['Who owes me money this week?', 'How many active customers do I have?', 'How many horses did I shoe last week?', 'How much did I collect last month?', 'How many horses are due in the next 4 weeks?', 'What is my average invoice?'];
 const ASK_MONEY_KEYS = /^(total_owed|owed|total_collected|collected|refunds|collected_after_refunds|for_comparison_invoiced_in_range|total_invoiced|average_invoice|median_invoice|largest_invoice|smallest_invoice)$/;
 const askState = { thread: [], busy: false }; // thread, oldest first: { q, a, facts } or { q, error }
 

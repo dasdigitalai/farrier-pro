@@ -217,6 +217,95 @@ export function findCustomers({ customers }, ctx, input = {}) {
   };
 }
 
+// ── Tool: horses due ──
+// The same rules as the app's Upcoming Service tab (lib/horse-history.js), worked out on business-local
+// calendar days. A horse's NEXT service is its soonest booked (non-cancelled) appointment from today on; if
+// it has none, its last service plus the horse's shoeing cycle (weeks), marked estimated, and overdue when
+// that date has passed. Its LAST service is the latest of: a past booked appointment, an invoice line for
+// the horse, and the horse record's lastServiceDate. A horse is "due in the next N weeks" when its next
+// service falls before today + N weeks (overdue horses included). A horse with no booking and no shoeing
+// cycle (or no service history to count from) has no due date and is reported separately.
+function sameCustomerDoc(horse, doc) {
+  if (horse.customerId && doc.customerId) return horse.customerId === doc.customerId;
+  return !!horse.customerName && norm(horse.customerName) === norm(doc.customerName);
+}
+
+export function getHorsesDue({ horses, appointments, invoices, customers }, { today, tz }, input = {}) {
+  const weeks = input.weeks;
+  if (!Number.isInteger(weeks) || weeks < 1 || weeks > 52) throw new ToolInputError('weeks must be a whole number from 1 to 52.');
+  const end = addDays(today, weeks * 7); // due means next service is before this day
+  const custById = new Map(customers.map(c => [c.id, c]));
+
+  // Index appointments and invoices by horse once (by horse id, or by horse name for lines that have no id).
+  const apptById = new Map(), apptByName = new Map(), invById = new Map(), invByName = new Map();
+  const push = (m, k, v) => { const a = m.get(k); if (a) { if (!a.includes(v)) a.push(v); } else m.set(k, [v]); };
+  for (const a of appointments) {
+    if (a.status === 'cancelled') continue;
+    const date = localDate(a.requestedDate || a.date, tz);
+    if (!date) continue;
+    const rec = { doc: a, date };
+    const reqs = Array.isArray(a.horseRequests) ? a.horseRequests : [];
+    for (const r of reqs) { if (r.horseId) push(apptById, r.horseId, rec); else if (r.horseName) push(apptByName, norm(r.horseName), rec); }
+    for (const id of (a.horseIds || [])) push(apptById, id, rec);
+  }
+  for (const inv of invoices) {
+    const date = localDate(inv.createdAt, tz);
+    if (!date) continue; // like the app: an undated invoice can't be the last service
+    const rec = { doc: inv, date };
+    for (const i of (Array.isArray(inv.items) ? inv.items : [])) { if (i.horseId) push(invById, i.horseId, rec); else if (i.horseName) push(invByName, norm(i.horseName), rec); }
+  }
+
+  const rows = [];
+  let noCycle = 0, noHistory = 0;
+  for (const h of horses) {
+    const name = norm(h.name);
+    const forHorse = (byId, byName) => [...(byId.get(h.id) || []), ...(name ? (byName.get(name) || []).filter(r => sameCustomerDoc(h, r.doc)) : [])];
+    const appts = forHorse(apptById, apptByName), invs = forHorse(invById, invByName);
+
+    const upcoming = appts.filter(r => r.date >= today).map(r => r.date).sort();
+    const pastAppt = appts.filter(r => r.date < today).map(r => r.date).sort().at(-1);
+    const lastInv = invs.map(r => r.date).sort().at(-1);
+    const stamped = localDate(h.lastServiceDate, tz);
+    const last = [pastAppt, lastInv, stamped].filter(Boolean).sort().at(-1) || null;
+    const cycle = Number(h.shoeingCycleWeeks) > 0 ? Number(h.shoeingCycleWeeks) : 0;
+
+    let next = null;
+    if (upcoming[0]) next = { date: upcoming[0], booked: true };
+    else if (last && cycle) { const due = addDays(last, cycle * 7); next = { date: due, booked: false, overdue: due < today }; }
+    if (!next) { if (!cycle) noCycle++; else noHistory++; continue; }
+    if (!(next.date < end)) continue;
+
+    const c = custById.get(h.customerId);
+    rows.push({
+      horse: h.name || 'Unnamed',
+      owner: c?.name || h.customerName || 'No owner',
+      farm: c?.farmName || '',
+      due_date: next.date,
+      status: next.booked ? 'booked' : next.overdue ? 'overdue' : 'due',
+      last_service: last || '',
+      cycle_weeks: cycle || '',
+    });
+  }
+  rows.sort((a, b) => a.due_date.localeCompare(b.due_date) || a.horse.localeCompare(b.horse));
+  const count = (s) => rows.filter(r => r.status === s).length;
+  return {
+    as_of: today,
+    window: { from: today, to_before: end, weeks },
+    horses_due: rows.length,
+    overdue: count('overdue'),
+    due_not_yet_booked: count('due'),
+    already_booked: count('booked'),
+    owners_with_horses_due: new Set(rows.map(r => r.owner)).size,
+    horses_on_file: horses.length,
+    horses_with_no_due_date: noCycle + noHistory,
+    of_which_no_shoeing_cycle_set: noCycle,
+    of_which_cycle_set_but_never_serviced: noHistory,
+    horses: rows.slice(0, 40),
+    ...(rows.length > 40 ? { not_shown: rows.length - 40 } : {}),
+    basis: 'Same rules as the Upcoming Service tab. A horse is due when its next service (a booked appointment, otherwise its last service plus its shoeing cycle in weeks) is before the end of the window. Overdue horses are included. Horses with no shoeing cycle set and no booking have no due date, so they are not counted.',
+  };
+}
+
 // ── Tool: one horse's history ──
 export function findHorse({ invoices, horses }, { tz }, input = {}) {
   const q = norm(input.name);
@@ -416,6 +505,19 @@ export const TOOLS = [
     },
     needs: ['customers'],
     run: findCustomers,
+  },
+  {
+    name: 'get_horses_due',
+    description: 'How many horses are due for service in the next N weeks, and which ones (with owner and farm), using each horse\'s last service and its shoeing cycle, or its booked appointment. ' +
+      'Overdue horses are included and counted separately; horses already booked are counted separately; horses with no shoeing cycle set cannot be placed and are reported. ' +
+      'Use for "how many horses are due in the next 4 weeks", "who is due this month". Convert months to weeks (about 4 per month).',
+    input_schema: {
+      type: 'object',
+      properties: { weeks: { type: 'integer', description: 'Look-ahead window in whole weeks, 1 to 52.' } },
+      required: ['weeks'],
+    },
+    needs: ['horses', 'appointments', 'invoices', 'customers'],
+    run: getHorsesDue,
   },
   {
     name: 'find_horse',
