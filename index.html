@@ -6267,18 +6267,24 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
     // Ask FarriTech — type a question about your business, get an answer. The server (api/_lib/ask-ai.js)
     // lets Claude pick a read-only calculation over this business's own records; nothing is changed.
     // Each answer carries the figures it was built from, under "Show the numbers".
-    const ASK_EXAMPLES = ['Who owes me money this week?', 'How many active customers do I have?', 'How many horses did I shoe last week?'];
-    const ASK_MONEY_KEYS = /^(total_owed|owed)$/;
+    const ASK_EXAMPLES = ['Who owes me money this week?', 'How many active customers do I have?', 'How many horses did I shoe last week?', 'How much did I collect last month?'];
+    const ASK_MONEY_KEYS = /^(total_owed|owed|total_collected|collected|refunds|collected_after_refunds|for_comparison_invoiced_in_range|total_invoiced|average_invoice|median_invoice|largest_invoice|smallest_invoice)$/;
     function AskFacts({ data, depth = 0 }) {
       const label = (k) => k.replace(/_/g, ' ');
-      const fmt = (k, v) => ASK_MONEY_KEYS.test(k) ? '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v);
+      const fmt = (k, v) => {
+        if (v == null) return '';
+        // A list inside a table cell (e.g. a horse's services): "Full Set · 2; Trim · 1".
+        if (Array.isArray(v)) return v.map(x => x && typeof x === 'object' ? Object.values(x).join(' · ') : String(x)).join('; ');
+        return ASK_MONEY_KEYS.test(k) ? '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v);
+      };
       const cell = { padding: '0.25rem 0.75rem 0.25rem 0', textAlign: 'left', verticalAlign: 'top' };
       return (
         <div style={{ marginLeft: depth ? '0.75rem' : 0 }}>
           {Object.entries(data).map(([k, v]) => {
             if (Array.isArray(v)) {
               if (!v.length) return <div key={k}><b>{label(k)}:</b> none</div>;
-              const cols = Object.keys(v[0]);
+              // Rows can have different fields (e.g. a horse on file but never invoiced), so use every field seen.
+              const cols = [...new Set(v.flatMap(r => Object.keys(r || {})))];
               return (
                 <table key={k} style={{ margin: '0.5rem 0', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
                   <thead><tr>{cols.map(c => <th key={c} style={{ ...cell, color: 'var(--text-muted)', fontWeight: 600 }}>{label(c)}</th>)}</tr></thead>
