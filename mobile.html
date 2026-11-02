@@ -392,6 +392,10 @@
         <div class="big-btn-icon" style="background:#1D4ED8;">📈</div>
         <div class="big-btn-label">Business Dashboard</div>
       </button>
+      <button class="big-btn" id="home-ask-btn" onclick="openAskFarriTech()">
+        <div class="big-btn-icon" style="background:#7C3AED;">💬</div>
+        <div class="big-btn-label">Ask FarriTech</div>
+      </button>
       <button class="big-btn" onclick="openDayRoute()">
         <div class="big-btn-icon" style="background:#EA580C;">🗺️</div>
         <div class="big-btn-label">Day Route</div>
@@ -679,6 +683,28 @@
     <div id="business-loading" class="loading-wrap"><div class="spinner"></div></div>
     <div id="business-error" style="display:none; color:#dc2626; font-size:0.9rem; margin-bottom:12px;"></div>
     <div id="business-dash"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- SCREEN: ASK FARRITECH (AI assistant)      -->
+<!-- ══════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-ask">
+  <div class="header">
+    <button class="back-btn" onclick="goBack()">‹</button>
+    <div class="header-title">Ask FarriTech</div>
+  </div>
+  <div style="padding:12px 16px 0; flex-shrink:0; background:var(--bg);">
+    <form onsubmit="askFarriTech(); return false;" style="display:flex; gap:8px;">
+      <input class="search-input" id="ask-input" type="text" maxlength="500" autocomplete="off" enterkeyhint="send"
+        placeholder="Ask about your business…" style="padding-left:16px; flex:1; min-width:0;">
+      <button class="btn-primary" id="ask-send" type="submit" style="width:auto; padding:0 20px;">Ask</button>
+    </form>
+    <div id="ask-examples" style="display:flex; gap:8px; overflow-x:auto; padding:10px 0 4px; -webkit-overflow-scrolling:touch;"></div>
+  </div>
+  <div class="scroll-body" id="ask-scroll" style="padding-top:8px;">
+    <div id="ask-results"></div>
+    <p style="color:var(--text-muted); font-size:0.75rem; margin:4px 2px 0;">Ask FarriTech only reads your records; it never changes anything. It can slip up on wording, so tap “Show the numbers” to check a figure that matters.</p>
   </div>
 </div>
 
@@ -1640,6 +1666,7 @@ auth.onAuthStateChanged(async (user) => {
     renderStatusBanner();
     await resolveBusiness(user); // which business's records to load (own, or the team's)
     document.getElementById('home-business-btn').style.display = state.teamRole === 'farrier' ? 'none' : '';
+    document.getElementById('home-ask-btn').style.display = state.teamRole === 'farrier' ? 'none' : '';
     await Promise.allSettled([loadUserProfile(), loadServices(), loadCustomers(), loadAllHorses()]);
     bootLoading = false;
     renderStatusBanner();
@@ -4331,6 +4358,88 @@ async function loadBusinessDashboard() {
     err.textContent = 'Couldn’t load the dashboard. Please try again.'; err.style.display = 'block';
   }
   loading.style.display = 'none';
+}
+
+// ── ASK FARRITECH ──
+// Type a question about the business, get an answer. The server (api/_lib/ask-ai.js, reached through
+// /api/stripe-payment action 'ask_ai') lets Claude pick a read-only calculation over this business's own
+// records; nothing is changed. Same as the desktop "Ask FarriTech" tab. Owners and managers only, and it
+// needs a connection (the answer is worked out on the server, not from this phone's synced copy).
+const ASK_EXAMPLES = ['Who owes me money this week?', 'How many active customers do I have?', 'How many horses did I shoe last week?', 'How much did I collect last month?', 'What is my average invoice?'];
+const ASK_MONEY_KEYS = /^(total_owed|owed|total_collected|collected|refunds|collected_after_refunds|for_comparison_invoiced_in_range|total_invoiced|average_invoice|median_invoice|largest_invoice|smallest_invoice)$/;
+const askState = { thread: [], busy: false }; // thread, oldest first: { q, a, facts } or { q, error }
+
+function openAskFarriTech() {
+  if (state.teamRole === 'farrier') return;
+  goTo('screen-ask');
+  document.getElementById('ask-examples').innerHTML = ASK_EXAMPLES.map((q, i) =>
+    `<button type="button" class="btn-sm" style="flex:0 0 auto; background:#EBF4FF; color:var(--blue); white-space:nowrap;" onclick="askFarriTech(ASK_EXAMPLES[${i}])">${escapeHtml(q)}</button>`).join('');
+  renderAsk();
+}
+
+// "Show the numbers": what the server's calculations returned, as plain tables. Everything is escaped
+// (customer and horse names are data, not markup).
+function askFactsHtml(data) {
+  const label = (k) => escapeHtml(String(k).replace(/_/g, ' '));
+  const fmt = (k, v) => {
+    if (v == null) return '';
+    if (Array.isArray(v)) return escapeHtml(v.map(x => x && typeof x === 'object' ? Object.values(x).join(' · ') : String(x)).join('; '));
+    if (ASK_MONEY_KEYS.test(k)) return '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return escapeHtml(String(v));
+  };
+  const cell = 'padding:3px 10px 3px 0; text-align:left; vertical-align:top;';
+  return Object.entries(data || {}).map(([k, v]) => {
+    if (Array.isArray(v)) {
+      if (!v.length) return `<div><b>${label(k)}:</b> none</div>`;
+      const cols = [...new Set(v.flatMap(r => Object.keys(r || {})))]; // rows can have different fields
+      return `<div style="overflow-x:auto; margin:6px 0;"><table style="border-collapse:collapse; font-size:0.8rem;">`
+        + `<thead><tr>${cols.map(c => `<th style="${cell} color:var(--text-muted); font-weight:600;">${label(c)}</th>`).join('')}</tr></thead>`
+        + `<tbody>${v.map(row => `<tr>${cols.map(c => `<td style="${cell}">${fmt(c, row[c])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    }
+    if (v && typeof v === 'object') return `<div style="margin:6px 0;"><b>${label(k)}</b><div style="margin-left:10px;">${askFactsHtml(v)}</div></div>`;
+    return `<div><span style="color:var(--text-muted);">${label(k)}:</span> ${fmt(k, v)}</div>`;
+  }).join('');
+}
+
+function renderAsk() {
+  const box = document.getElementById('ask-results');
+  const busy = askState.busy;
+  document.getElementById('ask-send').disabled = busy;
+  document.getElementById('ask-send').textContent = busy ? '…' : 'Ask';
+  box.innerHTML = (busy ? `<div class="card" style="color:var(--text-muted);">Looking through your records…</div>` : '')
+    + askState.thread.slice().reverse().map(t => `<div class="card">
+        <div style="color:var(--text-muted); font-size:0.85rem; margin-bottom:6px;">${escapeHtml(t.q)}</div>
+        ${t.error
+          ? `<div style="color:var(--danger); font-size:0.95rem;">${escapeHtml(t.error)}</div>`
+          : `<div style="white-space:pre-wrap; font-size:1rem; line-height:1.45;">${escapeHtml(t.a)}</div>`}
+        ${!t.error && (t.facts || []).length ? `<details style="margin-top:10px; font-size:0.85rem;"><summary style="color:var(--blue); cursor:pointer;">Show the numbers</summary>
+          <div style="margin-top:8px;">${t.facts.map(f => `<div style="margin-bottom:10px;">${askFactsHtml(f.result)}</div>`).join('')}</div></details>` : ''}
+      </div>`).join('');
+}
+
+async function askFarriTech(text) {
+  const input = document.getElementById('ask-input');
+  const question = String(text == null ? input.value : text).trim();
+  if (!question || askState.busy) return;
+  if (!netState.online) { showToast('Ask FarriTech needs an internet connection', 'error'); return; }
+  askState.busy = true; input.value = ''; input.blur();
+  renderAsk();
+  document.getElementById('ask-scroll').scrollTop = 0;
+  // The last few answers, so a follow-up like "and last month?" makes sense.
+  const history = askState.thread.filter(t => !t.error).slice(-3).flatMap(t => [{ role: 'user', content: t.q }, { role: 'assistant', content: t.a }]);
+  try {
+    const res = await fetch('/api/stripe-payment', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'ask_ai', question, history, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) throw new Error(data.error || 'Something went wrong. Please try again.');
+    askState.thread.push({ q: question, a: data.answer, facts: data.facts || [] });
+  } catch (e) {
+    askState.thread.push({ q: question, error: e.message || 'Something went wrong. Please try again.' });
+  }
+  askState.busy = false;
+  renderAsk();
 }
 
 // ── REFUNDS ──

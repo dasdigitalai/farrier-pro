@@ -1,6 +1,8 @@
 # Ask FarriTech (AI assistant) — setup
 
-A tab in the desktop app where the owner or a manager types a question and gets an answer:
+In the desktop app it's the **Ask FarriTech** tab (first menu → Ask FarriTech); in the mobile app it's the
+**Ask FarriTech** button on the home screen (next to Business Dashboard). The owner or a manager types a
+question and gets an answer:
 
 - "Who owes me money this week?"
 - "How many active customers do I have?"
@@ -69,4 +71,4 @@ node --test scripts/ask-ai.test.mjs
 ## Limits
 
 - 15 questions a minute per person (a spend guard), 500 characters per question.
-- Desktop app only for now (not `mobile.html`).
+- Needs a connection on the phone: answers are worked out on the server, not from the phone's offline copy.
