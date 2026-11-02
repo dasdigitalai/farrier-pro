@@ -385,7 +385,7 @@
         <div class="big-btn-label">Inventory</div>
       </button>
       <button class="big-btn" onclick="openShoppingList()">
-        <div class="big-btn-icon" style="background:#0E7490;">🛒</div>
+        <div class="big-btn-icon" style="background:#0E7490;"><svg viewBox="0 0 32 32" width="31" height="31" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14c0-8 14-8 14 0"/><path d="M3.5 14h25"/><path d="M5.8 14l2.2 12.3c.1.7.7 1.2 1.4 1.2h13.2c.7 0 1.3-.5 1.4-1.2L26.2 14"/><path d="M12.5 18v6M16 18v6M19.5 18v6"/></svg></div>
         <div class="big-btn-label">Shopping List</div>
       </button>
       <button class="big-btn" onclick="goTo('screen-services-catalog'); loadServicesCatalog();">
@@ -1115,11 +1115,18 @@
     <div class="header-title">Inventory</div>
     <button onclick="startNewInventoryItem()" style="background:rgba(255,255,255,0.2);border:none;color:white;padding:6px 12px;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">+ New</button>
   </div>
+  <div id="inventory-search-wrap" style="display:none; padding:12px 16px 0; flex-shrink:0; background:var(--bg);">
+    <div class="search-wrap" style="margin-bottom:8px;">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" id="inventory-search" type="search" placeholder="Search your inventory and the catalog…" oninput="filterInventory()" autocomplete="off">
+    </div>
+  </div>
   <div class="scroll-body">
     <div id="inventory-low-stock-banner" style="display:none; background:#fff5f5; border:2px solid #fecaca; border-radius:10px; padding:10px 14px; margin-bottom:14px; color:#dc2626; font-weight:700; font-size:0.88rem;"></div>
     <button class="btn-secondary" onclick="openInventoryCatalog()" style="margin-bottom:14px;">📋 Add from Catalog</button>
     <div id="inventory-loading" class="loading-wrap"><div class="spinner"></div></div>
     <div id="inventory-list"></div>
+    <div id="inventory-extras"></div>
   </div>
 </div>
 
@@ -1377,6 +1384,7 @@
 <script src="/lib/pricing.js"></script>
 <script src="/lib/owner-dashboard.js"></script>
 <script src="/lib/shopping-list.js"></script>
+<script src="/lib/inventory-search.js"></script>
 <script src="/lib/horse-history.js"></script>
 
 <script>
@@ -3672,6 +3680,8 @@ async function loadInventoryList() {
   document.getElementById('inventory-loading').style.display = 'flex';
   list.innerHTML = '';
   banner.style.display = 'none';
+  document.getElementById('inventory-search-wrap').style.display = 'none'; // shown again once there is an inventory to search
+  document.getElementById('inventory-extras').innerHTML = '';
   try {
     const snap = await db.collection('inventoryItems').where('farrierId', '==', bizId()).get();
     const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -3695,28 +3705,118 @@ async function loadInventoryList() {
       banner.style.display = 'block';
     }
 
-    const renderRow = (item) => {
-      const isLow = item.isConsumable !== false && Number(item.quantityOnHand || 0) < Number(item.reorderThreshold || 0);
-      return `
-      <div class="horse-row">
-        <div class="horse-row-avatar" style="background:${isLow ? '#dc2626' : (item.isConsumable === false ? '#94a3b8' : '#B45309')};">${item.isConsumable === false ? '🔧' : '📦'}</div>
-        <div style="flex:1; min-width:0;" onclick='startEditInventoryItem(${JSON.stringify(item).replace(/"/g,'&quot;')})'>
-          <div class="customer-row-name">${escapeHtml(item.name || 'Unnamed')}${item.size ? ' (' + escapeHtml(item.size) + ')' : ''}</div>
-          <div class="customer-row-sub">${escapeHtml(item.category || 'No category')} · ${item.quantityOnHand ?? 0} ${escapeHtml(item.unit || '')}${isLow ? ' · ⚠ Low' : ''}</div>
-        </div>
-        <button onclick='event.stopPropagation(); restockInventoryItem(${JSON.stringify(item).replace(/"/g,'&quot;')})' style="background:var(--surface); border:2px solid var(--border); border-radius:8px; padding:6px 10px; font-size:0.8rem; font-weight:600; cursor:pointer;">Restock</button>
-      </div>`;
-    };
-
-    const consumables = rows.filter(i => i.isConsumable !== false);
-    const tools = rows.filter(i => i.isConsumable === false);
-    list.innerHTML =
-      (consumables.length ? `<div class="section-label">Shoes, Nails &amp; Consumables</div>${consumables.map(renderRow).join('')}` : '') +
-      (tools.length ? `<div class="section-label" style="margin-top:14px;">Tools</div>${tools.map(renderRow).join('')}` : '');
+    state.inventoryRows = rows;
+    document.getElementById('inventory-search-wrap').style.display = '';
+    renderInventoryList();
   } catch(e) {
     document.getElementById('inventory-loading').style.display = 'none';
     list.innerHTML = `<div class="empty-state"><div class="empty-state-text">Error loading inventory</div></div>`;
   }
+}
+
+
+function inventoryRowHtml(item) {
+  const isLow = item.isConsumable !== false && Number(item.quantityOnHand || 0) < Number(item.reorderThreshold || 0);
+  return `
+  <div class="horse-row">
+    <div class="horse-row-avatar" style="background:${isLow ? '#dc2626' : (item.isConsumable === false ? '#94a3b8' : '#B45309')};">${item.isConsumable === false ? '🔧' : '📦'}</div>
+    <div style="flex:1; min-width:0;" onclick='startEditInventoryItem(${JSON.stringify(item).replace(/"/g,'&quot;')})'>
+      <div class="customer-row-name">${escapeHtml(item.name || 'Unnamed')}${item.size ? ' (' + escapeHtml(item.size) + ')' : ''}</div>
+      <div class="customer-row-sub">${escapeHtml(item.category || 'No category')} · ${item.quantityOnHand ?? 0} ${escapeHtml(item.unit || '')}${isLow ? ' · ⚠ Low' : ''}</div>
+    </div>
+    <button onclick='event.stopPropagation(); restockInventoryItem(${JSON.stringify(item).replace(/"/g,'&quot;')})' style="background:var(--surface); border:2px solid var(--border); border-radius:8px; padding:6px 10px; font-size:0.8rem; font-weight:600; cursor:pointer;">Restock</button>
+  </div>`;
+}
+
+// ── Inventory search ──
+// Type to filter the farrier's own inventory as they go (lib/inventory-search.js). The supply catalog is searched
+// too, since the item may be there even though it isn't in this farrier's inventory yet: a catalog match can be
+// added with one tap (quantity 0, like the Add-from-Catalog picker), then it asks how many they have. If nothing
+// matches anywhere, it offers to add what they typed as a new item.
+function filterInventory() { renderInventoryList(); }
+
+function renderInventoryList() {
+  const IS = FarriInventorySearch, rows = state.inventoryRows || [];
+  const q = document.getElementById('inventory-search').value;
+  const searching = q.trim().length > 0;
+  const shown = IS.search(rows, q);
+  const consumables = shown.filter(i => i.isConsumable !== false);
+  const tools = shown.filter(i => i.isConsumable === false);
+  document.getElementById('inventory-list').innerHTML =
+    (searching && shown.length ? `<div style="color:var(--text-muted); font-size:0.85rem; margin:0 2px 8px;">${shown.length} of ${rows.length} item${rows.length === 1 ? '' : 's'}</div>` : '') +
+    (consumables.length ? `<div class="section-label">Shoes, Nails &amp; Consumables</div>${consumables.map(inventoryRowHtml).join('')}` : '') +
+    (tools.length ? `<div class="section-label" style="margin-top:14px;">Tools</div>${tools.map(inventoryRowHtml).join('')}` : '');
+  renderInventoryExtras();
+}
+
+function renderInventoryExtras() {
+  const box = document.getElementById('inventory-extras');
+  const q = document.getElementById('inventory-search').value.trim();
+  if (!q) { box.innerHTML = ''; return; }
+  const IS = FarriInventorySearch, rows = state.inventoryRows || [];
+  const muted = (t) => `<div style="color:var(--text-muted); font-size:0.9rem; margin:10px 2px;">${t}</div>`;
+  const addNewBtn = (primary) => `<button type="button" class="${primary ? 'btn-primary' : 'btn-secondary'}" onclick="addInventoryFromSearch()" style="${primary ? '' : 'padding:10px 14px; font-size:0.9rem;'}">+ Add “${escapeHtml(q)}” as a new item</button>`;
+  if (!state.invCatalog && !state.invCatalogError) {
+    box.innerHTML = muted('Checking the supply catalog…');
+    if (!state.invCatalogLoading) {
+      state.invCatalogLoading = true;
+      loadSupplyCatalog().then(d => { state.invCatalog = d; }).catch(e => { state.invCatalogError = e.message || 'offline'; })
+        .finally(() => { state.invCatalogLoading = false; renderInventoryExtras(); });
+    }
+    return;
+  }
+  const shown = IS.search(rows, q);
+  const owned = new Set(rows.map(i => inventoryCatalogKey(i.name, i.size)));
+  const cat = state.invCatalog
+    ? IS.searchCatalog({ general: window.INVENTORY_CATALOG || [], products: state.invCatalog.products || [] }, q, { owned, keyFn: inventoryCatalogKey })
+    : { general: [], supply: [], totalGeneral: 0, totalSupply: 0 };
+  const count = cat.supply.length + cat.general.length;
+  let html = state.invCatalogError ? muted(`Couldn’t check the supply catalog right now (${escapeHtml(state.invCatalogError)}).`) : '';
+  if (count) {
+    html += `<div class="card" style="border:2px dashed var(--blue); margin-top:12px;"><div class="card-title" style="color:var(--text);">📋 In the supply catalog, not in your inventory yet</div>` +
+      cat.supply.map(({ pi, product, variants }) => `
+        <div style="padding:10px 0; border-top:1px solid var(--border);">
+          <div style="font-weight:700;">${escapeHtml(product.t)}</div>
+          <div style="font-size:0.8rem; color:var(--text-muted); margin:2px 0 8px;">${escapeHtml([product.b, product.c.split(' > ')[0]].filter(Boolean).join(' · '))}</div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">${variants.slice(0, 24).map(v => `<button type="button" class="btn-sm" onclick="addInventoryFromCatalog('s', ${pi}, ${v.vi})" style="background:var(--surface); border:2px solid var(--blue); color:var(--blue);">+ Add${v.size ? ' size ' + escapeHtml(v.size) : ''}</button>`).join('')}${variants.length > 24 ? `<span style="font-size:0.8rem; color:var(--text-muted); align-self:center;">+${variants.length - 24} more sizes in the full catalog</span>` : ''}</div>
+        </div>`).join('') +
+      cat.general.map(({ idx, entry }) => `
+        <div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-top:1px solid var(--border);">
+          <div style="flex:1; min-width:0;"><div style="font-weight:700;">${escapeHtml(entry.name)}</div><div style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(entry.category)}</div></div>
+          <button type="button" class="btn-sm" onclick="addInventoryFromCatalog('g', ${idx})" style="background:var(--surface); border:2px solid var(--blue); color:var(--blue);">+ Add</button>
+        </div>`).join('') +
+      ((cat.totalSupply > cat.supply.length || cat.totalGeneral > cat.general.length)
+        ? `<button type="button" class="btn-secondary" onclick="openInventoryCatalog()" style="margin-top:10px; padding:10px 14px; font-size:0.9rem;">Browse all ${cat.totalSupply + cat.totalGeneral} catalog matches</button>` : '') +
+      `</div>`;
+  }
+  const noMatchAnywhere = shown.length === 0 && count === 0;
+  if (noMatchAnywhere) {
+    html += `<div class="card" style="border:2px solid var(--blue); margin-top:12px;"><div style="font-weight:700; margin-bottom:10px;">Nothing in your inventory${state.invCatalogError ? '' : ' or the supply catalog'} matches “${escapeHtml(q)}”.</div>${addNewBtn(true)}</div>`;
+  } else if (!IS.hasExactName(rows, q)) {
+    html += `<div style="margin-top:12px;"><div style="color:var(--text-muted); font-size:0.85rem; margin:0 2px 6px;">Not what you’re looking for?</div>${addNewBtn(false)}</div>`;
+  }
+  box.innerHTML = html;
+}
+
+// Add a catalog item to the inventory with quantity 0 (the same fields the Add-from-Catalog picker saves), then ask how many.
+function addInventoryFromCatalog(kind, a, b) {
+  const fields = kind === 's'
+    ? inventoryItemFromSupplyCatalog(state.invCatalog.products[a], state.invCatalog.products[a].v[b])
+    : inventoryItemFromCatalog(window.INVENTORY_CATALOG[a]);
+  const ref = db.collection('inventoryItems').doc();
+  const ts = firebase.firestore.FieldValue.serverTimestamp();
+  performWrite(() => ref.set({ ...fields, farrierId: bizId(), createdAt: ts, updatedAt: ts }));
+  state.inventoryRows = [...(state.inventoryRows || []), { id: ref.id, ...fields, quantityOnHand: 0 }]; // it's theirs now, so it leaves the catalog list at once
+  renderInventoryList();
+  showToast(`Added ${fields.name} to your inventory`, 'success');
+  restockInventoryItem({ id: ref.id, ...fields }); // asks how many they have
+}
+
+// "Add as a new item" from the search: the usual New Item form with what they typed as the name.
+function addInventoryFromSearch() {
+  const q = document.getElementById('inventory-search').value.trim();
+  startNewInventoryItem();
+  document.getElementById('invf-name').value = q;
 }
 
 // Catalog picker. Two sources, both defined in inventory-catalog.js (shared with desktop):
