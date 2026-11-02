@@ -28,6 +28,7 @@
   <script src="/lib/pricing.js"></script>
   <script src="/lib/owner-dashboard.js"></script>
   <script src="/lib/shopping-list.js"></script>
+  <script src="/lib/inventory-search.js"></script>
   <script src="/lib/horse-history.js"></script>
   
   <!-- Google API for Calendar -->
@@ -7532,6 +7533,10 @@ function ServicesView({ userId }) {
       const [itemModal, setItemModal] = useState(null); // { item } | null — null = closed, item: null = add
       const [restockModal, setRestockModal] = useState(null); // { item } | null
       const [catalogOpen, setCatalogOpen] = useState(false);
+      const [query, setQuery] = useState('');
+      const [catalogDoc, setCatalogDoc] = useState(null);   // the supply catalog, loaded the first time something is searched
+      const [catalogError, setCatalogError] = useState('');
+      const [adding, setAdding] = useState(false);
 
       const loadItems = async () => {
         if (!db) return;
@@ -7545,9 +7550,43 @@ function ServicesView({ userId }) {
 
       useEffect(() => { loadItems(); }, [userId]);
 
-      const consumables = items.filter(i => i.isConsumable !== false);
-      const tools = items.filter(i => i.isConsumable === false);
-      const lowStock = consumables.filter(i => Number(i.quantityOnHand || 0) < Number(i.reorderThreshold || 0));
+      // Search as you type (lib/inventory-search.js). The low-stock warning always looks at everything, not just what's shown.
+      const IS = window.FarriInventorySearch;
+      const lowStock = items.filter(i => i.isConsumable !== false).filter(i => Number(i.quantityOnHand || 0) < Number(i.reorderThreshold || 0));
+      const searching = query.trim().length > 0;
+      const shown = IS.search(items, query);
+      const consumables = shown.filter(i => i.isConsumable !== false);
+      const tools = shown.filter(i => i.isConsumable === false);
+      const canAddNew = searching && !IS.hasExactName(items, query);
+      const addNew = () => setItemModal({ item: { name: query.trim() } }); // opens "Add Item" with the typed name filled in
+
+      // The supply catalog (what the Add-from-Catalog picker offers) is searched too: the item may be there even though it isn't
+      // in this farrier's own inventory yet. Loaded once, on the first search; items they already have are left out.
+      useEffect(() => {
+        if (!searching || catalogDoc || catalogError) return;
+        loadSupplyCatalog().then(setCatalogDoc).catch(e => setCatalogError(e.message || 'Couldn\u2019t load the catalog'));
+      }, [searching]);
+      const ownedKeys = new Set(items.map(i => inventoryCatalogKey(i.name, i.size)));
+      const cat = searching && catalogDoc
+        ? IS.searchCatalog({ general: window.INVENTORY_CATALOG || [], products: catalogDoc.products || [] }, query, { owned: ownedKeys, keyFn: inventoryCatalogKey })
+        : null;
+      const catalogCount = cat ? cat.supply.length + cat.general.length : 0;
+      const checkingCatalog = searching && !catalogDoc && !catalogError;
+      const noMatchAnywhere = searching && shown.length === 0 && !checkingCatalog && catalogCount === 0;
+      // Add a catalog item to the inventory (quantity 0, like the picker does), then ask how many they have.
+      const addFromCatalog = async (fields) => {
+        if (adding) return;
+        setAdding(true);
+        try {
+          const ref = db.collection('inventoryItems').doc();
+          const ts = firebase.firestore.FieldValue.serverTimestamp();
+          await ref.set({ ...fields, farrierId: userId, createdAt: ts, updatedAt: ts });
+          const added = { id: ref.id, ...fields, quantityOnHand: 0 };
+          setItems(prev => [...prev, added]);
+          setRestockModal({ item: added });
+        } catch (e) { alert('Couldn\u2019t add that: ' + e.message); }
+        setAdding(false);
+      };
 
       const renderRow = (item, showReorderBadge) => {
         const isLow = showReorderBadge && Number(item.quantityOnHand || 0) < Number(item.reorderThreshold || 0);
@@ -7600,6 +7639,32 @@ function ServicesView({ userId }) {
                   </div>
                 </div>
               )}
+              {items.length > 0 && (
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <input type="text" value={query} onChange={e => setQuery(e.target.value)} aria-label="Search inventory"
+                    placeholder="🔍 Search your inventory: name, brand, size, part #…" autoComplete="off"
+                    style={{ flex: 1, minWidth: 0, padding: '0.7rem 0.9rem', borderRadius: 8, border: '2px solid var(--border)', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', boxSizing: 'border-box' }} />
+                  {searching && <button type="button" className="btn btn-sm btn-outline" onClick={() => setQuery('')} aria-label="Clear search">✕</button>}
+                </div>
+              )}
+              {searching && (
+                <div style={{ marginBottom: '0.75rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                  {shown.length === 0 ? '' : `${shown.length} of ${items.length} item${items.length === 1 ? '' : 's'}`}
+                </div>
+              )}
+              {searching && checkingCatalog && shown.length === 0 && (
+                <div style={{ marginBottom: '0.75rem', color: 'var(--text-muted)' }}>Checking the supply catalog…</div>
+              )}
+              {searching && catalogError && (
+                <div style={{ marginBottom: '0.75rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Couldn’t check the supply catalog right now ({catalogError}).</div>
+              )}
+              {noMatchAnywhere && (
+                <div style={{ padding: '1.25rem', borderRadius: 12, background: 'var(--surface)', border: '2px solid var(--primary)', marginBottom: '1rem' }}>
+                  <div style={{ fontWeight: 700, marginBottom: '0.6rem' }}>Nothing in your inventory{catalogError ? '' : ' or the supply catalog'} matches “{query.trim()}”.</div>
+                  <button type="button" className="btn btn-primary" onClick={addNew}>+ Add “{query.trim()}” as a new item</button>
+                </div>
+              )}
+              {(!searching || consumables.length > 0) && (<React.Fragment>
               <h3 style={{ marginTop: '1rem' }}>Shoes, Nails &amp; Consumables</h3>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
@@ -7617,7 +7682,10 @@ function ServicesView({ userId }) {
                   ) : consumables.map(item => renderRow(item, true))}
                 </tbody>
               </table>
+              </React.Fragment>)}
 
+
+              {(!searching || tools.length > 0) && (<React.Fragment>
               <h3 style={{ marginTop: '1.5rem' }}>Tools</h3>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
@@ -7635,6 +7703,41 @@ function ServicesView({ userId }) {
                   ) : tools.map(item => renderRow(item, false))}
                 </tbody>
               </table>
+              </React.Fragment>)}
+              {cat && catalogCount > 0 && (
+                <div style={{ marginTop: '1rem', padding: '1rem', borderRadius: 12, border: '2px dashed var(--primary)', background: 'var(--surface)' }}>
+                  <div style={{ fontWeight: 700, marginBottom: '0.4rem' }}>📋 In the supply catalog, not in your inventory yet</div>
+                  {cat.supply.map(({ pi, product, variants }) => (
+                    <div key={'s' + pi} style={{ padding: '0.55rem 0', borderTop: '1px solid var(--border)' }}>
+                      <div style={{ fontWeight: 600 }}>{product.t}</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '0.1rem 0 0.4rem' }}>{[product.b, product.c.split(' > ')[0]].filter(Boolean).join(' · ')}</div>
+                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                        {variants.slice(0, 24).map(v => (
+                          <button key={v.vi} type="button" className="btn btn-sm btn-outline" disabled={adding}
+                            onClick={() => addFromCatalog(inventoryItemFromSupplyCatalog(product, product.v[v.vi]))}>+ Add{v.size ? ` size ${v.size}` : ''}</button>
+                        ))}
+                        {variants.length > 24 && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>+{variants.length - 24} more sizes in the full catalog</span>}
+                      </div>
+                    </div>
+                  ))}
+                  {cat.general.map(({ idx, entry }) => (
+                    <div key={'g' + idx} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.55rem 0', borderTop: '1px solid var(--border)' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}><span style={{ fontWeight: 600 }}>{entry.name}</span> <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{entry.category}</span></div>
+                      <button type="button" className="btn btn-sm btn-outline" disabled={adding} onClick={() => addFromCatalog(inventoryItemFromCatalog(entry))}>+ Add</button>
+                    </div>
+                  ))}
+                  {(cat.totalSupply > cat.supply.length || cat.totalGeneral > cat.general.length) && (
+                    <div style={{ marginTop: '0.6rem' }}><button type="button" className="btn btn-sm btn-outline" onClick={() => setCatalogOpen(true)}>Browse all {cat.totalSupply + cat.totalGeneral} catalog matches</button></div>
+                  )}
+                </div>
+              )}
+              {searching && canAddNew && !noMatchAnywhere && !checkingCatalog && (
+                <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Not what you’re looking for?</span>
+                  <button type="button" className="btn btn-sm btn-outline" onClick={addNew}>+ Add “{query.trim()}” as a new item</button>
+                </div>
+              )}
+
             </React.Fragment>
           )}
 
@@ -7645,7 +7748,7 @@ function ServicesView({ userId }) {
           )}
 
           {catalogOpen && (
-            <InventoryCatalogModal userId={userId} existingItems={items}
+            <InventoryCatalogModal userId={userId} existingItems={items} initialSearch={query.trim()}
               onClose={() => setCatalogOpen(false)}
               onSaved={() => loadItems()} />
           )}
@@ -7665,7 +7768,7 @@ function ServicesView({ userId }) {
     // Picks are copied into the farrier's inventoryItems (qty 0) in one batch. Items the
     // farrier already has (same name + size) show checked-off and disabled, so
     // re-opening the catalog never creates duplicates.
-    function InventoryCatalogModal({ userId, existingItems, onClose, onSaved }) {
+    function InventoryCatalogModal({ userId, existingItems, initialSearch, onClose, onSaved }) {
       const generic = window.INVENTORY_CATALOG || [];
       const owned = new Set(existingItems.map(i => inventoryCatalogKey(i.name, i.size)));
       const [tab, setTab] = useState('fd');
@@ -7674,7 +7777,7 @@ function ServicesView({ userId }) {
       const [openCat, setOpenCat] = useState(null);
       const [openProduct, setOpenProduct] = useState(null);
       const [selected, setSelected] = useState(() => new Set()); // 'fd:<p>:<v>' | 'gen:<idx>'
-      const [search, setSearch] = useState('');
+      const [search, setSearch] = useState(initialSearch || '');
       const [saving, setSaving] = useState(false);
 
       useEffect(() => {
