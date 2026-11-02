@@ -8025,6 +8025,7 @@ function ServicesView({ userId }) {
       const [catalogDoc, setCatalogDoc] = useState(null);   // the supply catalog, loaded the first time they type
       const [catalogError, setCatalogError] = useState('');
       const [suggest, setSuggest] = useState(false);        // panel open (closed after picking, adding, or Escape)
+      const [picked, setPicked] = useState(() => new Set()); // catalog choices ticked to add together: '<product index>:<choice index>'
       const col = () => db.collection('farriers').doc(userId).collection('shoppingList');
       const me = () => firebase.auth().currentUser?.uid || '';
       const stamp = () => firebase.firestore.FieldValue.serverTimestamp();
@@ -8065,6 +8066,32 @@ function ServicesView({ userId }) {
         qtyRef.current && qtyRef.current.focus();
       };
 
+      // A catalog product with several choices (colours, sizes) can have more than one ticked, then added to the list together,
+      // each as its own line, using the quantity in the box.
+      const togglePicked = (key) => setPicked(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+      const pickedList = () => [...picked].map(k => k.split(':').map(Number)).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      const fillFromPicked = () => { const [pi, vi] = pickedList()[0]; const product = catalogDoc.products[pi]; setPicked(new Set()); pick('supply', product, product.v[vi][0]); };
+      const addPicked = async () => {
+        if (!catalogDoc || picked.size === 0 || adding) return;
+        const rows = [];
+        for (const [pi, vi] of pickedList()) {
+          const product = catalogDoc.products[pi], pk = IS.shoppingPick('supply', product, product.v[vi][0]);
+          const r = S.cleanNewItem({ name: pk.name, qty, unit: pk.unit });
+          if (!r.ok) { setError(r.error); return; }
+          rows.push(r.value);
+        }
+        setError(''); setNotice(''); setAdding(true);
+        try {
+          const b = db.batch(); // all of them, or none
+          rows.forEach(v => b.set(col().doc(), { ...v, purchased: false, purchasedAt: null, inventoryItemId: '', createdAt: stamp(), createdBy: me() }));
+          await b.commit();
+          setPicked(new Set()); setName(''); setQty('1'); setUnit(''); setSuggest(false);
+          setNotice(`Added ${rows.length} item${rows.length === 1 ? '' : 's'} to the list.`);
+          nameRef.current && nameRef.current.focus();
+        } catch (ex) { setError('Couldn’t add those: ' + ex.message); }
+        setAdding(false);
+      };
+
       const { toBuy, purchased } = S.group(items || []);
 
       const add = async (e) => {
@@ -8098,6 +8125,14 @@ function ServicesView({ userId }) {
         catch (ex) { setError('Couldn’t clear the list: ' + ex.message); }
       };
 
+      const pickedBar = picked.size > 0 && (
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', padding: '0.5rem 0.6rem', margin: '0.25rem 0 0.5rem', borderRadius: 8, background: 'var(--primary)', color: '#fff' }}>
+          <strong>{picked.size} selected</strong>
+          <button type="button" className="btn btn-sm" disabled={adding} onClick={addPicked} style={{ background: '#fff', color: 'var(--primary)', fontWeight: 700 }}>{adding ? 'Adding…' : `Add ${picked.size} to the list`}</button>
+          <button type="button" className="btn btn-sm" onClick={() => setPicked(new Set())} style={{ background: 'transparent', color: '#fff', border: '1px solid rgba(255,255,255,0.7)' }}>Clear</button>
+          {picked.size === 1 && <button type="button" className="btn btn-sm" onClick={fillFromPicked} style={{ background: 'transparent', color: '#fff', textDecoration: 'underline' }}>Fill the box instead</button>}
+        </div>
+      );
       const inputStyle = { padding: '0.6rem 0.75rem', borderRadius: 8, border: '2px solid var(--border)', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', boxSizing: 'border-box', minWidth: 0 };
       const row = { display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 0', borderTop: '1px solid var(--border)' };
       const qtyLabel = (it) => `${it.qty ?? 1}${it.unit ? ' ' + it.unit : ''}`;
@@ -8110,7 +8145,7 @@ function ServicesView({ userId }) {
           <div className="card" style={{ padding: '1.25rem' }}>
             <form onSubmit={add} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <input ref={nameRef} type="text" value={name} maxLength={100} placeholder="What do you need? e.g. Horseshoe nails" disabled={adding}
-                onChange={e => { setName(e.target.value); setSuggest(true); }} onKeyDown={e => { if (e.key === 'Escape') setSuggest(false); }}
+                onChange={e => { setName(e.target.value); setSuggest(true); setPicked(new Set()); }} onKeyDown={e => { if (e.key === 'Escape') setSuggest(false); }}
                 autoComplete="off" style={{ ...inputStyle, flex: '1 1 220px' }} aria-label="Item" />
               <input ref={qtyRef} type="number" value={qty} min="0" step="any" disabled={adding} onChange={e => setQty(e.target.value)} style={{ ...inputStyle, width: 80 }} aria-label="Quantity" />
               <input type="text" value={unit} maxLength={20} placeholder="unit (box…)" disabled={adding} onChange={e => setUnit(e.target.value)} style={{ ...inputStyle, width: 110 }} aria-label="Unit" />
@@ -8134,14 +8169,17 @@ function ServicesView({ userId }) {
                 {checkingCatalog && ownMatches.length === 0 && <div style={{ color: 'var(--text-muted)', padding: '0.4rem 0' }}>Checking the supply catalog…</div>}
                 {cat && catCount > 0 && (<React.Fragment>
                   <div style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '0.5rem 0 0.25rem' }}>In the supply catalog</div>
+                  {pickedBar}
                   {cat.supply.map(({ pi, product, variants }) => (
                     <div key={'s' + pi} style={{ padding: '0.5rem 0.25rem', borderTop: '1px solid var(--border)' }}>
                       <div style={{ fontWeight: 600 }}>{product.t}</div>
                       <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '0.1rem 0 0.35rem' }}>{[product.b, product.c.split(' > ')[0]].filter(Boolean).join(' · ')}</div>
                       <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                        {variants.slice(0, 12).map(v => (
-                          <button key={v.vi} type="button" className="btn btn-sm btn-outline" onClick={() => pick('supply', product, v.size)}>{v.size ? `Size ${v.size}` : 'Use this'}</button>
-                        ))}
+                        {variants.slice(0, 12).map(v => {
+                          if (variants.length === 1) return <button key={v.vi} type="button" className="btn btn-sm btn-outline" onClick={() => pick('supply', product, v.size)}>{IS.variantLabel(v.size)}</button>; // only one choice: use it
+                          const on = picked.has(`${pi}:${v.vi}`);
+                          return <button key={v.vi} type="button" aria-pressed={on} className={on ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline'} onClick={() => togglePicked(`${pi}:${v.vi}`)}>{on ? '✓ ' : ''}{IS.variantLabel(v.size)}</button>;
+                        })}
                         {variants.length > 12 && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', alignSelf: 'center' }}>+{variants.length - 12} more sizes: type the size you need</span>}
                       </div>
                     </div>
@@ -8152,6 +8190,7 @@ function ServicesView({ userId }) {
                       <span style={{ fontWeight: 600 }}>{entry.name}</span><span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{entry.category}</span>
                     </button>
                   ))}
+                  {picked.size > 1 && pickedBar}
                 </React.Fragment>)}
                 {catalogError && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', padding: '0.4rem 0' }}>Couldn’t check the supply catalog right now ({catalogError}).</div>}
                 {nothingFound ? (
