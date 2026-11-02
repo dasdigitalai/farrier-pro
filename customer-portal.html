@@ -857,7 +857,10 @@
           const resp = await fetch(logoUrl, { mode: "cors" });
           const blob = await resp.blob();
           const dataUrl = await new Promise((resolve) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.readAsDataURL(blob); });
-          doc.addImage(dataUrl, "PNG", 48, 40, 120, 50);
+          const fmt = /^data:image\/jpe?g/i.test(dataUrl) ? "JPEG" : "PNG";
+          const lp = doc.getImageProperties(dataUrl);
+          const ls = Math.min(150 / lp.width, 52 / lp.height); // fit in 150x52 without stretching
+          doc.addImage(dataUrl, fmt, 48, 40, lp.width * ls, lp.height * ls);
         } catch (e) {}
       }
       doc.setFont("helvetica", "bold"); doc.setFontSize(22);

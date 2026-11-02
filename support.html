@@ -713,6 +713,86 @@
       );
     }
 
+    // ── Invoice logo ──
+    // Logos are set here by FarriTech support, not by farriers. The picked image is shrunk on this computer to
+    // at most 400×160 (never enlarged, transparency kept) and saved as a small PNG data URL (about 75 KB at most)
+    // in farriers/{uid}.logoUrl, so there is no hosting, Storage rule or CORS setup. The app's invoice PDFs read
+    // that field when they are made, so the logo prints at the top of every invoice (the farrier reloads the app
+    // once to pick it up). An older pasted web address in that field still shows here and still prints.
+    const LOGO_MAX_W = 400, LOGO_MAX_H = 160, LOGO_MAX_CHARS = 100000; // ~75 KB: kept small because it lives in the profile document
+    async function resizeLogoFile_(file) {
+      if (!file || !/^image\//.test(file.type || '')) throw new Error('Please choose an image file (PNG, JPG or SVG).');
+      if (file.size > 10 * 1024 * 1024) throw new Error('That image is over 10 MB. Please choose a smaller one.');
+      const objectUrl = URL.createObjectURL(file);
+      try {
+        const img = await new Promise((resolve, reject) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = () => reject(new Error('Couldn’t read that image. Try a PNG or JPG.'));
+          i.src = objectUrl;
+        });
+        const w = img.naturalWidth || 400, h = img.naturalHeight || 400; // an SVG with no size reports 0
+        let scale = Math.min(1, LOGO_MAX_W / w, LOGO_MAX_H / h);
+        for (let attempt = 0; attempt < 4; attempt++) {
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(w * scale));
+          canvas.height = Math.max(1, Math.round(h * scale));
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          const url = canvas.toDataURL('image/png'); // PNG keeps a transparent background
+          if (url.length <= LOGO_MAX_CHARS) return url;
+          scale *= 0.7; // too detailed to store: try smaller
+        }
+        throw new Error('That logo is too detailed to save. Try a simpler or smaller image.');
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    }
+
+    function LogoCard({ farrier, user }) {
+      const logo = farrier.account?.logoUrl || '';
+      const [busy, setBusy] = useState(false);
+      const [msg, setMsg] = useState('');
+      const [err, setErr] = useState('');
+      const write = (url) => db.collection('farriers').doc(farrier.key).set(
+        { logoUrl: url, logoUpdatedAt: ts(), logoUpdatedByEmail: user.email || '' }, { merge: true });
+      const pick = async (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = ''; // so choosing the same file again still fires
+        if (!file) return;
+        setBusy(true); setErr(''); setMsg('');
+        try { await write(await resizeLogoFile_(file)); setMsg('Logo saved. It prints on their invoices once they reload the app.'); }
+        catch (ex) { setErr(ex.message || 'Couldn\u2019t save that logo.'); }
+        setBusy(false);
+      };
+      const remove = async () => {
+        if (!confirm('Remove this farrier\u2019s logo from their invoices?')) return;
+        setBusy(true); setErr(''); setMsg('');
+        try { await write(''); setMsg('Logo removed.'); }
+        catch (ex) { setErr(ex.message || 'Couldn\u2019t remove the logo.'); }
+        setBusy(false);
+      };
+      return (
+        <div className="card">
+          <h3>Invoice logo</h3>
+          {logo
+            ? <div style={{ background: '#fff', borderRadius: 8, padding: 8, display: 'inline-block', marginBottom: '0.6rem' }}>
+                <img src={logo} alt="Invoice logo" style={{ display: 'block', maxWidth: 260, maxHeight: 90 }} />
+              </div>
+            : <p className="who" style={{ marginTop: 0 }}>No logo yet. A logo prints at the top of this farrier\u2019s invoices.</p>}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <label className="btn btn-sm" style={{ cursor: busy ? 'default' : 'pointer', margin: 0 }}>
+              {busy ? 'Saving…' : (logo ? 'Replace logo' : 'Upload logo')}
+              <input type="file" accept="image/*" disabled={busy} onChange={pick} style={{ display: 'none' }} />
+            </label>
+            {logo && <button className="btn btn-sm" disabled={busy} onClick={remove}>Remove</button>}
+            {msg && <span className="who" style={{ alignSelf: 'center' }}>{msg}</span>}
+          </div>
+          {err && <p style={{ color: '#dc2626', margin: '0.6rem 0 0' }}>{err}</p>}
+          <p className="who" style={{ marginBottom: 0 }}>PNG, JPG or SVG. A wide logo works best (it prints up to about 2 × 0.7 inches). A logo with a black or colored background prints as a block; a transparent one blends into the page.</p>
+        </div>
+      );
+    }
+
     function FarrierDetail({ farrier, tickets, user, onBack, onNewTicket, openTicket, onDelete }) {
       const initial = () => Object.fromEntries(FARRIER_FIELDS.map(k => [k, farrier[k] || '']));
       const [form, setForm] = useState(initial);
@@ -789,6 +869,8 @@
             ))}
             {!tickets.length && <p className="who" style={{ margin: 0 }}>No tickets yet.</p>}
           </div>
+
+          {a && <LogoCard farrier={farrier} user={user} />}
 
           <div className="card">
             <h3>FarriTech account</h3>

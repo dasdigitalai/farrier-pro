@@ -62,3 +62,17 @@ written to a farrier's own `farriers/{uid}` profile.
 4. **Text replies** need the Twilio messaging service's incoming-message webhook to point at
    `https://app.farritech.com/api/twilio-webhook`. That's the same webhook that already handles
    customers' CONFIRM and STOP replies.
+
+## Adding a farrier's invoice logo
+
+Logos are set by FarriTech support, not by farriers.
+
+1. Support desk → Farriers → open the farrier (they need a FarriTech account).
+2. In the **Invoice logo** card, click **Upload logo** (or **Replace logo**) and choose their image file.
+   PNG, JPG or SVG; a wide logo works best. It is shrunk to fit (at most 400×160, never enlarged) and
+   saved on their profile (`farriers/{uid}.logoUrl`, about 75 KB at most).
+3. Ask the farrier to reload the app once. From then on the logo prints at the top of their invoice PDFs
+   (up to about 2 × 0.7 inches, never stretched).
+
+**Remove** clears it. A logo with a black or colored background prints as a solid block; one with a
+transparent background blends into the page, so ask for a transparent PNG when you can.
