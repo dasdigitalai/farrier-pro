@@ -1115,7 +1115,7 @@
     <div class="header-title">Inventory</div>
     <button onclick="startNewInventoryItem()" style="background:rgba(255,255,255,0.2);border:none;color:white;padding:6px 12px;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">+ New</button>
   </div>
-  <div id="inventory-search-wrap" style="display:none; padding:12px 16px 0; flex-shrink:0; background:var(--bg);">
+  <div id="inventory-search-wrap" style="padding:12px 16px 0; flex-shrink:0; background:var(--bg);">
     <div class="search-wrap" style="margin-bottom:8px;">
       <span class="search-icon">🔍</span>
       <input class="search-input" id="inventory-search" type="search" placeholder="Search your inventory and the catalog…" oninput="filterInventory()" autocomplete="off">
@@ -1188,12 +1188,13 @@
   </div>
   <div style="padding:12px 16px 0; flex-shrink:0; background:var(--bg);">
     <form onsubmit="addShoppingItem(); return false;" style="display:flex; gap:8px;">
-      <input class="search-input" id="shop-name" type="text" maxlength="100" autocomplete="off" enterkeyhint="done" placeholder="What do you need?" style="padding-left:16px; flex:1; min-width:0;">
+      <input class="search-input" id="shop-name" type="text" maxlength="100" autocomplete="off" enterkeyhint="done" placeholder="What do you need?" oninput="shopSuggestInput()" style="padding-left:16px; flex:1; min-width:0;">
       <input class="search-input" id="shop-qty" type="number" inputmode="decimal" min="0" step="any" value="1" aria-label="Quantity" style="padding-left:12px; width:68px; flex:none;">
       <button class="btn-primary" type="submit" style="width:auto; padding:0 18px;">Add</button>
     </form>
     <input class="search-input" id="shop-unit" type="text" maxlength="20" autocomplete="off" placeholder="Unit (optional): box, pair, lb…" aria-label="Unit" style="padding-left:16px; margin-top:8px; padding-top:10px; padding-bottom:10px;">
     <div id="shop-error" style="color:var(--danger); font-size:0.85rem; margin-top:6px;"></div>
+    <div id="shop-suggest" style="max-height:42vh; overflow-y:auto; -webkit-overflow-scrolling:touch;"></div>
   </div>
   <div class="scroll-body" id="shop-scroll" style="padding-top:8px;">
     <div id="shop-list"></div>
@@ -3680,7 +3681,6 @@ async function loadInventoryList() {
   document.getElementById('inventory-loading').style.display = 'flex';
   list.innerHTML = '';
   banner.style.display = 'none';
-  document.getElementById('inventory-search-wrap').style.display = 'none'; // shown again once there is an inventory to search
   document.getElementById('inventory-extras').innerHTML = '';
   try {
     const snap = await db.collection('inventoryItems').where('farrierId', '==', bizId()).get();
@@ -3688,14 +3688,8 @@ async function loadInventoryList() {
       .sort((a,b) => (a.category || '').localeCompare(b.category || '') || (a.name || '').localeCompare(b.name || ''));
     document.getElementById('inventory-loading').style.display = 'none';
     if (!rows.length) {
-      list.innerHTML = `
-        <div class="card" style="border:2px solid #bfdbfe; background:#eff6ff;">
-          <div style="font-weight:700; font-size:1rem; margin-bottom:6px;">📋 Build your inventory from our supply catalog?</div>
-          <div style="font-size:0.88rem; color:var(--text-muted); margin-bottom:14px;">Tick the shoes, nails, pads and tools you carry — brand, size and part number come filled in. You just count what's on the truck.</div>
-          <button class="btn-primary" onclick="openInventoryCatalog()">Browse catalog</button>
-          <div style="margin-top:8px;"></div>
-          <button class="btn-secondary" onclick="startNewInventoryItem()">I'll add my own</button>
-        </div>`;
+      state.inventoryRows = [];
+      renderInventoryList(); // empty: shows the "build your inventory" card until they type a search
       return;
     }
 
@@ -3706,7 +3700,6 @@ async function loadInventoryList() {
     }
 
     state.inventoryRows = rows;
-    document.getElementById('inventory-search-wrap').style.display = '';
     renderInventoryList();
   } catch(e) {
     document.getElementById('inventory-loading').style.display = 'none';
@@ -3735,10 +3728,24 @@ function inventoryRowHtml(item) {
 // matches anywhere, it offers to add what they typed as a new item.
 function filterInventory() { renderInventoryList(); }
 
+const INVENTORY_ONBOARDING_HTML = `
+        <div class="card" style="border:2px solid #bfdbfe; background:#eff6ff;">
+          <div style="font-weight:700; font-size:1rem; margin-bottom:6px;">📋 Build your inventory from our supply catalog?</div>
+          <div style="font-size:0.88rem; color:var(--text-muted); margin-bottom:14px;">Tick the shoes, nails, pads and tools you carry — brand, size and part number come filled in. You just count what's on the truck.</div>
+          <button class="btn-primary" onclick="openInventoryCatalog()">Browse catalog</button>
+          <div style="margin-top:8px;"></div>
+          <button class="btn-secondary" onclick="startNewInventoryItem()">I'll add my own</button>
+        </div>`;
+
 function renderInventoryList() {
   const IS = FarriInventorySearch, rows = state.inventoryRows || [];
   const q = document.getElementById('inventory-search').value;
   const searching = q.trim().length > 0;
+  if (!rows.length && !searching) { // a new inventory: offer to build it from the catalog until they start typing
+    document.getElementById('inventory-list').innerHTML = INVENTORY_ONBOARDING_HTML;
+    document.getElementById('inventory-extras').innerHTML = '';
+    return;
+  }
   const shown = IS.search(rows, q);
   const consumables = shown.filter(i => i.isConsumable !== false);
   const tools = shown.filter(i => i.isConsumable === false);
@@ -4136,6 +4143,8 @@ const shopStamp = () => firebase.firestore.FieldValue.serverTimestamp();
 function openShoppingList() {
   goTo('screen-shopping');
   document.getElementById('shop-error').textContent = '';
+  document.getElementById('shop-suggest').innerHTML = '';
+  loadShopInventory();
   if (shopState.unsub) { shopState.unsub(); shopState.unsub = null; }
   shopState.unsub = shopCol().onSnapshot(
     snap => { shopState.items = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderShoppingList(); },
@@ -4181,6 +4190,7 @@ function addShoppingItem() {
   err.textContent = '';
   performWrite(() => shopCol().add({ ...r.value, purchased: false, purchasedAt: null, inventoryItemId: '', createdAt: shopStamp(), createdBy: state.user?.uid || '' }));
   nameEl.value = ''; qtyEl.value = '1'; unitEl.value = '';
+  shopState.suggestOff = false; renderShopSuggest(); // clears the suggestions
   nameEl.focus();
 }
 
@@ -4271,7 +4281,84 @@ function saveShopStock() {
     return b.commit();
   });
   showToast(`Added ${r.qty} to ${r.shopping.inventoryItemName}${netState.online ? '' : ' (will sync when back online)'}`, 'success');
+  loadShopInventory(); // so the suggestions know it's in stock now
   goBack();
+}
+
+// ── Shopping list suggestions ──
+// As they type the item, suggest matches from their own inventory (with how many they have) and from the supply
+// catalog (lib/inventory-search.js). Tapping one fills in the name and unit. If nothing matches anywhere it says so
+// and offers to add exactly what they typed as a new item. The catalog is downloaded the first time they type.
+function loadShopInventory() {
+  const bid = bizId();
+  db.collection('inventoryItems').where('farrierId', '==', bid).get()
+    .then(snap => { shopState.suggInventory = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderShopSuggest(); })
+    .catch(e => console.error('Inventory load failed:', e)); // suggestions just have fewer matches
+}
+
+function shopSuggestInput() { shopState.suggestOff = false; renderShopSuggest(); }
+
+function renderShopSuggest() {
+  const box = document.getElementById('shop-suggest');
+  const typed = document.getElementById('shop-name').value.trim();
+  if (!typed || shopState.suggestOff) { box.innerHTML = ''; shopState.sugg = null; return; }
+  const IS = FarriInventorySearch, inv = shopState.suggInventory || [];
+  if (!shopState.catalog && !shopState.catalogError && !shopState.catalogLoading) {
+    shopState.catalogLoading = true;
+    loadSupplyCatalog().then(d => { shopState.catalog = d; }).catch(e => { shopState.catalogError = e.message || 'offline'; })
+      .finally(() => { shopState.catalogLoading = false; renderShopSuggest(); });
+  }
+  const checking = !shopState.catalog && !shopState.catalogError;
+  const own = IS.search(inv, typed).slice(0, 5);
+  const owned = new Set(inv.map(i => inventoryCatalogKey(i.name, i.size)));
+  const cat = shopState.catalog
+    ? IS.searchCatalog({ general: window.INVENTORY_CATALOG || [], products: shopState.catalog.products || [] }, typed, { owned, keyFn: inventoryCatalogKey, maxSupply: 4, maxGeneral: 3 })
+    : { general: [], supply: [] };
+  shopState.sugg = { own, supply: cat.supply, general: cat.general };
+  const count = cat.supply.length + cat.general.length;
+  const nothing = own.length === 0 && !checking && count === 0;
+  const label = (t) => `<div style="font-size:0.72rem; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-muted); margin:8px 0 4px;">${t}</div>`;
+  const row = (onclick, left, right) => `<button type="button" onclick="${onclick}" style="display:flex; width:100%; justify-content:space-between; gap:10px; align-items:center; text-align:left; padding:10px 2px; background:none; border:none; border-top:1px solid var(--border); font-family:inherit; font-size:0.95rem; color:var(--text); cursor:pointer;"><span style="font-weight:700;">${left}</span><span style="font-size:0.8rem; color:var(--text-muted); text-align:right;">${right}</span></button>`;
+  let html = '';
+  if (own.length) {
+    html += label('In your inventory') + own.map((i, n) => {
+      const low = i.isConsumable !== false && Number(i.quantityOnHand || 0) < Number(i.reorderThreshold || 0);
+      return row(`pickShopSuggestion('own', ${n})`, escapeHtml(i.name) + (i.size ? ' (' + escapeHtml(i.size) + ')' : ''),
+        `${escapeHtml(String(i.quantityOnHand ?? 0))} ${escapeHtml(i.unit || '')} on hand${low ? ' · ⚠ Low' : ''}`);
+    }).join('');
+  }
+  if (checking && !own.length) html += `<div style="color:var(--text-muted); font-size:0.9rem; padding:8px 2px;">Checking the supply catalog…</div>`;
+  if (count) {
+    html += label('In the supply catalog') +
+      cat.supply.map(({ product, variants }, n) => `
+        <div style="padding:10px 2px; border-top:1px solid var(--border);">
+          <div style="font-weight:700;">${escapeHtml(product.t)}</div>
+          <div style="font-size:0.8rem; color:var(--text-muted); margin:2px 0 8px;">${escapeHtml([product.b, product.c.split(' > ')[0]].filter(Boolean).join(' · '))}</div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">${variants.slice(0, 12).map((v, vn) => `<button type="button" class="btn-sm" onclick="pickShopSuggestion('supply', ${n}, ${vn})" style="background:var(--surface); border:2px solid var(--blue); color:var(--blue);">${v.size ? 'Size ' + escapeHtml(v.size) : 'Use this'}</button>`).join('')}${variants.length > 12 ? `<span style="font-size:0.8rem; color:var(--text-muted); align-self:center;">+${variants.length - 12} more sizes: type the size you need</span>` : ''}</div>
+        </div>`).join('') +
+      cat.general.map(({ entry }, n) => row(`pickShopSuggestion('general', ${n})`, escapeHtml(entry.name), escapeHtml(entry.category))).join('');
+  }
+  if (shopState.catalogError) html += `<div style="color:var(--text-muted); font-size:0.8rem; padding:6px 2px;">Couldn’t check the supply catalog right now (${escapeHtml(shopState.catalogError)}).</div>`;
+  if (nothing) {
+    html += `<div style="padding:8px 2px;"><div style="font-weight:700; margin-bottom:10px;">Nothing in your inventory${shopState.catalogError ? '' : ' or the supply catalog'} matches “${escapeHtml(typed)}”.</div>` +
+      `<button type="button" class="btn-primary" onclick="addShoppingItem()">+ Add “${escapeHtml(typed)}” to the list as a new item</button></div>`;
+  } else {
+    html += `<div style="color:var(--text-muted); font-size:0.8rem; padding:8px 2px 2px; border-top:1px solid var(--border); margin-top:4px;">Not what you’re looking for? Tap Add to put “${escapeHtml(typed)}” on the list as typed.</div>`;
+  }
+  box.innerHTML = `<div class="card" style="margin:8px 0 0; padding:6px 12px;">${html}</div>`;
+}
+
+function pickShopSuggestion(kind, a, b) {
+  const sg = shopState.sugg; if (!sg) return;
+  const IS = FarriInventorySearch;
+  const p = kind === 'own' ? IS.shoppingPick('own', sg.own[a])
+    : kind === 'supply' ? IS.shoppingPick('supply', sg.supply[a].product, sg.supply[a].variants[b].size)
+    : IS.shoppingPick('general', sg.general[a].entry);
+  document.getElementById('shop-name').value = p.name;
+  document.getElementById('shop-unit').value = p.unit;
+  document.getElementById('shop-error').textContent = '';
+  shopState.suggestOff = true; renderShopSuggest();
+  document.getElementById('shop-qty').focus();
 }
 
 // ── SETTINGS ──

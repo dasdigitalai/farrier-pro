@@ -105,3 +105,14 @@ test('catalog: best matches first, cut to a few with the true totals, indexes po
   assert.equal(many.products[r.supply[0].pi].t, 'Nail 7');             // pi indexes the original list
   assert.equal(many.products[r.supply[1].pi].v[r.supply[1].variants[0].vi][1], 'P0');
 });
+
+test('shopping list: what a picked suggestion puts in the add box', () => {
+  assert.deepEqual(S.shoppingPick('own', { name: 'St. Croix Eventer Front', size: '00', unit: 'pair' }), { name: 'St. Croix Eventer Front (00)', unit: 'pair' });
+  assert.deepEqual(S.shoppingPick('own', { name: 'Rasp', unit: 'each' }), { name: 'Rasp', unit: 'each' });
+  assert.deepEqual(S.shoppingPick('supply', { t: 'St. Croix Eventer Front', u: 'pair' }, '1'), { name: 'St. Croix Eventer Front (1)', unit: 'pair' });
+  assert.deepEqual(S.shoppingPick('supply', { t: 'Hoof Pick', u: 'each' }, ''), { name: 'Hoof Pick', unit: 'each' });
+  assert.deepEqual(S.shoppingPick('general', { name: 'Hoof rasp', category: 'Tools', unit: 'each' }), { name: 'Hoof rasp', unit: 'each' });
+  assert.equal(S.shoppingPick('supply', { t: 'x'.repeat(150), u: 'y'.repeat(40) }, '').name.length, 100);   // fits the list's limits
+  assert.equal(S.shoppingPick('supply', { t: 'x', u: 'y'.repeat(40) }, '').unit.length, 20);
+  assert.deepEqual(S.shoppingPick('own', null), { name: '', unit: '' });
+});

@@ -7627,7 +7627,7 @@ function ServicesView({ userId }) {
             <div>Loading...</div>
           ) : (
             <React.Fragment>
-              {items.length === 0 && (
+              {items.length === 0 && !searching && (
                 <div style={{ padding: '1.25rem', borderRadius: 12, background: 'var(--surface)', border: '2px solid var(--primary)', marginBottom: '1rem' }}>
                   <div style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: '0.35rem' }}>📋 Build your inventory from our supply catalog?</div>
                   <div style={{ color: 'var(--text-muted)', marginBottom: '0.9rem' }}>
@@ -7639,10 +7639,10 @@ function ServicesView({ userId }) {
                   </div>
                 </div>
               )}
-              {items.length > 0 && (
+              {(
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
                   <input type="text" value={query} onChange={e => setQuery(e.target.value)} aria-label="Search inventory"
-                    placeholder="🔍 Search your inventory: name, brand, size, part #…" autoComplete="off"
+                    placeholder="🔍 Search your inventory and the supply catalog: name, brand, size, part #…" autoComplete="off"
                     style={{ flex: 1, minWidth: 0, padding: '0.7rem 0.9rem', borderRadius: 8, border: '2px solid var(--border)', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', boxSizing: 'border-box' }} />
                   {searching && <button type="button" className="btn btn-sm btn-outline" onClick={() => setQuery('')} aria-label="Clear search">✕</button>}
                 </div>
@@ -8019,6 +8019,12 @@ function ServicesView({ userId }) {
       const [adding, setAdding] = useState(false);
       const [stockFor, setStockFor] = useState(null); // the purchased item being added to inventory
       const nameRef = React.useRef(null);
+      const qtyRef = React.useRef(null);
+      // As they type the item, suggest matches from their own inventory and from the supply catalog (lib/inventory-search.js).
+      const [inventory, setInventory] = useState([]);
+      const [catalogDoc, setCatalogDoc] = useState(null);   // the supply catalog, loaded the first time they type
+      const [catalogError, setCatalogError] = useState('');
+      const [suggest, setSuggest] = useState(false);        // panel open (closed after picking, adding, or Escape)
       const col = () => db.collection('farriers').doc(userId).collection('shoppingList');
       const me = () => firebase.auth().currentUser?.uid || '';
       const stamp = () => firebase.firestore.FieldValue.serverTimestamp();
@@ -8030,6 +8036,35 @@ function ServicesView({ userId }) {
           e => { console.error('Shopping list error:', e); setError('Couldn’t load the shopping list. Please reload the page.'); setItems([]); });
       }, [userId]);
 
+      const loadInventory = () => {
+        if (!db || !userId) return;
+        db.collection('inventoryItems').where('farrierId', '==', userId).get()
+          .then(snap => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+          .catch(e => console.error('Inventory load failed:', e)); // suggestions just have fewer matches
+      };
+      useEffect(() => { loadInventory(); }, [userId]);
+      const typed = name.trim();
+      useEffect(() => {
+        if (!suggest || !typed || catalogDoc || catalogError) return;
+        loadSupplyCatalog().then(setCatalogDoc).catch(e => setCatalogError(e.message || 'Couldn\u2019t load the catalog'));
+      }, [suggest, typed.length > 0]);
+
+      const IS = window.FarriInventorySearch;
+      const showSuggest = suggest && typed.length > 0;
+      const ownMatches = showSuggest ? IS.search(inventory, typed).slice(0, 6) : [];
+      const ownedKeys = new Set(inventory.map(i => inventoryCatalogKey(i.name, i.size)));
+      const cat = showSuggest && catalogDoc
+        ? IS.searchCatalog({ general: window.INVENTORY_CATALOG || [], products: catalogDoc.products || [] }, typed, { owned: ownedKeys, keyFn: inventoryCatalogKey, maxSupply: 5, maxGeneral: 4 })
+        : null;
+      const catCount = cat ? cat.supply.length + cat.general.length : 0;
+      const checkingCatalog = showSuggest && !catalogDoc && !catalogError;
+      const nothingFound = showSuggest && ownMatches.length === 0 && !checkingCatalog && catCount === 0;
+      const pick = (kind, thing, size) => {
+        const p = IS.shoppingPick(kind, thing, size);
+        setName(p.name); setUnit(p.unit); setSuggest(false); setError('');
+        qtyRef.current && qtyRef.current.focus();
+      };
+
       const { toBuy, purchased } = S.group(items || []);
 
       const add = async (e) => {
@@ -8039,7 +8074,7 @@ function ServicesView({ userId }) {
         setError(''); setNotice(''); setAdding(true);
         try {
           await col().add({ ...r.value, purchased: false, purchasedAt: null, inventoryItemId: '', createdAt: stamp(), createdBy: me() });
-          setName(''); setQty('1'); setUnit('');
+          setName(''); setQty('1'); setUnit(''); setSuggest(false);
           nameRef.current && nameRef.current.focus();
         } catch (ex) { setError('Couldn’t add that: ' + ex.message); }
         setAdding(false);
@@ -8075,11 +8110,60 @@ function ServicesView({ userId }) {
           <div className="card" style={{ padding: '1.25rem' }}>
             <form onSubmit={add} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <input ref={nameRef} type="text" value={name} maxLength={100} placeholder="What do you need? e.g. Horseshoe nails" disabled={adding}
-                onChange={e => setName(e.target.value)} style={{ ...inputStyle, flex: '1 1 220px' }} aria-label="Item" />
-              <input type="number" value={qty} min="0" step="any" disabled={adding} onChange={e => setQty(e.target.value)} style={{ ...inputStyle, width: 80 }} aria-label="Quantity" />
+                onChange={e => { setName(e.target.value); setSuggest(true); }} onKeyDown={e => { if (e.key === 'Escape') setSuggest(false); }}
+                autoComplete="off" style={{ ...inputStyle, flex: '1 1 220px' }} aria-label="Item" />
+              <input ref={qtyRef} type="number" value={qty} min="0" step="any" disabled={adding} onChange={e => setQty(e.target.value)} style={{ ...inputStyle, width: 80 }} aria-label="Quantity" />
               <input type="text" value={unit} maxLength={20} placeholder="unit (box…)" disabled={adding} onChange={e => setUnit(e.target.value)} style={{ ...inputStyle, width: 110 }} aria-label="Unit" />
               <button type="submit" className="btn btn-primary" disabled={adding || !name.trim()}>{adding ? 'Adding…' : 'Add'}</button>
             </form>
+            {showSuggest && (ownMatches.length > 0 || catCount > 0 || checkingCatalog || nothingFound || catalogError) && (
+              <div role="listbox" aria-label="Suggestions" style={{ marginTop: '0.75rem', border: '1px solid var(--border)', borderRadius: 10, padding: '0.5rem 0.75rem', background: 'var(--surface)' }}>
+                {ownMatches.length > 0 && (<React.Fragment>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '0.25rem 0' }}>In your inventory</div>
+                  {ownMatches.map(i => {
+                    const low = i.isConsumable !== false && Number(i.quantityOnHand || 0) < Number(i.reorderThreshold || 0);
+                    return (
+                      <button key={i.id} type="button" role="option" onClick={() => pick('own', i)}
+                        style={{ display: 'flex', width: '100%', justifyContent: 'space-between', gap: '0.75rem', padding: '0.5rem 0.25rem', background: 'none', border: 'none', borderTop: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left', color: 'inherit', font: 'inherit' }}>
+                        <span style={{ fontWeight: 600 }}>{i.name}{i.size ? ` (${i.size})` : ''}</span>
+                        <span style={{ color: low ? '#dc2626' : 'var(--text-muted)', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>{i.quantityOnHand ?? 0} {i.unit || ''} on hand{low ? ' · ⚠ Low' : ''}</span>
+                      </button>
+                    );
+                  })}
+                </React.Fragment>)}
+                {checkingCatalog && ownMatches.length === 0 && <div style={{ color: 'var(--text-muted)', padding: '0.4rem 0' }}>Checking the supply catalog…</div>}
+                {cat && catCount > 0 && (<React.Fragment>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '0.5rem 0 0.25rem' }}>In the supply catalog</div>
+                  {cat.supply.map(({ pi, product, variants }) => (
+                    <div key={'s' + pi} style={{ padding: '0.5rem 0.25rem', borderTop: '1px solid var(--border)' }}>
+                      <div style={{ fontWeight: 600 }}>{product.t}</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '0.1rem 0 0.35rem' }}>{[product.b, product.c.split(' > ')[0]].filter(Boolean).join(' · ')}</div>
+                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        {variants.slice(0, 12).map(v => (
+                          <button key={v.vi} type="button" className="btn btn-sm btn-outline" onClick={() => pick('supply', product, v.size)}>{v.size ? `Size ${v.size}` : 'Use this'}</button>
+                        ))}
+                        {variants.length > 12 && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', alignSelf: 'center' }}>+{variants.length - 12} more sizes: type the size you need</span>}
+                      </div>
+                    </div>
+                  ))}
+                  {cat.general.map(({ idx, entry }) => (
+                    <button key={'g' + idx} type="button" role="option" onClick={() => pick('general', entry)}
+                      style={{ display: 'flex', width: '100%', justifyContent: 'space-between', gap: '0.75rem', padding: '0.5rem 0.25rem', background: 'none', border: 'none', borderTop: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left', color: 'inherit', font: 'inherit' }}>
+                      <span style={{ fontWeight: 600 }}>{entry.name}</span><span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{entry.category}</span>
+                    </button>
+                  ))}
+                </React.Fragment>)}
+                {catalogError && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', padding: '0.4rem 0' }}>Couldn’t check the supply catalog right now ({catalogError}).</div>}
+                {nothingFound ? (
+                  <div style={{ padding: '0.4rem 0' }}>
+                    <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Nothing in your inventory{catalogError ? '' : ' or the supply catalog'} matches “{typed}”.</div>
+                    <button type="button" className="btn btn-primary" disabled={adding} onClick={() => add({ preventDefault() {} })}>+ Add “{typed}” to the list as a new item</button>
+                  </div>
+                ) : (
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)', marginTop: '0.25rem' }}>Not what you’re looking for? Press Add to put “{typed}” on the list as typed.</div>
+                )}
+              </div>
+            )}
             {error && <div className="error-message" style={{ marginTop: '0.75rem' }}>{error}</div>}
             {notice && <div style={{ marginTop: '0.75rem', color: '#16a34a', fontWeight: 600 }}>{notice}</div>}
           </div>
@@ -8127,7 +8211,7 @@ function ServicesView({ userId }) {
           )}
 
           {stockFor && (
-            <ShoppingToInventoryModal item={stockFor} userId={userId} onClose={() => setStockFor(null)} onDone={setNotice} />
+            <ShoppingToInventoryModal item={stockFor} userId={userId} onClose={() => setStockFor(null)} onDone={(m) => { setNotice(m); loadInventory(); }} />
           )}
         </div>
       );

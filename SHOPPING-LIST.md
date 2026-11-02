@@ -10,6 +10,12 @@ Farriers keep a list of things to buy, tick them off when bought, and put them i
   `quantityOnHand` and records an `inventoryTransactions` row, type `restock`, source `shopping-list`), and marks
   the list item **✓ In inventory** so it can't be added twice. The three writes are one all-or-nothing batch.
 - **Clear purchased** removes the purchased items from the list (it warns if some aren't in inventory yet).
+- **Suggestions as you type** (desktop and mobile): typing in the add box shows matches from the farrier's own
+  inventory first (with how many they have, and a low-stock flag), then the supply catalog (size buttons for products
+  that come in several sizes). Tapping one fills in the name and unit. If nothing matches anywhere it says so and offers
+  **+ Add "what they typed" to the list as a new item**; ignoring the suggestions and pressing Add always works. Matching
+  is the same as the Inventory search (`lib/inventory-search.js`, see `INVENTORY-SEARCH.md`); the catalog is only
+  downloaded the first time they type, and if it can't load the farrier's own matches still show.
 - The list is shared with everyone in the business (owner, managers, team farriers) and updates live between
   phone and desktop. On mobile it keeps working offline and syncs when the signal is back.
 
