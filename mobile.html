@@ -4296,12 +4296,14 @@ function loadShopInventory() {
     .catch(e => console.error('Inventory load failed:', e)); // suggestions just have fewer matches
 }
 
-function shopSuggestInput() { shopState.suggestOff = false; renderShopSuggest(); }
+function shopSuggestInput() { shopState.suggestOff = false; shopState.picked = new Set(); renderShopSuggest(); } // typing more clears any ticked choices
 
 function renderShopSuggest() {
   const box = document.getElementById('shop-suggest');
+  const keepScroll = box.scrollTop;
   const typed = document.getElementById('shop-name').value.trim();
   if (!typed || shopState.suggestOff) { box.innerHTML = ''; shopState.sugg = null; return; }
+  const picked = shopState.picked || (shopState.picked = new Set());
   const IS = FarriInventorySearch, inv = shopState.suggInventory || [];
   if (!shopState.catalog && !shopState.catalogError && !shopState.catalogLoading) {
     shopState.catalogLoading = true;
@@ -4319,6 +4321,12 @@ function renderShopSuggest() {
   const nothing = own.length === 0 && !checking && count === 0;
   const label = (t) => `<div style="font-size:0.72rem; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-muted); margin:8px 0 4px;">${t}</div>`;
   const row = (onclick, left, right) => `<button type="button" onclick="${onclick}" style="display:flex; width:100%; justify-content:space-between; gap:10px; align-items:center; text-align:left; padding:10px 2px; background:none; border:none; border-top:1px solid var(--border); font-family:inherit; font-size:0.95rem; color:var(--text); cursor:pointer;"><span style="font-weight:700;">${left}</span><span style="font-size:0.8rem; color:var(--text-muted); text-align:right;">${right}</span></button>`;
+  const pickedBar = picked.size ? `<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 10px; margin:6px 0; border-radius:10px; background:var(--blue); color:#fff;">
+      <strong>${picked.size} selected</strong>
+      <button type="button" onclick="addSelectedShopVariants()" style="background:#fff; color:var(--blue); border:none; border-radius:8px; padding:7px 12px; font-weight:700; font-family:inherit; cursor:pointer;">Add ${picked.size} to the list</button>
+      <button type="button" onclick="clearShopPicked()" style="background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.7); border-radius:8px; padding:6px 10px; font-family:inherit; cursor:pointer;">Clear</button>
+      ${picked.size === 1 ? `<button type="button" onclick="fillShopFromPicked()" style="background:transparent; color:#fff; border:none; text-decoration:underline; font-family:inherit; cursor:pointer;">Fill the box instead</button>` : ''}
+    </div>` : '';
   let html = '';
   if (own.length) {
     html += label('In your inventory') + own.map((i, n) => {
@@ -4329,14 +4337,19 @@ function renderShopSuggest() {
   }
   if (checking && !own.length) html += `<div style="color:var(--text-muted); font-size:0.9rem; padding:8px 2px;">Checking the supply catalog…</div>`;
   if (count) {
-    html += label('In the supply catalog') +
-      cat.supply.map(({ product, variants }, n) => `
+    html += label('In the supply catalog') + pickedBar +
+      cat.supply.map(({ pi, product, variants }, n) => `
         <div style="padding:10px 2px; border-top:1px solid var(--border);">
           <div style="font-weight:700;">${escapeHtml(product.t)}</div>
           <div style="font-size:0.8rem; color:var(--text-muted); margin:2px 0 8px;">${escapeHtml([product.b, product.c.split(' > ')[0]].filter(Boolean).join(' · '))}</div>
-          <div style="display:flex; gap:6px; flex-wrap:wrap;">${variants.slice(0, 12).map((v, vn) => `<button type="button" class="btn-sm" onclick="pickShopSuggestion('supply', ${n}, ${vn})" style="background:var(--surface); border:2px solid var(--blue); color:var(--blue);">${v.size ? 'Size ' + escapeHtml(v.size) : 'Use this'}</button>`).join('')}${variants.length > 12 ? `<span style="font-size:0.8rem; color:var(--text-muted); align-self:center;">+${variants.length - 12} more sizes: type the size you need</span>` : ''}</div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">${variants.slice(0, 12).map((v, vn) => {
+            if (variants.length === 1) return `<button type="button" class="btn-sm" onclick="pickShopSuggestion('supply', ${n}, ${vn})" style="background:var(--surface); border:2px solid var(--blue); color:var(--blue);">${escapeHtml(IS.variantLabel(v.size))}</button>`; // one choice only: use it
+            const on = picked.has(pi + ':' + v.vi);
+            return `<button type="button" class="btn-sm" aria-pressed="${on}" onclick="toggleShopVariant(${pi}, ${v.vi})" style="border:2px solid var(--blue); ${on ? 'background:var(--blue); color:#fff;' : 'background:var(--surface); color:var(--blue);'}">${on ? '✓ ' : ''}${escapeHtml(IS.variantLabel(v.size))}</button>`;
+          }).join('')}${variants.length > 12 ? `<span style="font-size:0.8rem; color:var(--text-muted); align-self:center;">+${variants.length - 12} more sizes: type the size you need</span>` : ''}</div>
         </div>`).join('') +
-      cat.general.map(({ entry }, n) => row(`pickShopSuggestion('general', ${n})`, escapeHtml(entry.name), escapeHtml(entry.category))).join('');
+      cat.general.map(({ entry }, n) => row(`pickShopSuggestion('general', ${n})`, escapeHtml(entry.name), escapeHtml(entry.category))).join('') +
+      (picked.size > 1 ? pickedBar : '');
   }
   if (shopState.catalogError) html += `<div style="color:var(--text-muted); font-size:0.8rem; padding:6px 2px;">Couldn’t check the supply catalog right now (${escapeHtml(shopState.catalogError)}).</div>`;
   if (nothing) {
@@ -4346,6 +4359,46 @@ function renderShopSuggest() {
     html += `<div style="color:var(--text-muted); font-size:0.8rem; padding:8px 2px 2px; border-top:1px solid var(--border); margin-top:4px;">Not what you’re looking for? Tap Add to put “${escapeHtml(typed)}” on the list as typed.</div>`;
   }
   box.innerHTML = `<div class="card" style="margin:8px 0 0; padding:6px 12px;">${html}</div>`;
+  box.scrollTop = keepScroll;
+}
+
+// Several choices of one catalog product (colours, sizes) can be ticked and added to the list together, each as its own
+// line, using the quantity in the box. Keys are '<product index>:<choice index>' into the loaded catalog.
+function toggleShopVariant(pi, vi) {
+  const set = shopState.picked || (shopState.picked = new Set()), k = pi + ':' + vi;
+  set.has(k) ? set.delete(k) : set.add(k);
+  renderShopSuggest();
+}
+function clearShopPicked() { shopState.picked = new Set(); renderShopSuggest(); }
+function shopPickedList() { return [...(shopState.picked || [])].map(k => k.split(':').map(Number)).sort((a, b) => a[0] - b[0] || a[1] - b[1]); }
+function fillShopFromPicked() {
+  const [pi, vi] = shopPickedList()[0] || [];
+  const product = shopState.catalog && shopState.catalog.products[pi]; if (!product) return;
+  const p = FarriInventorySearch.shoppingPick('supply', product, product.v[vi][0]);
+  document.getElementById('shop-name').value = p.name; document.getElementById('shop-unit').value = p.unit;
+  document.getElementById('shop-error').textContent = '';
+  shopState.picked = new Set(); shopState.suggestOff = true; renderShopSuggest();
+  document.getElementById('shop-qty').focus();
+}
+function addSelectedShopVariants() {
+  const list = shopPickedList(), err = document.getElementById('shop-error');
+  if (!list.length || !shopState.catalog) return;
+  const qty = document.getElementById('shop-qty').value, rows = [];
+  for (const [pi, vi] of list) {
+    const product = shopState.catalog.products[pi], pk = FarriInventorySearch.shoppingPick('supply', product, product.v[vi][0]);
+    const r = FarriShopping.cleanNewItem({ name: pk.name, qty, unit: pk.unit });
+    if (!r.ok) { err.textContent = r.error; return; }
+    rows.push(r.value);
+  }
+  err.textContent = '';
+  performWrite(() => { // all of them, or none
+    const b = db.batch();
+    rows.forEach(v => b.set(shopCol().doc(), { ...v, purchased: false, purchasedAt: null, inventoryItemId: '', createdAt: shopStamp(), createdBy: state.user?.uid || '' }));
+    return b.commit();
+  });
+  document.getElementById('shop-name').value = ''; document.getElementById('shop-qty').value = '1'; document.getElementById('shop-unit').value = '';
+  shopState.picked = new Set(); shopState.suggestOff = false; renderShopSuggest();
+  showToast(`Added ${rows.length} item${rows.length === 1 ? '' : 's'} to the list`, 'success');
 }
 
 function pickShopSuggestion(kind, a, b) {

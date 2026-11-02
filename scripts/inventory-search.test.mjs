@@ -116,3 +116,10 @@ test('shopping list: what a picked suggestion puts in the add box', () => {
   assert.equal(S.shoppingPick('supply', { t: 'x', u: 'y'.repeat(40) }, '').unit.length, 20);
   assert.deepEqual(S.shoppingPick('own', null), { name: '', unit: '' });
 });
+
+test('shopping list: names with brackets in the choice avoid nested brackets; choice labels read naturally', () => {
+  assert.deepEqual(S.shoppingPick('supply', { t: 'Buffing Compound', u: 'each' }, 'Green (Fine)'), { name: 'Buffing Compound - Green (Fine)', unit: 'each' });
+  assert.deepEqual(S.shoppingPick('supply', { t: 'Protector Plate Pair', u: 'pair' }, '7'), { name: 'Protector Plate Pair (7)', unit: 'pair' });
+  assert.deepEqual(S.shoppingPick('supply', { t: 'Rasp', u: 'each' }, '14 inch'), { name: 'Rasp (14 inch)', unit: 'each' });
+  for (const [z, label] of [['7', 'Size 7'], ['00', 'Size 00'], ['4.5', 'Size 4.5'], ['1/2', 'Size 1/2'], ['5W', 'Size 5W'], ['Green (Fine)', 'Green (Fine)'], ['Grey (Coarse)', 'Grey (Coarse)'], ['Large', 'Large'], ['', 'Use this'], [null, 'Use this']]) assert.equal(S.variantLabel(z), label, String(z));
+});
