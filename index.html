@@ -1646,6 +1646,71 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
       const lineHorseLabel_ = (it, names) =>
         safeText_(FarriPricing.itemHorseLabel({ ...it, horseName: safeText_(it.horseName) || names[it.horseId] || '', qty: 1 }));
 
+      // ── Business logo (printed at the top of invoice PDFs) ──
+      // Farriers upload an image file; it's shrunk on their device to at most 400×160 (never enlarged) and
+      // saved as a small PNG data URL in farriers/{uid}.logoUrl, so there's no hosting, storage rule or CORS
+      // setup. The invoice PDFs read logoUrl exactly as before (a pasted web address still works too).
+      const LOGO_MAX_W = 400, LOGO_MAX_H = 160, LOGO_MAX_CHARS = 100000; // ~75 KB: kept small because it lives in the profile document
+      async function resizeLogoFile_(file) {
+        if (!file || !/^image\//.test(file.type || '')) throw new Error('Please choose an image file (PNG, JPG or SVG).');
+        if (file.size > 10 * 1024 * 1024) throw new Error('That image is over 10 MB. Please choose a smaller one.');
+        const objectUrl = URL.createObjectURL(file);
+        try {
+          const img = await new Promise((resolve, reject) => {
+            const i = new Image();
+            i.onload = () => resolve(i);
+            i.onerror = () => reject(new Error('Couldn’t read that image. Try a PNG or JPG.'));
+            i.src = objectUrl;
+          });
+          const w = img.naturalWidth || 400, h = img.naturalHeight || 400; // an SVG with no size reports 0
+          let scale = Math.min(1, LOGO_MAX_W / w, LOGO_MAX_H / h);
+          for (let attempt = 0; attempt < 4; attempt++) {
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(w * scale));
+            canvas.height = Math.max(1, Math.round(h * scale));
+            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+            const url = canvas.toDataURL('image/png'); // PNG keeps a transparent background
+            if (url.length <= LOGO_MAX_CHARS) return url;
+            scale *= 0.7; // too detailed to store: try smaller
+          }
+          throw new Error('That logo is too detailed to save. Try a simpler or smaller image.');
+        } finally {
+          URL.revokeObjectURL(objectUrl);
+        }
+      }
+
+      function LogoField({ value, onChange }) {
+        const [busy, setBusy] = useState(false);
+        const [err, setErr] = useState('');
+        const pick = async (e) => {
+          const file = e.target.files && e.target.files[0];
+          e.target.value = ''; // so choosing the same file again still fires
+          if (!file) return;
+          setBusy(true); setErr('');
+          try { onChange(await resizeLogoFile_(file)); }
+          catch (ex) { setErr(ex.message || 'Couldn’t use that image.'); }
+          setBusy(false);
+        };
+        return (
+          <div>
+            {value
+              ? <div style={{ background: '#fff', borderRadius: '8px', padding: '8px', display: 'inline-block', marginBottom: '8px' }}>
+                  <img src={value} alt="Your logo" style={{ display: 'block', maxWidth: '240px', maxHeight: '80px' }} />
+                </div>
+              : <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '8px' }}>No logo yet. It prints at the top of your invoices.</div>}
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <label className="btn btn-sm btn-outline" style={{ cursor: busy ? 'default' : 'pointer', margin: 0 }}>
+                {busy ? 'Processing…' : (value ? 'Replace logo' : 'Upload logo')}
+                <input type="file" accept="image/*" disabled={busy} onChange={pick} style={{ display: 'none' }} />
+              </label>
+              {value && <button type="button" className="btn btn-sm btn-outline" onClick={() => { setErr(''); onChange(''); }}>Remove</button>}
+            </div>
+            {err && <div className="error-message" style={{ marginTop: '8px' }}>{err}</div>}
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '6px' }}>PNG, JPG or SVG. A wide logo works best (it prints up to about 2 × 0.7 inches). Press Save to keep it.</div>
+          </div>
+        );
+      }
+
       async function generateInvoicePdfBlobUrl(invoice, farrierProfile) {
         if (!window.jspdf?.jsPDF) throw new Error("jsPDF not loaded");
         const { jsPDF } = window.jspdf;
@@ -1686,8 +1751,11 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
               r.readAsDataURL(blob);
             });
 
-            // Draw logo (fit into 120x50)
-            doc.addImage(dataUrl, "PNG", 48, 40, 120, 50);
+            // Draw logo: as large as fits in 150x52 without stretching it
+            const fmt = /^data:image\/jpe?g/i.test(dataUrl) ? "JPEG" : "PNG";
+            const lp = doc.getImageProperties(dataUrl);
+            const ls = Math.min(150 / lp.width, 52 / lp.height);
+            doc.addImage(dataUrl, fmt, 48, 40, lp.width * ls, lp.height * ls);
           } catch (e) {
             // If logo fails, fall back to text
           }
@@ -1742,9 +1810,24 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         }
 
         // Bill to
+        const custName = safeText_(invoice.customerName || "");
+        const custFarmName = safeText_(invoice.customerFarmName || "");
+        const custEmail = safeText_(invoice.customerEmail || "");
+        const custPhone = safeText_(invoice.customerPhone || "");
+
+        // Payment QR (if paymentUrl exists), made up front so the Bill To box can make room for it
+        const payUrl = buildInvoicePayUrl_(invoice);
+        let qr = "";
+        if (payUrl) { try { qr = await qrToDataUrl_(payUrl); } catch (e) {} }
+
+        // The box grows with what's in it (name, then farm / email / phone when there are any),
+        // and with the QR code when there is one, so nothing hangs out of the bottom.
+        const extraLines = [custFarmName, custEmail, custPhone].filter(Boolean).length;
+        const lastLineY = extraLines ? 228 + (extraLines - 1) * 14 : 212;
+        const billBoxBottom = Math.max(lastLineY + 14, qr ? 298 : 0);
         doc.setDrawColor(220);
         doc.setLineWidth(1);
-        doc.roundedRect(48, 170, pageW - 96, 78, 10, 10);
+        doc.roundedRect(48, 170, pageW - 96, billBoxBottom - 170, 10, 10);
 
         doc.setFont("helvetica", "bold");
         doc.setFontSize(10);
@@ -1752,36 +1835,26 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
 
         doc.setFont("helvetica", "normal");
         doc.setFontSize(11);
-        const custName = safeText_(invoice.customerName || "");
-        const custFarmName = safeText_(invoice.customerFarmName || "");
-        const custEmail = safeText_(invoice.customerEmail || "");
-        const custPhone = safeText_(invoice.customerPhone || "");
-
         doc.text(custName, 64, 212);
         let custY = 228;
         if (custFarmName) { doc.setFont("helvetica", "italic"); doc.text(custFarmName, 64, custY); doc.setFont("helvetica", "normal"); custY += 14; }
         if (custEmail) { doc.text(custEmail, 64, custY); custY += 14; }
         if (custPhone) { doc.text(custPhone, 64, custY); custY += 14; }
 
-        // Payment QR (if paymentUrl exists)
-        const payUrl = buildInvoicePayUrl_(invoice);
-        if (payUrl) {
+        if (qr) {
           try {
-            const qr = await qrToDataUrl_(payUrl);
-            if (qr) {
-              doc.setFont("helvetica", "bold");
-              doc.setFontSize(9);
-              doc.text("PAY ONLINE", pageW - 150, 192, { align: "center" });
-              doc.addImage(qr, "PNG", pageW - 190, 200, 80, 80);
-              doc.setFont("helvetica", "normal");
-              doc.setFontSize(8);
-              doc.text("Scan to pay", pageW - 150, 290, { align: "center" });
-            }
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(9);
+            doc.text("PAY ONLINE", pageW - 150, 192, { align: "center" });
+            doc.addImage(qr, "PNG", pageW - 190, 200, 80, 80);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(8);
+            doc.text("Scan to pay", pageW - 150, 290, { align: "center" });
           } catch (e) {}
         }
 
-        // Items table header
-        let y = 270;
+        // Items table header (always starts below the Bill To box)
+        let y = Math.max(270, billBoxBottom + 24);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(10);
         doc.text("HORSE", 48, y);
@@ -1838,7 +1911,7 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
 
           y = Math.max(yAfter, y + lineH) + 10;
           doc.setDrawColor(235);
-          doc.line(48, y - 6, pageW - 48, y - 6);
+          doc.line(48, y - 14, pageW - 48, y - 14); // between this row and the next, not through its text
         }
 
         // Totals
@@ -3220,13 +3293,8 @@ return (
                         onChange={(e) => setBusinessName(e.target.value)}
                         placeholder="John's Farrier Services"
                       />
-              <label style={{marginTop:'10px'}}>Logo URL (optional)</label>
-              <input
-                type="text"
-                value={logoUrl}
-                onChange={(e)=>setLogoUrl(e.target.value)}
-                placeholder="https://.../logo.png"
-              />
+              <label style={{marginTop:'10px'}}>Logo (optional)</label>
+              <LogoField value={logoUrl} onChange={setLogoUrl} />
 
               <div style={{display:'flex', alignItems:'center', gap:'10px', marginTop:'10px'}}>
                 <input type="checkbox" checked={Boolean(autoPrintPdf)} onChange={(e)=>setAutoPrintPdf(e.target.checked)} />
@@ -15292,6 +15360,11 @@ useEffect(() => {
                   onChange={(e) => setBusinessName(e.target.value)}
                   placeholder="John's Farrier Services"
                 />
+              </div>
+
+              <div className="form-group">
+                <label>Logo (prints on your invoices)</label>
+                <LogoField value={logoUrl} onChange={setLogoUrl} />
               </div>
 
               <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem'}}>

@@ -79,7 +79,8 @@ async function queryByDateRange(collection, field, startISO, endISO, apiKey) {
 
 // Count all docs in a collection (no filter) — used for totals
 async function countAll(collection, apiKey) {
-  const docs = await runQuery({ from: [{ collectionId: collection }] }, apiKey);
+  // Names only: a profile can carry a logo, and counting shouldn't download every farrier's.
+  const docs = await runQuery({ from: [{ collectionId: collection }], select: { fields: [{ fieldPath: '__name__' }] } }, apiKey);
   return docs.length;
 }
 
