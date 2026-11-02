@@ -1,7 +1,7 @@
 // Tests for Ask FarriTech: node --test scripts/ask-ai.test.mjs  (no network, no Firestore, no API key)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getMoneyOwed, getMoneyCollected, countCustomers, countHorsesServiced, findHorse, findCustomers, namedRanges, localDate, ToolInputError } from '../api/_lib/ask-tools.js';
+import { getMoneyOwed, getMoneyCollected, getInvoiceStats, countCustomers, countHorsesServiced, findHorse, findCustomers, namedRanges, localDate, ToolInputError } from '../api/_lib/ask-tools.js';
 import { askAI, systemPrompt } from '../api/_lib/ask-ai.js';
 
 const TZ = 'America/New_York';
@@ -138,6 +138,25 @@ test('horses serviced: a "Multiple horses" line counts its quantity, not one hor
   // A line with no qty (older invoices) is one horse.
   const one = countHorsesServiced({ invoices: [{ id: 'o', status: 'paid', createdAt: '2026-11-03T15:00:00Z', items: [{ description: 'Trim', horseName: 'Multiple horses' }] }] }, ctx, { from: '2026-11-02', to: '2026-11-08' });
   assert.equal(one.horses_serviced, 1);
+});
+
+test('invoice stats: average, median, extremes; cancelled excluded; periods; empty', () => {
+  const all = getInvoiceStats(data, ctx, {});
+  // Non-cancelled: 240, 300, 500, 100, 120, 170 (i4's $999 is cancelled).
+  assert.equal(all.period, 'all time');
+  assert.equal(all.invoices, 6);
+  assert.equal(all.total_invoiced, 1430);
+  assert.equal(all.average_invoice, 238.33);
+  assert.equal(all.median_invoice, 205); // (170 + 240) / 2
+  assert.equal(all.largest_invoice, 500);
+  assert.equal(all.smallest_invoice, 100);
+  const week = getInvoiceStats(data, ctx, { from: '2026-11-02', to: '2026-11-08' });
+  assert.equal(week.invoices, 1); assert.equal(week.average_invoice, 240); // i5 is 10pm Sunday NY: last week
+  const last = getInvoiceStats(data, ctx, { from: '2026-10-26', to: '2026-11-01' });
+  assert.equal(last.average_invoice, 300); // i3 $500 and i5 $100
+  const none = getInvoiceStats(data, ctx, { from: '2026-01-01', to: '2026-01-31' });
+  assert.equal(none.invoices, 0); assert.equal(none.average_invoice, null);
+  assert.throws(() => getInvoiceStats(data, ctx, { from: '2026-11-01' }), ToolInputError);
 });
 
 test('find horse: "did I ever shoe Bonnie" - history, owner, services, and a second Bonnie on file', () => {

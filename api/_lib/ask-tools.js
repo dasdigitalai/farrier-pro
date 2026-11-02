@@ -324,6 +324,28 @@ export function getMoneyCollected({ invoices }, { tz }, input = {}) {
   };
 }
 
+// ── Tool: invoice size ──
+export function getInvoiceStats({ invoices }, { tz }, input = {}) {
+  const hasFrom = input.from != null, hasTo = input.to != null;
+  if (hasFrom !== hasTo) throw new ToolInputError('Give both from and to, or neither (neither means all time).');
+  const range = hasFrom ? checkRange(input.from, input.to) : null;
+  const cents = invoices
+    .filter(inv => live(inv) && (!range || (() => { const d = localDate(inv.createdAt, tz); return !!d && d >= range[0] && d <= range[1]; })()))
+    .map(inv => toCents(inv.total)).sort((a, b) => a - b);
+  const n = cents.length, total = cents.reduce((s, c) => s + c, 0);
+  const median = n === 0 ? null : n % 2 ? cents[(n - 1) / 2] : (cents[n / 2 - 1] + cents[n / 2]) / 2;
+  return {
+    period: range ? { from: range[0], to: range[1] } : 'all time',
+    invoices: n,
+    total_invoiced: dollars(total),
+    average_invoice: n ? dollars(total / n) : null,
+    median_invoice: n ? dollars(median) : null,
+    largest_invoice: n ? dollars(cents[n - 1]) : null,
+    smallest_invoice: n ? dollars(cents[0]) : null,
+    basis: 'Invoice totals for non-cancelled invoices dated in the period (paid or not). The average is the total divided by the number of invoices; the median is the middle invoice, which big jobs do not skew.',
+  };
+}
+
 // ── What the model sees ──
 export const TOOLS = [
   {
@@ -366,6 +388,20 @@ export const TOOLS = [
     },
     needs: ['invoices'],
     run: countHorsesServiced,
+  },
+  {
+    name: 'get_invoice_stats',
+    description: 'How big the farrier\'s invoices are: count, total invoiced, average, median, largest and smallest invoice, for a period or (with no from/to) all time. ' +
+      'Use for "what is my average invoice". This is what was billed, whether or not it was paid.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'First invoice date, YYYY-MM-DD. Only with `to`; omit both for all time.' },
+        to: { type: 'string', description: 'Last invoice date, YYYY-MM-DD. Only with `from`.' },
+      },
+    },
+    needs: ['invoices'],
+    run: getInvoiceStats,
   },
   {
     name: 'find_customers',

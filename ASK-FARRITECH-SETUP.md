@@ -6,6 +6,7 @@ A tab in the desktop app where the owner or a manager types a question and gets 
 - "How many active customers do I have?"
 - "How many horses did I shoe last week?"
 - "How much did I collect last month?"
+- "What is my average invoice?"
 - "Did I ever shoe a horse named Bonnie?"
 - "What farms do I have in Loxahatchee?"
 
@@ -47,6 +48,8 @@ decide what is visible, exactly as in the app. Team members with the `farrier` r
   period" for comparison. Same rules as the Business Dashboard.
 - **Horses worked on** counts a "Multiple horses" invoice line by its quantity (those horses have no
   names, so they can't be matched to each other).
+- **Invoice size** (`get_invoice_stats`): count, total, average, median, largest and smallest for a
+  period (or all time), non-cancelled invoices by invoice date, paid or not.
 - **One horse** (`find_horse`): looks up a name on invoices and in Horses, lists each horse with that
   name (different owners), the services and dates. Partial names work.
 - **Farms by place** (`find_customers`): matches the city, ZIP or street saved on the customer record
