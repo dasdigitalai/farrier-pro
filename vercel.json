@@ -1,4 +1,7 @@
 {
+  "functions": {
+    "api/stripe-payment.js": { "maxDuration": 60 }
+  },
   "crons": [
     {
       "path": "/api/daily-stats",

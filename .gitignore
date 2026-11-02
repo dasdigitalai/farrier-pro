@@ -1,2 +1,3 @@
 scripts/supply-catalog/fd_list.json
 scripts/supply-catalog/fd_products.jsonl
+node_modules/

@@ -9,6 +9,7 @@ import {
 import { payPage } from './_lib/pay-page.js';
 import { farrierWebhook, recordWebhookSession } from './_lib/farrier-webhook.js';
 import { businessFor, requireRole, teamAccept, teamInvite, teamRemove, teamSetRole, teamStatus } from './_lib/team.js';
+import { askAI } from './_lib/ask-ai.js';
 import { closeIposPages, connectIpospays, createIposPage, disconnectIpospays, getIposCreds, iposCallback, refundIposPayment, syncIposPayment } from './_lib/ipospays.js';
 
 const P = globalThis.FarriPricing;
@@ -229,7 +230,15 @@ export default async function handler(req, res) {
     // owner → everything; manager → also refunds and card-price waivers; farrier → takes payments.
     const biz = await businessFor(caller);
     const farrierId = biz.businessId;
-    const OWNER_ONLY = ['ipospays_connect', 'ipospays_disconnect', 'connect', 'validate', 'disconnect', 'set_manager_password', 'deactivate_link'];
+
+    // ── Ask FarriTech: the AI assistant tab (_lib/ask-ai.js). Read-only; business-wide money,
+    // so owner and managers only, like Reports. Lives here to stay within the 12-function limit. ──
+    if (action === 'ask_ai') {
+      requireRole(biz, ['owner', 'manager'], 'use Ask FarriTech');
+      return res.status(200).json({ success: true, ...await askAI({ caller, biz, body }) });
+    }
+
+    const OWNER_ONLY =['ipospays_connect', 'ipospays_disconnect', 'connect', 'validate', 'disconnect', 'set_manager_password', 'deactivate_link'];
     const MANAGERS = ['ipospays_refund', 'refund', 'waive_card_price'];
     if (OWNER_ONLY.includes(action)) requireRole(biz, ['owner'], 'change payment settings');
     if (MANAGERS.includes(action)) requireRole(biz, ['owner', 'manager'], action === 'waive_card_price' ? 'waive the card price' : 'issue refunds');

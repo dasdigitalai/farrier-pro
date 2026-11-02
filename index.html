@@ -3869,6 +3869,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
         { id: 'dashboard', label: 'Dashboard', icon: '📊' },
         // Owner dashboard: owners and managers (not a team member with the farrier role).
         ...(window.FarriTeam?.role === 'farrier' ? [] : [{ id: 'business', label: 'Business', icon: '📈' }]),
+        ...(window.FarriTeam?.role === 'farrier' ? [] : [{ id: 'ask', label: 'Ask FarriTech', icon: '💬' }]),
         { id: 'calendar', label: 'Calendar', icon: '📅' },
         { id: 'appointments', label: 'Appointments', icon: '📋' },
         { id: 'invoices', label: 'Invoices', icon: '💰' },
@@ -3969,6 +3970,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                 { label: '📊 Overview', items: [
                   { id: 'dashboard', label: 'Dashboard', icon: '📊' },
                   ...(window.FarriTeam?.role === 'farrier' ? [] : [{ id: 'business', label: 'Business Dashboard', icon: '📈' }]),
+                  ...(window.FarriTeam?.role === 'farrier' ? [] : [{ id: 'ask', label: 'Ask FarriTech', icon: '💬' }]),
                   { id: 'qrcode', label: 'My QR Code', icon: '📱' },
                   { id: 'about', label: 'About', icon: 'ℹ️' },
                 ]},
@@ -4122,6 +4124,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
             {tab === 'data' && <DataManagementView userId={farrierId} />}
             {tab === 'reports' && window.FarriTeam?.role !== 'farrier' && <ReportsView userId={farrierId} />}
             {tab === 'business' && window.FarriTeam?.role !== 'farrier' && <OwnerDashboardView userId={farrierId} />}
+            {tab === 'ask' && window.FarriTeam?.role !== 'farrier' && <AskAIView />}
             {tab === 'mileage' && <MileageLogView userId={farrierId} userProfile={userProfile} />}
             {tab === 'route' && <RouteSheetView userId={farrierId} userProfile={userProfile} />}
             {tab === 'settings' && <SettingsView user={user} userProfile={userProfile} setUserProfile={setUserProfile} farrierId={farrierId} />}
@@ -6257,6 +6260,97 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
           {state.error && <div className="error-message">{state.error}</div>}
           {state.loading && !state.stamp && <div style={{color: 'var(--text-muted)'}}>Loading your numbers…</div>}
           <div ref={boxRef} />
+        </div>
+      );
+    }
+
+    // Ask FarriTech — type a question about your business, get an answer. The server (api/_lib/ask-ai.js)
+    // lets Claude pick a read-only calculation over this business's own records; nothing is changed.
+    // Each answer carries the figures it was built from, under "Show the numbers".
+    const ASK_EXAMPLES = ['Who owes me money this week?', 'How many active customers do I have?', 'How many horses did I shoe last week?'];
+    const ASK_MONEY_KEYS = /^(total_owed|owed)$/;
+    function AskFacts({ data, depth = 0 }) {
+      const label = (k) => k.replace(/_/g, ' ');
+      const fmt = (k, v) => ASK_MONEY_KEYS.test(k) ? '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v);
+      const cell = { padding: '0.25rem 0.75rem 0.25rem 0', textAlign: 'left', verticalAlign: 'top' };
+      return (
+        <div style={{ marginLeft: depth ? '0.75rem' : 0 }}>
+          {Object.entries(data).map(([k, v]) => {
+            if (Array.isArray(v)) {
+              if (!v.length) return <div key={k}><b>{label(k)}:</b> none</div>;
+              const cols = Object.keys(v[0]);
+              return (
+                <table key={k} style={{ margin: '0.5rem 0', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
+                  <thead><tr>{cols.map(c => <th key={c} style={{ ...cell, color: 'var(--text-muted)', fontWeight: 600 }}>{label(c)}</th>)}</tr></thead>
+                  <tbody>{v.map((row, i) => <tr key={i}>{cols.map(c => <td key={c} style={cell}>{fmt(c, row[c])}</td>)}</tr>)}</tbody>
+                </table>
+              );
+            }
+            if (v && typeof v === 'object') return <div key={k} style={{ margin: '0.4rem 0' }}><b>{label(k)}</b><AskFacts data={v} depth={depth + 1} /></div>;
+            return <div key={k}><span style={{ color: 'var(--text-muted)' }}>{label(k)}:</span> {fmt(k, v)}</div>;
+          })}
+        </div>
+      );
+    }
+
+    function AskAIView() {
+      const [q, setQ] = useState('');
+      const [busy, setBusy] = useState(false);
+      const [thread, setThread] = useState([]); // oldest first: { q, a, facts } or { q, error }
+      const ask = async (text) => {
+        const question = (text == null ? q : text).trim();
+        if (!question || busy) return;
+        setBusy(true); setQ('');
+        // The last few answers, so a follow-up like "and last month?" makes sense.
+        const history = thread.filter(t => !t.error).slice(-3).flatMap(t => [{ role: 'user', content: t.q }, { role: 'assistant', content: t.a }]);
+        try {
+          const res = await fetch('/api/stripe-payment', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'ask_ai', question, history, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.success) throw new Error(data.error || 'Something went wrong. Please try again.');
+          setThread(t => [...t, { q: question, a: data.answer, facts: data.facts || [] }]);
+        } catch (e) {
+          setThread(t => [...t, { q: question, error: e.message }]);
+        }
+        setBusy(false);
+      };
+      return (
+        <div style={{ maxWidth: '820px' }}>
+          <h1 style={{ fontSize: '2rem', color: 'var(--primary)', margin: '0 0 0.25rem' }}>Ask FarriTech</h1>
+          <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>Ask anything about your business, in your own words. Answers come from your invoices, customers and appointments.</p>
+          <div className="card" style={{ padding: '1.25rem' }}>
+            <form onSubmit={e => { e.preventDefault(); ask(); }} style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <input type="text" value={q} maxLength={500} autoFocus disabled={busy}
+                placeholder="e.g. Who owes me money this week?"
+                onChange={e => setQ(e.target.value)} style={{ flex: '1 1 260px', minWidth: 0 }} />
+              <button type="submit" className="btn btn-primary" disabled={busy || !q.trim()}>{busy ? 'Thinking…' : 'Ask'}</button>
+            </form>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
+              {ASK_EXAMPLES.map(ex => (
+                <button key={ex} type="button" className="btn btn-sm btn-outline" disabled={busy} onClick={() => ask(ex)}>{ex}</button>
+              ))}
+            </div>
+          </div>
+          {busy && <div className="card" style={{ padding: '1.25rem', color: 'var(--text-muted)' }}>Looking through your records…</div>}
+          {[...thread].reverse().map((t, i) => (
+            <div key={thread.length - i} className="card" style={{ padding: '1.25rem' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>{t.q}</div>
+              {t.error
+                ? <div className="error-message">{t.error}</div>
+                : <div style={{ whiteSpace: 'pre-wrap', fontSize: '1.05rem', lineHeight: 1.5 }}>{t.a}</div>}
+              {!t.error && t.facts.length > 0 && (
+                <details style={{ marginTop: '0.9rem', fontSize: '0.9rem' }}>
+                  <summary style={{ cursor: 'pointer', color: 'var(--primary)' }}>Show the numbers</summary>
+                  <div style={{ marginTop: '0.5rem' }}>
+                    {t.facts.map((f, j) => <div key={j} style={{ marginBottom: '0.75rem' }}><AskFacts data={f.result} /></div>)}
+                  </div>
+                </details>
+              )}
+            </div>
+          ))}
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Ask FarriTech only reads your records; it never changes anything. It can make mistakes in how it words things, so use “Show the numbers” to check a figure that matters.</p>
         </div>
       );
     }
