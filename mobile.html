@@ -384,6 +384,10 @@
         <div class="big-btn-icon" style="background:#B45309;">📦</div>
         <div class="big-btn-label">Inventory</div>
       </button>
+      <button class="big-btn" onclick="openShoppingList()">
+        <div class="big-btn-icon" style="background:#0E7490;">🛒</div>
+        <div class="big-btn-label">Shopping List</div>
+      </button>
       <button class="big-btn" onclick="goTo('screen-services-catalog'); loadServicesCatalog();">
         <div class="big-btn-icon" style="background:#0369A1;">🧰</div>
         <div class="big-btn-label">Services</div>
@@ -1167,6 +1171,57 @@
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════ -->
+<!-- SCREEN: SHOPPING LIST                     -->
+<!-- ══════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-shopping">
+  <div class="header">
+    <button class="back-btn" onclick="goBack()">‹</button>
+    <div class="header-title">Shopping List</div>
+  </div>
+  <div style="padding:12px 16px 0; flex-shrink:0; background:var(--bg);">
+    <form onsubmit="addShoppingItem(); return false;" style="display:flex; gap:8px;">
+      <input class="search-input" id="shop-name" type="text" maxlength="100" autocomplete="off" enterkeyhint="done" placeholder="What do you need?" style="padding-left:16px; flex:1; min-width:0;">
+      <input class="search-input" id="shop-qty" type="number" inputmode="decimal" min="0" step="any" value="1" aria-label="Quantity" style="padding-left:12px; width:68px; flex:none;">
+      <button class="btn-primary" type="submit" style="width:auto; padding:0 18px;">Add</button>
+    </form>
+    <input class="search-input" id="shop-unit" type="text" maxlength="20" autocomplete="off" placeholder="Unit (optional): box, pair, lb…" aria-label="Unit" style="padding-left:16px; margin-top:8px; padding-top:10px; padding-bottom:10px;">
+    <div id="shop-error" style="color:var(--danger); font-size:0.85rem; margin-top:6px;"></div>
+  </div>
+  <div class="scroll-body" id="shop-scroll" style="padding-top:8px;">
+    <div id="shop-list"></div>
+  </div>
+</div>
+
+<div class="screen hidden" id="screen-shopping-stock">
+  <div class="header">
+    <button class="back-btn" onclick="goBack()">‹</button>
+    <div class="header-title">Add to inventory</div>
+  </div>
+  <div class="scroll-body">
+    <div id="shopstock-item" style="font-weight:700; font-size:1.05rem; margin-bottom:12px;"></div>
+    <div id="shopstock-modes" style="display:flex; gap:8px; margin-bottom:14px;">
+      <button type="button" class="btn-secondary" id="shopstock-mode-existing" onclick="setShopStockMode('existing')" style="padding:10px 8px; font-size:0.9rem;">Add to an item I have</button>
+      <button type="button" class="btn-secondary" id="shopstock-mode-new" onclick="setShopStockMode('new')" style="padding:10px 8px; font-size:0.9rem;">Create a new item</button>
+    </div>
+    <div class="field" id="shopstock-existing"><label>Inventory item</label><select id="shopstock-select"></select></div>
+    <div id="shopstock-new">
+      <div class="field"><label>Name *</label><input type="text" id="shopstock-name" maxlength="100"></div>
+      <div class="field"><label>Category <span style="font-weight:400; text-transform:none;">(optional)</span></label><input type="text" id="shopstock-category" placeholder="e.g. Shoes, Nails, Tools"></div>
+      <div class="field"><label>Unit <span style="font-weight:400; text-transform:none;">(optional)</span></label><input type="text" id="shopstock-unit" maxlength="20" placeholder="e.g. pair, box, each"></div>
+      <div class="field"><label>Cost per unit ($) <span style="font-weight:400; text-transform:none;">(optional)</span></label><input type="number" id="shopstock-cost" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+      <label style="display:flex; align-items:center; gap:10px; font-size:0.9rem; font-weight:600; cursor:pointer; margin:0 0 14px; padding:12px 14px; background:var(--surface); border-radius:10px;">
+        <input type="checkbox" id="shopstock-tool" style="width:18px;height:18px;flex-shrink:0;"> This is a tool or equipment (not used up)
+      </label>
+    </div>
+    <div class="field"><label>Quantity to add to stock</label><input type="number" id="shopstock-qty" min="0" step="any" inputmode="decimal"></div>
+    <div id="shopstock-error" style="color:var(--danger); font-size:0.9rem; margin-bottom:10px;"></div>
+    <button class="btn-primary" id="shopstock-save" onclick="saveShopStock()">Add to inventory</button>
+    <div style="margin-top:8px;"></div>
+    <button class="btn-secondary" onclick="goBack()">Cancel</button>
+  </div>
+</div>
+
 <div class="screen hidden" id="screen-settings">
   <div class="header">
     <button class="back-btn" onclick="goBack()">‹</button>
@@ -1321,6 +1376,7 @@
 <script src="/api-auth.js"></script>
 <script src="/lib/pricing.js"></script>
 <script src="/lib/owner-dashboard.js"></script>
+<script src="/lib/shopping-list.js"></script>
 <script src="/lib/horse-history.js"></script>
 
 <script>
@@ -3965,6 +4021,157 @@ function restockInventoryItem(item) {
   }));
   showToast(qty > 0 ? 'Restocked!' : 'Adjusted!', 'success');
   loadInventoryList();
+}
+
+// ── SHOPPING LIST ──
+// Things to buy: shared with the whole business (team members included), live across phone and desktop, and
+// kept working offline (writes go through performWrite, so they queue and sync). Tick "Purchased", then
+// "Add to inventory" puts it into stock. lib/shopping-list.js cleans input and builds the writes; the inventory
+// update, its restock record and the list item's mark are committed as ONE batch.
+// Stored at farriers/{businessId}/shoppingList/{id}.
+const shopState = { items: [], unsub: null, stockItem: null, inventory: [], mode: 'existing' };
+const shopCol = () => db.collection('farriers').doc(bizId()).collection('shoppingList');
+const shopStamp = () => firebase.firestore.FieldValue.serverTimestamp();
+
+function openShoppingList() {
+  goTo('screen-shopping');
+  document.getElementById('shop-error').textContent = '';
+  if (shopState.unsub) { shopState.unsub(); shopState.unsub = null; }
+  shopState.unsub = shopCol().onSnapshot(
+    snap => { shopState.items = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderShoppingList(); },
+    err => { console.error('Shopping list error:', err); document.getElementById('shop-error').textContent = 'Couldn’t load the shopping list. Please try again.'; });
+}
+
+function renderShoppingList() {
+  const { toBuy, purchased } = FarriShopping.group(shopState.items);
+  const qtyLabel = (it) => escapeHtml(`${it.qty ?? 1}${it.unit ? ' ' + it.unit : ''}`);
+  const box = (checked, disabled, id) => `<input type="checkbox" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} onchange="toggleShoppingItem('${escapeHtml(id)}')" style="width:26px;height:26px;flex-shrink:0;" aria-label="Purchased">`;
+  const del = (id) => `<button type="button" onclick="removeShoppingItem('${escapeHtml(id)}')" aria-label="Remove" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;padding:6px 8px;cursor:pointer;">✕</button>`;
+  const toBuyHtml = toBuy.map(it => `
+    <div class="card" style="display:flex; align-items:center; gap:12px; padding:12px 14px; margin-bottom:8px;">
+      ${box(false, false, it.id)}
+      <div style="flex:1; min-width:0;"><div style="font-weight:700;">${escapeHtml(it.name)}</div><div style="font-size:0.85rem; color:var(--text-muted);">${qtyLabel(it)}</div></div>
+      ${del(it.id)}
+    </div>`).join('');
+  const doneHtml = purchased.map(it => `
+    <div class="card" style="padding:12px 14px; margin-bottom:8px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        ${box(true, !!it.inventoryItemId, it.id)}
+        <div style="flex:1; min-width:0;"><div style="font-weight:700; text-decoration:line-through; color:var(--text-muted);">${escapeHtml(it.name)}</div><div style="font-size:0.85rem; color:var(--text-muted);">${qtyLabel(it)}</div></div>
+        ${del(it.id)}
+      </div>
+      ${it.inventoryItemId
+        ? `<div style="margin-top:8px; color:var(--success); font-weight:700; font-size:0.9rem;">✓ In inventory${it.inventoryItemName ? ': ' + escapeHtml(it.inventoryItemName) : ''}</div>`
+        : `<button type="button" class="btn-primary" onclick="openShopStock('${escapeHtml(it.id)}')" style="margin-top:10px; padding:10px 14px; font-size:0.95rem;">Add to inventory</button>`}
+    </div>`).join('');
+  document.getElementById('shop-list').innerHTML =
+    `<div class="card-title" style="margin:4px 2px 8px;">To buy (${toBuy.length})</div>` +
+    (toBuy.length ? toBuyHtml : `<div style="color:var(--text-muted); padding:4px 2px 14px;">Nothing on the list. Add something above.</div>`) +
+    (purchased.length
+      ? `<div style="display:flex; align-items:center; justify-content:space-between; margin:14px 2px 8px;"><div class="card-title" style="margin:0;">Purchased (${purchased.length})</div>` +
+        `<button type="button" class="btn-sm" onclick="clearPurchasedShopping()" style="background:var(--surface); border:2px solid var(--border); color:var(--text);">Clear purchased</button></div>` + doneHtml
+      : '');
+}
+
+function addShoppingItem() {
+  const nameEl = document.getElementById('shop-name'), qtyEl = document.getElementById('shop-qty'), unitEl = document.getElementById('shop-unit');
+  const err = document.getElementById('shop-error');
+  const r = FarriShopping.cleanNewItem({ name: nameEl.value, qty: qtyEl.value, unit: unitEl.value });
+  if (!r.ok) { err.textContent = r.error; return; }
+  err.textContent = '';
+  performWrite(() => shopCol().add({ ...r.value, purchased: false, purchasedAt: null, inventoryItemId: '', createdAt: shopStamp(), createdBy: state.user?.uid || '' }));
+  nameEl.value = ''; qtyEl.value = '1'; unitEl.value = '';
+  nameEl.focus();
+}
+
+function toggleShoppingItem(id) {
+  const it = shopState.items.find(x => x.id === id);
+  if (!it || it.inventoryItemId) { renderShoppingList(); return; }
+  performWrite(() => shopCol().doc(id).update(it.purchased
+    ? { purchased: false, purchasedAt: null, purchasedBy: '' }
+    : { purchased: true, purchasedAt: shopStamp(), purchasedBy: state.user?.uid || '' }));
+}
+
+function removeShoppingItem(id) {
+  const it = shopState.items.find(x => x.id === id);
+  if (!it || !confirm(`Remove “${it.name}” from the list?`)) return;
+  performWrite(() => shopCol().doc(id).delete());
+}
+
+function clearPurchasedShopping() {
+  const done = shopState.items.filter(i => i.purchased);
+  if (!done.length) return;
+  const notStocked = done.filter(i => !i.inventoryItemId).length;
+  const msg = `Clear ${done.length} purchased item${done.length === 1 ? '' : 's'} from the list?` +
+    (notStocked ? `\n\n${notStocked} of them ${notStocked === 1 ? 'hasn’t' : 'haven’t'} been added to your inventory yet, and won’t be.` : '');
+  if (!confirm(msg)) return;
+  performWrite(() => { const b = db.batch(); done.forEach(i => b.delete(shopCol().doc(i.id))); return b.commit(); });
+}
+
+// Add a purchased item to inventory: to one you already have, or as a new item.
+async function openShopStock(id) {
+  const it = shopState.items.find(x => x.id === id);
+  if (!it || it.inventoryItemId) return;
+  shopState.stockItem = it;
+  document.getElementById('shopstock-item').textContent = `${it.name} (bought: ${it.qty ?? 1}${it.unit ? ' ' + it.unit : ''})`;
+  document.getElementById('shopstock-qty').value = it.qty ?? 1;
+  document.getElementById('shopstock-name').value = it.name || '';
+  document.getElementById('shopstock-category').value = '';
+  document.getElementById('shopstock-unit').value = it.unit || '';
+  document.getElementById('shopstock-cost').value = '';
+  document.getElementById('shopstock-tool').checked = false;
+  document.getElementById('shopstock-error').textContent = '';
+  document.getElementById('shopstock-save').disabled = false;
+  document.getElementById('shopstock-select').innerHTML = '<option value="">Loading…</option>';
+  shopState.inventory = []; setShopStockMode('new');
+  goTo('screen-shopping-stock');
+  try {
+    const snap = await db.collection('inventoryItems').where('farrierId', '==', bizId()).get();
+    shopState.inventory = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  } catch (e) { console.error('Inventory load failed:', e); shopState.inventory = []; }
+  const sel = document.getElementById('shopstock-select');
+  sel.innerHTML = '<option value="">Choose…</option>' + shopState.inventory.map(i =>
+    `<option value="${escapeHtml(i.id)}">${escapeHtml(i.name)}${i.size ? ' (' + escapeHtml(i.size) + ')' : ''}, ${escapeHtml(String(i.quantityOnHand ?? 0))} ${escapeHtml(i.unit || '')} on hand</option>`).join('');
+  const match = FarriShopping.suggestInventoryMatch(it.name, shopState.inventory);
+  if (match) { sel.value = match.id; setShopStockMode('existing'); } else { setShopStockMode('new'); }
+}
+
+function setShopStockMode(mode) {
+  // "Add to an item I have" only makes sense when there are items to pick from.
+  if (mode === 'existing' && !shopState.inventory.length) mode = 'new';
+  shopState.mode = mode;
+  document.getElementById('shopstock-existing').style.display = mode === 'existing' ? '' : 'none';
+  document.getElementById('shopstock-new').style.display = mode === 'new' ? '' : 'none';
+  document.getElementById('shopstock-mode-existing').classList.toggle('selected', mode === 'existing');
+  document.getElementById('shopstock-mode-new').classList.toggle('selected', mode === 'new');
+  document.getElementById('shopstock-modes').style.display = shopState.inventory.length ? 'flex' : 'none';
+}
+
+function saveShopStock() {
+  const it = shopState.stockItem, err = document.getElementById('shopstock-error');
+  if (!it) return;
+  const mode = shopState.mode;
+  const existing = shopState.inventory.find(i => i.id === document.getElementById('shopstock-select').value);
+  const newRef = mode === 'new' ? db.collection('inventoryItems').doc() : null;
+  const r = FarriShopping.buildAddToInventory({
+    item: it, mode, existing, newId: newRef && newRef.id, qty: document.getElementById('shopstock-qty').value, farrierId: bizId(), userId: state.user?.uid || '',
+    fresh: { name: document.getElementById('shopstock-name').value, category: document.getElementById('shopstock-category').value, unit: document.getElementById('shopstock-unit').value,
+      costPerUnit: document.getElementById('shopstock-cost').value, isTool: document.getElementById('shopstock-tool').checked },
+    fv: firebase.firestore.FieldValue,
+  });
+  if (r.error) { err.textContent = r.error; return; }
+  err.textContent = '';
+  document.getElementById('shopstock-save').disabled = true; // one tap, one add
+  performWrite(() => {
+    const b = db.batch();
+    if (r.inventory.kind === 'update') b.update(db.collection('inventoryItems').doc(r.inventory.id), r.inventory.data);
+    else b.set(newRef, r.inventory.data);
+    b.set(db.collection('inventoryTransactions').doc(), r.transaction);
+    b.update(shopCol().doc(it.id), r.shopping);
+    return b.commit();
+  });
+  showToast(`Added ${r.qty} to ${r.shopping.inventoryItemName}${netState.online ? '' : ' (will sync when back online)'}`, 'success');
+  goBack();
 }
 
 // ── SETTINGS ──
