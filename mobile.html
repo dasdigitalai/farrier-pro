@@ -1198,17 +1198,7 @@
         <input type="text" id="set-state" placeholder="State" maxlength="2" style="flex:1; text-transform:uppercase; padding:12px 14px; border:2px solid var(--border); border-radius:10px; font-size:0.95rem;">
         <input type="text" id="set-zip" placeholder="Zip" style="flex:1; padding:12px 14px; border:2px solid var(--border); border-radius:10px; font-size:0.95rem;">
       </div>
-      <div class="field" style="margin-top:10px;">
-        <label>Logo <span style="font-weight:400; color:var(--text-muted);">(optional · prints on your invoices)</span></label>
-        <input type="hidden" id="set-logo-url">
-        <div id="set-logo-preview" style="margin:6px 0 10px;"></div>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <label class="btn-outline" id="set-logo-pick" style="width:auto; padding:10px 16px; cursor:pointer; margin:0;"><span id="set-logo-pick-text">Upload logo</span><input type="file" accept="image/*" style="display:none;" onchange="pickLogo(this)"></label>
-          <button type="button" class="btn-outline" id="set-logo-remove" style="width:auto; padding:10px 16px; display:none;" onclick="setLogoValue('')">Remove</button>
-        </div>
-        <div id="set-logo-error" style="color:var(--danger); font-size:0.85rem; margin-top:6px;"></div>
-        <div style="color:var(--text-muted); font-size:0.78rem; margin-top:6px;">PNG, JPG or SVG. A wide logo works best. Tap Save to keep it.</div>
-      </div>
+      <div class="field" style="margin-top:10px;"><label>Logo URL <span style="font-weight:400; color:var(--text-muted);">(optional)</span></label><input type="text" id="set-logo-url" placeholder="https://…/logo.png"></div>
       <div class="field"><label>About Me <span style="font-weight:400; color:var(--text-muted);">(shown to customers on your booking page)</span></label><textarea id="set-about-me" rows="4" maxlength="500" placeholder="Your experience, specialties, service area…"></textarea></div>
     </div>
 
@@ -4007,7 +3997,6 @@ function loadSettingsScreen() {
   document.getElementById('set-state').value = p.state || '';
   document.getElementById('set-zip').value = p.zip || '';
   document.getElementById('set-logo-url').value = p.logoUrl || '';
-  renderLogoPreview();
   document.getElementById('set-about-me').value = p.aboutMe || '';
 
   document.getElementById('set-auto-print').checked = p.autoPrintPdf ?? true;
@@ -4336,69 +4325,6 @@ function buildInvoiceEmail(inv, bizName, firstName, payUrl) {
     <p style="color:#9ca3af;font-size:12px;margin:0;">Powered by <a href="https://www.farritech.com" style="color:#6b7280;">FarriTech</a></p>
   </div>
 </body></html>`;
-}
-
-// ── BUSINESS LOGO (Settings) ──
-// Same as desktop: the picked image is shrunk on the phone to at most 400×160 (never enlarged) and kept as a
-// small PNG data URL in the hidden #set-logo-url, which Save writes to farriers/{uid}.logoUrl. A web address
-// pasted in earlier still shows and prints.
-const LOGO_MAX_W = 400, LOGO_MAX_H = 160, LOGO_MAX_CHARS = 100000; // ~75 KB: kept small because it lives in the profile document
-async function resizeLogoFile(file) {
-  if (!file || !/^image\//.test(file.type || '')) throw new Error('Please choose an image file (PNG, JPG or SVG).');
-  if (file.size > 10 * 1024 * 1024) throw new Error('That image is over 10 MB. Please choose a smaller one.');
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const img = await new Promise((resolve, reject) => {
-      const i = new Image();
-      i.onload = () => resolve(i);
-      i.onerror = () => reject(new Error('Couldn’t read that image. Try a PNG or JPG.'));
-      i.src = objectUrl;
-    });
-    const w = img.naturalWidth || 400, h = img.naturalHeight || 400;
-    let scale = Math.min(1, LOGO_MAX_W / w, LOGO_MAX_H / h);
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(w * scale));
-      canvas.height = Math.max(1, Math.round(h * scale));
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-      const url = canvas.toDataURL('image/png');
-      if (url.length <= LOGO_MAX_CHARS) return url;
-      scale *= 0.7;
-    }
-    throw new Error('That logo is too detailed to save. Try a simpler or smaller image.');
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-}
-function renderLogoPreview() {
-  const v = document.getElementById('set-logo-url').value;
-  const box = document.getElementById('set-logo-preview');
-  box.innerHTML = '';
-  if (v) {
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'background:#fff; border:1px solid var(--border); border-radius:10px; padding:8px; display:inline-block;';
-    const img = document.createElement('img'); // built with DOM calls, never innerHTML, so a pasted URL can't inject markup
-    img.alt = 'Your logo'; img.src = v; img.style.cssText = 'display:block; max-width:220px; max-height:70px;';
-    wrap.appendChild(img); box.appendChild(wrap);
-  } else {
-    box.textContent = 'No logo yet.'; box.style.color = 'var(--text-muted)'; box.style.fontSize = '0.9rem';
-  }
-  document.getElementById('set-logo-pick-text').textContent = v ? 'Replace logo' : 'Upload logo';
-  document.getElementById('set-logo-remove').style.display = v ? '' : 'none';
-}
-function setLogoValue(v) {
-  document.getElementById('set-logo-url').value = v;
-  document.getElementById('set-logo-error').textContent = '';
-  renderLogoPreview();
-}
-async function pickLogo(input) {
-  const file = input.files && input.files[0];
-  input.value = '';
-  if (!file) return;
-  const err = document.getElementById('set-logo-error');
-  document.getElementById('set-logo-pick-text').textContent = 'Processing…';
-  try { setLogoValue(await resizeLogoFile(file)); }
-  catch (e) { err.textContent = e.message || 'Couldn’t use that image.'; renderLogoPreview(); }
 }
 
 // ── BUSINESS DASHBOARD ──
