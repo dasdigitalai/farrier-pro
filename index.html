@@ -6275,7 +6275,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
     // Ask FarriTech — type a question about your business, get an answer. The server (api/_lib/ask-ai.js)
     // lets Claude pick a read-only calculation over this business's own records; nothing is changed.
     // Each answer carries the figures it was built from, under "Show the numbers".
-    const ASK_EXAMPLES = ['Who owes me money this week?', 'How many active customers do I have?', 'How many horses did I shoe last week?', 'How much did I collect last month?'];
+    const ASK_EXAMPLES = ['Who owes me money this week?', 'How many active customers do I have?', 'How many horses did I shoe last week?', 'How much did I collect last month?', 'How many horses are due in the next 4 weeks?'];
     const ASK_MONEY_KEYS = /^(total_owed|owed|total_collected|collected|refunds|collected_after_refunds|for_comparison_invoiced_in_range|total_invoiced|average_invoice|median_invoice|largest_invoice|smallest_invoice)$/;
     function AskFacts({ data, depth = 0 }) {
       const label = (k) => k.replace(/_/g, ' ');
