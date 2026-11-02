@@ -27,6 +27,7 @@
   <script src="/api-auth.js"></script>
   <script src="/lib/pricing.js"></script>
   <script src="/lib/owner-dashboard.js"></script>
+  <script src="/lib/shopping-list.js"></script>
   <script src="/lib/horse-history.js"></script>
   
   <!-- Google API for Calendar -->
@@ -4000,6 +4001,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                 { label: '⚙️ Manage', items: [
                   { id: 'services', label: 'Services', icon: '🧾' },
                   { id: 'inventory', label: 'Inventory', icon: '📦' },
+                  { id: 'shopping', label: 'Shopping List', icon: '🛒' },
                   { id: 'data', label: 'Data Management', icon: '🗂️' },
                   { id: 'settings', label: 'Settings', icon: '⚙️' },
                   { id: 'tutorials', label: 'Video Tutorials', icon: '▶️' },
@@ -4129,6 +4131,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
             {tab === 'sponsors' && isSponsorAdmin && <SponsorBannersView />}
             {tab === 'services' && <ServicesView userId={farrierId} />}
             {tab === 'inventory' && <InventoryView userId={farrierId} />}
+            {tab === 'shopping' && <ShoppingListView userId={farrierId} />}
             {tab === 'data' && <DataManagementView userId={farrierId} />}
             {tab === 'reports' && window.FarriTeam?.role !== 'farrier' && <ReportsView userId={farrierId} />}
             {tab === 'business' && window.FarriTeam?.role !== 'farrier' && <OwnerDashboardView userId={farrierId} />}
@@ -7891,6 +7894,241 @@ function ServicesView({ userId }) {
                   {saving ? 'Adding…' : selected.size ? `Add ${selected.size} item${selected.size > 1 ? 's' : ''}` : 'Select items to add'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── SHOPPING LIST ── things to buy, shared with the whole business (team members included) and live-updating
+    // across phone and desktop. Tick "Purchased" when it's bought; then "Add to inventory" puts it into stock.
+    // lib/shopping-list.js cleans input and builds the writes; the inventory update, its restock record and the
+    // list item's "in inventory" mark are committed as ONE batch, so a purchase is never half-recorded.
+    // Stored at farriers/{businessId}/shoppingList/{id} (already covered by the farriers/{id}/{document=**} rule).
+    function ShoppingListView({ userId }) {
+      const S = window.FarriShopping;
+      const [items, setItems] = useState(null); // null = still loading
+      const [name, setName] = useState('');
+      const [qty, setQty] = useState('1');
+      const [unit, setUnit] = useState('');
+      const [error, setError] = useState('');
+      const [notice, setNotice] = useState('');
+      const [adding, setAdding] = useState(false);
+      const [stockFor, setStockFor] = useState(null); // the purchased item being added to inventory
+      const nameRef = React.useRef(null);
+      const col = () => db.collection('farriers').doc(userId).collection('shoppingList');
+      const me = () => firebase.auth().currentUser?.uid || '';
+      const stamp = () => firebase.firestore.FieldValue.serverTimestamp();
+
+      useEffect(() => {
+        if (!db || !userId) return undefined;
+        return col().onSnapshot(
+          snap => setItems(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+          e => { console.error('Shopping list error:', e); setError('Couldn’t load the shopping list. Please reload the page.'); setItems([]); });
+      }, [userId]);
+
+      const { toBuy, purchased } = S.group(items || []);
+
+      const add = async (e) => {
+        e.preventDefault();
+        const r = S.cleanNewItem({ name, qty, unit });
+        if (!r.ok) { setError(r.error); return; }
+        setError(''); setNotice(''); setAdding(true);
+        try {
+          await col().add({ ...r.value, purchased: false, purchasedAt: null, inventoryItemId: '', createdAt: stamp(), createdBy: me() });
+          setName(''); setQty('1'); setUnit('');
+          nameRef.current && nameRef.current.focus();
+        } catch (ex) { setError('Couldn’t add that: ' + ex.message); }
+        setAdding(false);
+      };
+      const tick = async (it) => {
+        setError(''); setNotice('');
+        try {
+          await col().doc(it.id).update(it.purchased ? { purchased: false, purchasedAt: null, purchasedBy: '' } : { purchased: true, purchasedAt: stamp(), purchasedBy: me() });
+        } catch (ex) { setError('Couldn’t update that: ' + ex.message); }
+      };
+      const remove = async (it) => {
+        if (!confirm(`Remove “${it.name}” from the list?`)) return;
+        try { await col().doc(it.id).delete(); } catch (ex) { setError('Couldn’t remove that: ' + ex.message); }
+      };
+      const clearPurchased = async () => {
+        const notStocked = purchased.filter(i => !i.inventoryItemId).length;
+        const msg = `Clear ${purchased.length} purchased item${purchased.length === 1 ? '' : 's'} from the list?` +
+          (notStocked ? `\n\n${notStocked} of them ${notStocked === 1 ? 'hasn’t' : 'haven’t'} been added to your inventory yet, and won’t be.` : '');
+        if (!confirm(msg)) return;
+        try { const b = db.batch(); purchased.forEach(i => b.delete(col().doc(i.id))); await b.commit(); }
+        catch (ex) { setError('Couldn’t clear the list: ' + ex.message); }
+      };
+
+      const inputStyle = { padding: '0.6rem 0.75rem', borderRadius: 8, border: '2px solid var(--border)', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', boxSizing: 'border-box', minWidth: 0 };
+      const row = { display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 0', borderTop: '1px solid var(--border)' };
+      const qtyLabel = (it) => `${it.qty ?? 1}${it.unit ? ' ' + it.unit : ''}`;
+
+      return (
+        <div style={{ maxWidth: 760 }}>
+          <h1 style={{ fontSize: '2rem', color: 'var(--primary)', margin: '0 0 0.25rem' }}>Shopping List</h1>
+          <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>What you need to buy. Tick it when you've bought it, then add it to your inventory.</p>
+
+          <div className="card" style={{ padding: '1.25rem' }}>
+            <form onSubmit={add} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <input ref={nameRef} type="text" value={name} maxLength={100} placeholder="What do you need? e.g. Horseshoe nails" disabled={adding}
+                onChange={e => setName(e.target.value)} style={{ ...inputStyle, flex: '1 1 220px' }} aria-label="Item" />
+              <input type="number" value={qty} min="0" step="any" disabled={adding} onChange={e => setQty(e.target.value)} style={{ ...inputStyle, width: 80 }} aria-label="Quantity" />
+              <input type="text" value={unit} maxLength={20} placeholder="unit (box…)" disabled={adding} onChange={e => setUnit(e.target.value)} style={{ ...inputStyle, width: 110 }} aria-label="Unit" />
+              <button type="submit" className="btn btn-primary" disabled={adding || !name.trim()}>{adding ? 'Adding…' : 'Add'}</button>
+            </form>
+            {error && <div className="error-message" style={{ marginTop: '0.75rem' }}>{error}</div>}
+            {notice && <div style={{ marginTop: '0.75rem', color: '#16a34a', fontWeight: 600 }}>{notice}</div>}
+          </div>
+
+          {items === null && <div className="card" style={{ color: 'var(--text-muted)' }}>Loading your list…</div>}
+
+          {items !== null && (
+            <div className="card" style={{ padding: '1.25rem' }}>
+              <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.15rem' }}>To buy ({toBuy.length})</h2>
+              {toBuy.length === 0 && <div style={{ color: 'var(--text-muted)' }}>Nothing on the list. Add something above.</div>}
+              {toBuy.map((it, i) => (
+                <div key={it.id} style={{ ...row, borderTop: i ? row.borderTop : 'none' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, cursor: 'pointer', margin: 0 }}>
+                    <input type="checkbox" checked={false} onChange={() => tick(it)} style={{ width: 20, height: 20 }} aria-label={`Purchased: ${it.name}`} />
+                    <span style={{ fontWeight: 600 }}>{it.name}</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{qtyLabel(it)}</span>
+                  </label>
+                  <button type="button" className="btn btn-sm btn-outline" onClick={() => remove(it)} aria-label={`Remove ${it.name}`}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {items !== null && purchased.length > 0 && (
+            <div className="card" style={{ padding: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                <h2 style={{ margin: 0, fontSize: '1.15rem' }}>Purchased ({purchased.length})</h2>
+                <button type="button" className="btn btn-sm btn-outline" onClick={clearPurchased}>Clear purchased</button>
+              </div>
+              {purchased.map((it, i) => (
+                <div key={it.id} style={{ ...row, borderTop: i ? row.borderTop : 'none' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, margin: 0, cursor: it.inventoryItemId ? 'default' : 'pointer' }}>
+                    <input type="checkbox" checked disabled={!!it.inventoryItemId} onChange={() => tick(it)} style={{ width: 20, height: 20 }}
+                      aria-label={`Purchased: ${it.name}`} title={it.inventoryItemId ? 'Already in your inventory' : 'Untick if you haven’t bought it'} />
+                    <span style={{ textDecoration: 'line-through', color: 'var(--text-muted)' }}>{it.name}</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{qtyLabel(it)}</span>
+                  </label>
+                  {it.inventoryItemId
+                    ? <span style={{ color: '#16a34a', fontWeight: 600, fontSize: '0.9rem' }}>✓ In inventory{it.inventoryItemName ? `: ${it.inventoryItemName}` : ''}</span>
+                    : <button type="button" className="btn btn-sm btn-primary" onClick={() => { setError(''); setNotice(''); setStockFor(it); }}>Add to inventory</button>}
+                  <button type="button" className="btn btn-sm btn-outline" onClick={() => remove(it)} aria-label={`Remove ${it.name}`}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {stockFor && (
+            <ShoppingToInventoryModal item={stockFor} userId={userId} onClose={() => setStockFor(null)} onDone={setNotice} />
+          )}
+        </div>
+      );
+    }
+
+    function ShoppingToInventoryModal({ item, userId, onClose, onDone }) {
+      const S = window.FarriShopping;
+      const [inv, setInv] = useState(null); // inventory items; null = loading
+      const [mode, setMode] = useState('existing');
+      const [existingId, setExistingId] = useState('');
+      const [qty, setQty] = useState(String(item.qty ?? 1));
+      const [fresh, setFresh] = useState({ name: item.name || '', category: '', unit: item.unit || '', costPerUnit: '', isTool: false });
+      const [saving, setSaving] = useState(false);
+      const [error, setError] = useState('');
+      const inputStyle = { width: '100%', padding: '0.75rem', borderRadius: 8, border: '2px solid var(--border)', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', boxSizing: 'border-box' };
+
+      useEffect(() => {
+        let live = true;
+        (async () => {
+          let rows = [];
+          try {
+            const snap = await db.collection('inventoryItems').where('farrierId', '==', userId).get();
+            rows = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+          } catch (e) { console.error('Inventory load failed:', e); }
+          if (!live) return;
+          setInv(rows);
+          const match = S.suggestInventoryMatch(item.name, rows);
+          if (match) { setExistingId(match.id); setMode('existing'); } else { setMode('new'); }
+        })();
+        return () => { live = false; };
+      }, []);
+
+      const save = async () => {
+        setError('');
+        const existing = (inv || []).find(i => i.id === existingId);
+        const newRef = mode === 'new' ? db.collection('inventoryItems').doc() : null;
+        const r = S.buildAddToInventory({ item, mode, existing, fresh, newId: newRef && newRef.id, qty, farrierId: userId,
+          userId: firebase.auth().currentUser?.uid || '', fv: firebase.firestore.FieldValue });
+        if (r.error) { setError(r.error); return; }
+        setSaving(true);
+        try {
+          const batch = db.batch();
+          if (r.inventory.kind === 'update') batch.update(db.collection('inventoryItems').doc(r.inventory.id), r.inventory.data);
+          else batch.set(newRef, r.inventory.data);
+          batch.set(db.collection('inventoryTransactions').doc(), r.transaction);
+          batch.update(db.collection('farriers').doc(userId).collection('shoppingList').doc(item.id), r.shopping);
+          await batch.commit();
+          onDone(`Added ${r.qty} ${r.shopping.inventoryItemName ? 'to ' + r.shopping.inventoryItemName : 'to inventory'}.`);
+          onClose();
+        } catch (ex) { setError('Couldn’t update your inventory: ' + ex.message); setSaving(false); }
+      };
+      const setF = (k, v) => setFresh(f => ({ ...f, [k]: v }));
+
+      return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div className="card" style={{ maxWidth: 460, width: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h2 style={{ margin: 0, color: 'var(--primary)' }}>Add to inventory</h2>
+              <button className="btn btn-sm btn-outline" onClick={onClose} disabled={saving}>✕ Close</button>
+            </div>
+            <p style={{ marginTop: 0 }}><strong>{item.name}</strong> <span style={{ color: 'var(--text-muted)' }}>(bought: {item.qty ?? 1}{item.unit ? ' ' + item.unit : ''})</span></p>
+
+            {inv === null ? <div style={{ color: 'var(--text-muted)' }}>Loading your inventory…</div> : (<>
+              {inv.length > 0 && (
+                <div style={{ display: 'flex', gap: '1.25rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', cursor: 'pointer' }}><input type="radio" name="stockmode" checked={mode === 'existing'} onChange={() => setMode('existing')} /> Add to an item I already have</label>
+                  <label style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', cursor: 'pointer' }}><input type="radio" name="stockmode" checked={mode === 'new'} onChange={() => setMode('new')} /> Create a new item</label>
+                </div>
+              )}
+
+              {mode === 'existing' && inv.length > 0 && (
+                <div className="form-group">
+                  <label>Inventory item</label>
+                  <select value={existingId} onChange={e => setExistingId(e.target.value)} style={inputStyle}>
+                    <option value="">Choose…</option>
+                    {inv.map(i => <option key={i.id} value={i.id}>{i.name}{i.size ? ` (${i.size})` : ''}, {i.quantityOnHand ?? 0} {i.unit || ''} on hand</option>)}
+                  </select>
+                </div>
+              )}
+
+              {mode === 'new' && (<>
+                <div className="form-group"><label>Name *</label><input type="text" value={fresh.name} maxLength={100} onChange={e => setF('name', e.target.value)} style={inputStyle} /></div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div className="form-group"><label>Category</label><input type="text" value={fresh.category} placeholder="Shoes, Nails, Tools" onChange={e => setF('category', e.target.value)} style={inputStyle} /></div>
+                  <div className="form-group"><label>Unit</label><input type="text" value={fresh.unit} placeholder="box, pair, each" maxLength={20} onChange={e => setF('unit', e.target.value)} style={inputStyle} /></div>
+                </div>
+                <div className="form-group"><label>Cost per unit ($)</label><input type="number" min="0" step="0.01" value={fresh.costPerUnit} onChange={e => setF('costPerUnit', e.target.value)} style={inputStyle} /></div>
+                <div className="form-group">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
+                    <input type="checkbox" checked={fresh.isTool} onChange={e => setF('isTool', e.target.checked)} /> This is a tool or equipment (not used up)
+                  </label>
+                </div>
+              </>)}
+
+              <div className="form-group">
+                <label>Quantity to add to stock</label>
+                <input type="number" min="0" step="any" value={qty} onChange={e => setQty(e.target.value)} style={inputStyle} />
+              </div>
+            </>)}
+
+            {error && <div className="error-message" style={{ marginBottom: '0.75rem' }}>{error}</div>}
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button className="btn btn-outline" onClick={onClose} style={{ flex: 1 }} disabled={saving}>Cancel</button>
+              <button className="btn btn-primary" onClick={save} style={{ flex: 2 }} disabled={saving || inv === null}>{saving ? '⏳ Saving…' : '✅ Add to inventory'}</button>
             </div>
           </div>
         </div>
