@@ -1,0 +1,20 @@
+{
+  "name": "kadima-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local MCP server for the Kadima Payments Merchant APIs (sandbox by default).",
+  "type": "module",
+  "main": "src/server.js",
+  "bin": { "kadima-mcp": "src/server.js" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js",
+    "smoke": "node scripts/sandbox-smoke.mjs"
+  },
+  "engines": { "node": ">=18.17" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "dotenv": "^16.4.5",
+    "zod": "^3.25.76"
+  }
+}

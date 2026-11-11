@@ -1,0 +1,6 @@
+# Secrets: never commit real tokens
+.env
+.env.*
+!.env.example
+node_modules/
+downloads/
