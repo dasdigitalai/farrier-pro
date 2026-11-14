@@ -1920,6 +1920,18 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         // Build effective payments list — prefer payments[] array,
         // but fall back to top-level paidAt/cardLast4 for Stripe online payments
         let effectivePayments = payments;
+        // iPOSpays payments recorded before the approval code was copied onto the invoice:
+        // read it from the payment's own record.
+        if (payments.some(p => String(p.paymentId || '').startsWith('ipos_') && !p.approvalCode) && invoice.id) {
+          effectivePayments = await Promise.all(payments.map(async (p) => {
+            if (!String(p.paymentId || '').startsWith('ipos_') || p.approvalCode) return p;
+            try {
+              const snap = await firebase.firestore().doc(`invoices/${invoice.id}/payments/${p.paymentId}`).get();
+              const code = snap.exists ? snap.data()?.processorDetails?.approvalCode : '';
+              return code ? { ...p, approvalCode: code } : p;
+            } catch (e) { return p; }
+          }));
+        }
         if (payments.length === 0 && invoice.paidAt && (invStatus === 'paid' || invStatus === 'partial')) {
           const paidDate = invoice.paidAt?.toDate ? invoice.paidAt.toDate() : new Date(invoice.paidAt);
           const cardDetail = invoice.cardLast4
@@ -1954,16 +1966,17 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
             const detailStr = p.memo && p.memo !== 'Credit card' && p.memo !== 'Credit Card' ? p.memo : methodStr;
             doc.setTextColor(60);
             doc.text(`${dateStr}  ${detailStr}`, 48, y);
-            // Show transaction ID in small text if available
-            if (p.stripePaymentIntentId) {
-              doc.setFontSize(7);
-              doc.setTextColor(140);
-              doc.text(`Txn: ${p.stripePaymentIntentId}`, 48, y + 8);
-              doc.setFontSize(9);
-              y += 8;
-            }
             doc.setTextColor(0);
             doc.text(money_(p.amount || 0), pageW - 48, y, { align: 'right' });
+            // Show the approval code and transaction ID in small text if available
+            const refLine = [p.approvalCode ? `Auth code: ${p.approvalCode}` : '', p.stripePaymentIntentId ? `Txn: ${p.stripePaymentIntentId}` : ''].filter(Boolean).join('   ');
+            if (refLine) {
+              doc.setFontSize(7);
+              doc.setTextColor(140);
+              doc.text(refLine, 48, y + 9);
+              doc.setFontSize(9);
+              y += 9;
+            }
             y += 16;
           }
           y += 4;

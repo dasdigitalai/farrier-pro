@@ -96,6 +96,8 @@ export async function applyPayment(invoiceId, {
       date: when.toISOString(),
       paymentId,
       ...(paymentIntentId ? { transactionId: paymentIntentId } : {}),
+      // The card network's approval (auth) code, printed on the invoice.
+      ...(processorDetails?.approvalCode ? { approvalCode: processorDetails.approvalCode } : {}),
     }];
     const paidCents = payments.reduce((s, p) => s + P.toCents(p.amount), 0);
 

@@ -109,6 +109,9 @@ match /sponsorBanners/{bannerId} {
       allow update, delete: if isSignedIn() && request.auth.uid == resource.data.farrierId;
       allow read, update, delete: if isTeamOf(resource.data.farrierId);
       allow read, delete: if isSupportAdmin(); // support.html → Delete farrier
+      // The server (api/twilio-webhook.js) finds the appointment a customer texted CONFIRM
+      // for and marks it customerConfirmed.
+      allow read, update: if isServer();
     }
 
     match /customers/{customerId} {
@@ -117,6 +120,8 @@ match /sponsorBanners/{bannerId} {
       allow create: if true;
       allow update, delete: if isTeamOf(resource.data.farrierId);
       allow delete: if isSupportAdmin(); // support.html → Delete farrier
+      // The server (api/twilio-webhook.js) sets smsOptOut when a customer texts STOP or START.
+      allow read, update: if isServer();
     }
 function isServer() {
   return request.auth != null && request.auth.uid == '2kkfUU5dOvTRn1rWIaua38sgnNr1';
