@@ -921,10 +921,10 @@
           const qr = await qrToDataUrl_(payUrl);
           if (qr) {
             doc.setFont("helvetica", "bold"); doc.setFontSize(9);
-            doc.text("PAY ONLINE", pageW - 150, 192, { align: "center" });
+            doc.text("PAY BY CARD", pageW - 150, 192, { align: "center" });
             doc.addImage(qr, "PNG", pageW - 190, 200, 80, 80);
             doc.setFont("helvetica", "normal"); doc.setFontSize(8);
-            doc.text("Scan to pay", pageW - 150, 290, { align: "center" });
+            doc.text("Scan to pay by card", pageW - 150, 290, { align: "center" });
           }
         } catch (e) {}
       }
