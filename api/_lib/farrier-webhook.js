@@ -21,6 +21,18 @@ async function sendPaidSms(to, name, amountCents, invoiceNumber) {
   } catch (e) { console.warn('Confirmation SMS error:', e.message); }
 }
 
+// Records a completed Checkout Session from a webhook (this one, or FarriTech's own account
+// webhook in stripe-payment.js) and texts the customer the first time it's recorded. The
+// customer's return to /pay records the same session; whichever comes second does nothing.
+export async function recordWebhookSession(stripe, farrierId, session) {
+  const result = await recordCheckoutSession(stripe, farrierId, session);
+  console.log(`📥 checkout.session.completed ${session.id} for ${farrierId}:`, JSON.stringify({ invoiceId: result.invoiceId, status: result.status, ignored: result.ignored, duplicate: result.duplicate, alreadyPaid: result.alreadyPaid }));
+  if (result.status && !result.duplicate && !result.alreadyPaid) {
+    await sendPaidSms(session.customer_details?.phone, session.customer_details?.name, session.amount_total || 0, result.invoice?.invoiceNumber || '');
+  }
+  return result;
+}
+
 // rawBody: the exact bytes Stripe sent (signature checks need them).
 export async function farrierWebhook(req, res, rawBody, farrierId) {
   if (!/^[A-Za-z0-9_-]{6,128}$/.test(farrierId)) return res.status(400).json({ error: 'Bad farrier id' });
@@ -41,13 +53,7 @@ export async function farrierWebhook(req, res, rawBody, farrierId) {
   try {
     const key = await getStripeSecretKey(farrierId);
     if (!key) return res.status(400).json({ error: 'Farrier has no Stripe key' });
-    const stripe = new Stripe(key);
-    const session = event.data.object;
-    const result = await recordCheckoutSession(stripe, farrierId, session);
-    console.log(`📥 checkout.session.completed ${session.id} for ${farrierId}:`, JSON.stringify({ invoiceId: result.invoiceId, status: result.status, ignored: result.ignored, duplicate: result.duplicate, alreadyPaid: result.alreadyPaid }));
-    if (result.status && !result.duplicate && !result.alreadyPaid) {
-      await sendPaidSms(session.customer_details?.phone, session.customer_details?.name, session.amount_total || 0, result.invoice?.invoiceNumber || '');
-    }
+    await recordWebhookSession(new Stripe(key), farrierId, event.data.object);
     return res.status(200).json({ received: true });
   } catch (err) {
     // 500 makes Stripe retry later; recording is idempotent per session.

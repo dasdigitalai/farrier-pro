@@ -17,6 +17,9 @@ account instead of Stripe, using the iPOSpays **Hosted Payment Page** (HPP).
   (`POST payment.ipospays.{tech,com}/api/v3/iposTransact`, transactionType 2 = void or 3 = refund, by the
   payment's RRN). Partial amounts are always refunds. Refunds done in the iPOSpays portal
   aren't seen by FarriTech.
+- **One processor at a time:** a farrier connects Stripe or iPOSpays, not both. Connecting one
+  is refused while the other is connected, and disconnecting either first closes its open
+  payment pages (recording any a customer has just paid).
 - **Keyed cards:** Pay Now on desktop (Invoices) and Card on mobile show an iPOSpays payment page in a
   frame inside FarriTech for the amount chosen (card price unless waived), with a link to open it in a
   new tab if the frame doesn't load. The farrier types the card there and presses Pay Now; the app checks
@@ -26,7 +29,10 @@ account instead of Stripe, using the iPOSpays **Hosted Payment Page** (HPP).
   the customer's open pay-link page (a new one is made when they next open the link).
 - **Still Stripe only:** the customer portal.
 
-Disconnecting iPOSpays sends pay links back to Stripe.
+Disconnecting iPOSpays sends pay links back to Stripe. It first closes every iPOSpays payment
+page still on offer (recording any a customer has just paid), because a page paid after the keys
+are gone could never be confirmed or refunded from FarriTech. If iPOSpays can't be reached to
+close one, iPOSpays stays connected and the farrier is asked to try again.
 
 ## What the farrier needs (iPOSpays portal, Merchant Admin login)
 
@@ -60,6 +66,9 @@ just triggers Query Payment Status, and only an approved status is recorded. Cod
 only 12 functions.
 
 `.tech` hosts = sandbox, `.com` hosts = production, chosen per farrier by the Environment setting.
+
+Sandbox test cards and the amounts that trigger declines are in
+[IPOSPAYS-SANDBOX-CARDS.md](IPOSPAYS-SANDBOX-CARDS.md).
 
 ## What the first sandbox test showed (2026-10-08)
 

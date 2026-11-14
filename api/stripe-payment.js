@@ -1,18 +1,23 @@
 import Stripe from 'stripe';
 import crypto from 'crypto';
 import '../lib/pricing.js';
-import { callerFromRequest, getDoc, patchDoc, listDocs, getStripeSecretKey, setStripeSecretKey, getGoogleRefreshToken, serverAuth } from './_lib/firebase-rest.js';
+import { callerFromRequest, getDoc, patchDoc, listDocs, getStripeSecretKey, setStripeSecretKey, getGoogleRefreshToken } from './_lib/firebase-rest.js';
 import {
-  applyPayment, cardDetails, closeOnlinePayment, createCheckoutSession, recordCheckoutSession,
+  applyPayment, cardDetails, closeOnlinePayment, closeStripeCheckouts, createCheckoutSession, recordCheckoutSession,
   removeWebhook, sendUpdatedPayLink, setupWebhook, PaymentError,
 } from './_lib/invoice-payments.js';
 import { payPage } from './_lib/pay-page.js';
-import { farrierWebhook } from './_lib/farrier-webhook.js';
+import { farrierWebhook, recordWebhookSession } from './_lib/farrier-webhook.js';
 import { businessFor, requireRole, teamAccept, teamInvite, teamRemove, teamSetRole, teamStatus } from './_lib/team.js';
+import { askAI } from './_lib/ask-ai.js';
 import { closeIposPages, connectIpospays, createIposPage, disconnectIpospays, getIposCreds, iposCallback, refundIposPayment, syncIposPayment } from './_lib/ipospays.js';
 
 const P = globalThis.FarriPricing;
 const SECRET_KEY_RE = /^(sk|rk)_(live|test)_/;
+// A farrier takes card payments through one processor at a time, so a payment can't be
+// split across two or left on one they've stopped watching.
+const ONE_PROCESSOR = (connected, wanted) =>
+  `FarriTech takes card payments through one processor at a time. Disconnect ${connected} in Settings first, then connect ${wanted}.`;
 
 // May run one-off maintenance actions (same list as the sponsorBanners rule).
 const ADMIN_EMAILS = ['david@dasconsulting.com', 'david@dasdigitalai.com'];
@@ -38,8 +43,11 @@ export const config = { api: { bodyParser: false } };
 //   farrier (signed in)   → team_status, team_invite, team_remove, team_set_role, team_accept (_lib/team.js)
 //   iPOSpays              → /api/ipospays/callback/{invoiceId} → _lib/ipospays.js (re-checked with iPOSpays before recording)
 //
-// While a farrier has iPOSpays connected, payment_link / waive_card_price, keyed cards
-// (ipospays_keyed) and the /pay page use iPOSpays payment pages; the customer portal stays on Stripe.
+// A farrier connects Stripe or iPOSpays, not both (connect / ipospays_connect refuse while the
+// other is connected; each disconnect closes that processor's open payment pages first).
+// With iPOSpays, payment_link / waive_card_price, keyed cards (ipospays_keyed) and the /pay
+// page use iPOSpays payment pages (refunded with ipospays_refund). The customer portal's card
+// payments need Stripe.
 //
 // Amounts are always worked out here from the invoice (lib/pricing.js), never taken from
 // the browser — see api/_lib/invoice-payments.js for how payments are recorded.
@@ -60,19 +68,6 @@ async function ownInvoice(invoiceId, farrierId) {
   return invoice;
 }
 
-async function markInvoicePaid(invoiceId, details) {
-  await patchDoc(`invoices/${invoiceId}`, {
-    status: 'paid',
-    paidAt: new Date(),
-    paymentMethod: 'card',
-    ...(details.paymentIntentId ? { stripePaymentIntentId: details.paymentIntentId, transactionId: details.paymentIntentId } : {}),
-    ...(details.sessionId ? { stripeSessionId: details.sessionId } : {}),
-    cardLast4: details.last4 || '',
-    cardType: details.brand || '',
-    ...(details.paidVia ? { paidVia: details.paidVia } : {}),
-  });
-}
-
 // Manager password is stored as "scrypt$<salt>$<hash>" in farrierSecrets/{uid}.
 function hashManagerPassword(password) {
   const salt = crypto.randomBytes(16);
@@ -83,18 +78,6 @@ function checkManagerPassword(password, stored) {
   if (scheme !== 'scrypt' || !saltHex || !hashHex) return false;
   const actual = crypto.scryptSync(String(password || ''), Buffer.from(saltHex, 'hex'), 32);
   return crypto.timingSafeEqual(actual, Buffer.from(hashHex, 'hex'));
-}
-
-async function sendPaidSms(to, name, amount, invoiceNumber) {
-  if (!to) return;
-  try {
-    const { idToken } = await serverAuth();
-    await fetch('https://app.farritech.com/api/send-sms', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ to, body: `Hi ${name || 'there'}, your payment of $${amount} for invoice #${invoiceNumber} has been received. Thank you! Reply STOP to opt out.` }),
-    });
-  } catch (e) { console.warn('Confirmation SMS error:', e.message); }
 }
 
 async function handleWebhook(req, res, rawBody) {
@@ -109,23 +92,18 @@ async function handleWebhook(req, res, rawBody) {
   }
   console.log('📥 Stripe webhook:', event.type);
 
+  // Only checkout sessions from FarriTech's own Stripe account arrive here (a farrier whose
+  // keys are for that account, e.g. in testing); farriers' own accounts use the per-farrier
+  // webhook. Record them the same way, so a payment the per-farrier webhook or the return
+  // to /pay already recorded isn't logged a second time. Keyed and customer-portal charges
+  // are recorded when they're taken, so payment_intent.succeeded needs nothing here.
   try {
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object;
       const invoiceId = session.metadata?.invoiceId || '';
-      if (invoiceId && session.payment_status === 'paid') {
-        await markInvoicePaid(invoiceId, { paymentIntentId: session.payment_intent || '', sessionId: session.id, paidVia: 'stripe_link' });
-        console.log('✅ Invoice', invoiceId, 'marked paid via checkout webhook');
-        await sendPaidSms(session.customer_details?.phone, session.customer_details?.name,
-          ((session.amount_total || 0) / 100).toFixed(2), session.metadata?.invoiceNumber || '');
-      }
-    }
-    if (event.type === 'payment_intent.succeeded') {
-      const pi = event.data.object;
-      const invoiceIds = (pi.metadata?.invoiceId || '').split(',').filter(Boolean);
-      for (const id of invoiceIds) {
-        await markInvoicePaid(id, { paymentIntentId: pi.id, paidVia: 'stripe_card' });
-      }
+      const invoice = invoiceId ? await getDoc(`invoices/${invoiceId}`) : null;
+      const key = invoice?.farrierId ? await getStripeSecretKey(invoice.farrierId) : null;
+      if (key) await recordWebhookSession(new Stripe(key), invoice.farrierId, session);
     }
     return res.status(200).json({ received: true });
   } catch (err) {
@@ -252,20 +230,29 @@ export default async function handler(req, res) {
     // owner → everything; manager → also refunds and card-price waivers; farrier → takes payments.
     const biz = await businessFor(caller);
     const farrierId = biz.businessId;
-    const OWNER_ONLY = ['ipospays_connect', 'ipospays_disconnect', 'connect', 'validate', 'disconnect', 'set_manager_password', 'deactivate_link'];
+
+    // ── Ask FarriTech: the AI assistant tab (_lib/ask-ai.js). Read-only; business-wide money,
+    // so owner and managers only, like Reports. Lives here to stay within the 12-function limit. ──
+    if (action === 'ask_ai') {
+      requireRole(biz, ['owner', 'manager'], 'use Ask FarriTech');
+      return res.status(200).json({ success: true, ...await askAI({ caller, biz, body }) });
+    }
+
+    const OWNER_ONLY =['ipospays_connect', 'ipospays_disconnect', 'connect', 'validate', 'disconnect', 'set_manager_password', 'deactivate_link'];
     const MANAGERS = ['ipospays_refund', 'refund', 'waive_card_price'];
     if (OWNER_ONLY.includes(action)) requireRole(biz, ['owner'], 'change payment settings');
     if (MANAGERS.includes(action)) requireRole(biz, ['owner', 'manager'], action === 'waive_card_price' ? 'waive the card price' : 'issue refunds');
 
     // ── iPOSpays (Settings → iPOSpays Payments) ──
     if (action === 'ipospays_connect') {
+      if (await getStripeSecretKey(farrierId)) throw new PaymentError(ONE_PROCESSOR('Stripe', 'iPOSpays'), 409);
       const { tpn, apiKey, secretKey, ecomToken, mode } = body;
       const result = await connectIpospays(farrierId, { tpn, apiKey, secretKey, ecomToken, mode });
       return res.status(200).json({ success: true, ...result });
     }
     if (action === 'ipospays_disconnect') {
-      await disconnectIpospays(farrierId);
-      return res.status(200).json({ success: true });
+      const result = await disconnectIpospays(farrierId);
+      return res.status(200).json({ success: true, ...result });
     }
     if (action === 'ipospays_refund') {
       const { invoiceId, amount, refundPassword } = body;
@@ -335,6 +322,7 @@ export default async function handler(req, res) {
     if (action === 'connect' || action === 'validate') {
       const { stripeSecretKey } = body;
       if (!stripeSecretKey || !SECRET_KEY_RE.test(stripeSecretKey)) return res.status(400).json({ success: false, error: 'Secret key must start with sk_live_, sk_test_, rk_live_ or rk_test_' });
+      if (await getIposCreds(farrierId)) throw new PaymentError(ONE_PROCESSOR('iPOSpays', 'Stripe'), 409);
       const stripe = new Stripe(stripeSecretKey);
       let accountName = 'Stripe Account';
       try {
@@ -353,9 +341,11 @@ export default async function handler(req, res) {
     }
     if (action === 'disconnect') {
       const oldKey = await getStripeSecretKey(farrierId);
-      await removeWebhook(oldKey ? new Stripe(oldKey) : null, farrierId);
+      const oldStripe = oldKey ? new Stripe(oldKey) : null;
+      const result = oldStripe ? await closeStripeCheckouts(oldStripe, farrierId) : {};
+      await removeWebhook(oldStripe, farrierId);
       await setStripeSecretKey(farrierId, '');
-      return res.status(200).json({ success: true });
+      return res.status(200).json({ success: true, ...result });
     }
     if (action === 'status') {
       const key = await getStripeSecretKey(farrierId); // also migrates a legacy key off the profile

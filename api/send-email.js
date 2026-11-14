@@ -4,6 +4,8 @@
 // Route-sheet uses: { action, to, subject, html }
 // Appointment emails use the same body fields as the individual handlers did.
 
+import { authorizeSender } from './_lib/firebase-rest.js';
+
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM = 'FarriTech <welcome@contact.dasdigitalai.com>';
 
@@ -161,7 +163,7 @@ function buildUpdateHtml(body) {
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' });
 
@@ -169,12 +171,72 @@ export default async function handler(req, res) {
     const body = req.body || {};
     const { action } = body;
 
+    // Only signed-in farriers (incl. team members), FarriTech support staff, or the server
+    // itself may send — otherwise anyone could send any email from FarriTech's address.
+    // The public /seminar sign-up is the one exception; it only sends fixed content.
+    if (action !== 'seminar-signup') {
+      const auth = await authorizeSender(req, 'send-email');
+      if (auth.error) return res.status(auth.status).json({ ok: false, error: auth.error });
+    }
+
     if (!action) {
       // Direct pass-through: { to, subject, html }
       const { to, subject, html } = body;
       if (!to) return res.status(400).json({ ok: false, error: 'Missing to' });
       if (!html) return res.status(400).json({ ok: false, error: 'Missing html' });
       await sendEmail({ to, subject: subject || 'Message from FarriTech', html });
+      return res.status(200).json({ ok: true });
+    }
+
+    // ── Seminar sign-up (public /seminar page) ── emails the sign-up to the FarriTech
+    // owner and a confirmation to the attendee. Fixed content, fields escaped.
+    if (action === 'seminar-signup') {
+      if (body.website) return res.status(200).json({ ok: true }); // honeypot: bots fill it
+      const esc = (v) => String(v ?? '').slice(0, 200).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const name = String(body.name || '').trim();
+      const phone = String(body.phone || '').trim();
+      const email = String(body.email || '').trim();
+      const guests = Math.min(Math.max(parseInt(body.guests, 10) || 1, 1), 10);
+      if (!name) return res.status(400).json({ ok: false, error: 'Missing name' });
+      if (!phone && !email) return res.status(400).json({ ok: false, error: 'Missing phone or email' });
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ ok: false, error: 'Invalid email' });
+
+      const ownerTo = process.env.SEMINAR_SIGNUP_TO || process.env.STATS_EMAIL_TO || 'david@dasdigitalai.com';
+      const rows = [['Name', name], ['Mobile', phone], ['Email', email], ['Business', body.business], ['Coming', String(guests)]]
+        .filter(([, v]) => v).map(([k, v]) => `<tr><td style="padding:4px 12px 4px 0;color:#6b7280;">${k}</td><td><strong>${esc(v)}</strong></td></tr>`).join('');
+      await sendEmail({
+        to: ownerTo,
+        subject: `🐴 Seminar sign-up: ${name.slice(0, 80)} (${guests})`,
+        html: `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:520px;margin:0 auto;padding:20px;color:#333;">
+          <h2 style="color:#1a365d;margin:0 0 12px;">New FarriTech Seminar sign-up</h2>
+          <p style="margin:0 0 12px;">Sat, Nov 14 · 9:00–10:00 am · Palm Beach Farrier Supply</p>
+          <table>${rows}</table></div>`,
+        replyTo: email || undefined,
+      });
+
+      if (email) {
+        try {
+          await sendEmail({
+            to: email,
+            subject: "You're signed up: FarriTech Seminar, Sat Nov 14",
+            html: `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333;">
+              <div style="text-align:center;padding:24px;background:linear-gradient(135deg,#1a365d,#2563eb);border-radius:8px 8px 0 0;">
+                <h1 style="color:#fff;margin:0;font-size:24px;">🐴 FarriTech Seminar</h1>
+                <p style="color:#bfdbfe;margin:6px 0 0;">Free class for farriers</p>
+              </div>
+              <div style="background:#fff;padding:28px;border:1px solid #e5e7eb;border-top:none;">
+                <p style="font-size:16px;">Hi ${esc(name.split(' ')[0])},</p>
+                <p>Thanks for signing up — we'll save you a seat${guests > 1 ? ` (${guests} people)` : ''}.</p>
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px 20px;margin:20px 0;">
+                  <p style="margin:0 0 6px;"><strong>📅 Saturday, November 14</strong></p>
+                  <p style="margin:0 0 6px;"><strong>🕘 9:00 – 10:00 am</strong></p>
+                  <p style="margin:0;"><strong>📍 Palm Beach Farrier Supply</strong><br>3500 Fairlane Farms Rd, Suite 13<br>Wellington, FL 33414</p>
+                </div>
+                <p>Coffee, donuts and connections — and a special rate for everyone at the class. Bring your phone!</p>
+              </div>${footer}</body></html>`,
+          });
+        } catch (e) { console.warn('Seminar confirmation email failed:', e.message); }
+      }
       return res.status(200).json({ ok: true });
     }
 

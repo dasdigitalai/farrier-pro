@@ -1,4 +1,7 @@
 {
+  "functions": {
+    "api/stripe-payment.js": { "maxDuration": 60 }
+  },
   "crons": [
     {
       "path": "/api/daily-stats",
@@ -13,6 +16,18 @@
     {
       "source": "/api/ipospays/callback/:invoiceId",
       "destination": "/api/stripe-payment?iposCallback=:invoiceId"
+    },
+    {
+      "source": "/support",
+      "destination": "/support.html"
+    },
+    {
+      "source": "/seminar",
+      "destination": "/seminar.html"
+    },
+    {
+      "source": "/api/notify-signup",
+      "destination": "/api/send-sms?signupAlert=1"
     },
     {
       "source": "/api/(.*)",

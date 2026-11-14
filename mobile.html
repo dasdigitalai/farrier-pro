@@ -86,6 +86,7 @@
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-secondary { background: var(--bg); color: var(--text); border: 2px solid var(--border); border-radius: var(--radius-sm); padding: 13px 20px; font-family: 'Outfit', sans-serif; font-size: 1rem; font-weight: 600; cursor: pointer; width: 100%; transition: background 0.15s; display: flex; align-items: center; justify-content: center; gap: 8px; }
   .btn-secondary:active { background: var(--border); }
+  .btn-secondary.selected { border-color: var(--blue); background: #EBF4FF; color: var(--blue); }
   .btn-danger { background: var(--danger-bg); color: var(--danger); border: 2px solid #fca5a5; border-radius: var(--radius-sm); padding: 13px 20px; font-family: 'Outfit', sans-serif; font-size: 1rem; font-weight: 600; cursor: pointer; width: 100%; }
   .btn-sm { padding: 8px 14px; font-size: 0.85rem; border-radius: 8px; border: none; cursor: pointer; font-family: 'Outfit', sans-serif; font-weight: 600; }
   .btn-outline { background: transparent; border: 2px solid var(--blue); color: var(--blue); border-radius: var(--radius-sm); padding: 13px 20px; font-family: 'Outfit', sans-serif; font-size: 1rem; font-weight: 600; cursor: pointer; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; }
@@ -133,12 +134,6 @@
   .total-bar-amount { font-size: 1.6rem; font-weight: 800; }
 
   /* ── PAYMENT METHOD ── */
-  .pay-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
-  .pay-chip { padding: 16px 12px; border: 2px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; text-align: center; font-family: 'Outfit', sans-serif; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); background: var(--surface); transition: all 0.15s; }
-  .pay-chip:active { transform: scale(0.97); }
-  .pay-chip.selected { border-color: var(--blue); background: #EBF4FF; color: var(--blue); }
-  .pay-chip.chip-offline-disabled { opacity: 0.4; pointer-events: none; }
-  .pay-chip-icon { font-size: 1.5rem; display: block; margin-bottom: 6px; }
 
   /* ── INVOICE ROW ── */
   .invoice-row { padding: 14px 16px; background: var(--surface); border-radius: var(--radius-sm); margin-bottom: 8px; box-shadow: var(--shadow); cursor: pointer; border-left: 4px solid var(--border); }
@@ -148,12 +143,16 @@
   .invoice-row-num { font-weight: 700; font-size: 0.95rem; }
   .invoice-row-amount { font-weight: 800; font-size: 1rem; color: var(--blue); }
   .invoice-row-bottom { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+  .inv-filter { display: flex; gap: 6px; background: var(--surface); border-radius: var(--radius-sm); padding: 4px; margin-bottom: 10px; box-shadow: var(--shadow); }
+  .inv-filter button { flex: 1; border: none; background: none; border-radius: 8px; padding: 10px; font-weight: 700; font-size: 0.9rem; color: var(--text-muted); cursor: pointer; }
+  .inv-filter button.active { background: var(--blue); color: white; }
 
   /* ── BADGES ── */
   .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
   .badge-success { background: var(--success-bg); color: var(--success); }
   .badge-warning { background: var(--warning-bg); color: var(--warning); }
   .badge-danger { background: var(--danger-bg); color: var(--danger); }
+  .badge-muted { background: var(--border); color: var(--text-muted); }
   .badge-blue { background: #EBF4FF; color: var(--blue); }
 
   /* ── STAT ROW ── */
@@ -341,7 +340,7 @@
       <div style="font-size:1.4rem;">📶</div>
       <div style="flex:1;">
         <div style="font-weight:700; color:var(--blue); font-size:0.9rem;">You're Set for Offline</div>
-        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Opening the app with signal automatically syncs your customers and horses. For your full appointment list and outstanding invoices too, open Find Appointment and Open Invoices once while you have signal.</div>
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Opening the app with signal automatically syncs your customers and horses. For your full appointment list and outstanding invoices too, open Find Appointment and Invoices once while you have signal.</div>
       </div>
       <button onclick="dismissOfflineTip()" style="background:none; border:none; color:var(--text-muted); font-size:1.2rem; cursor:pointer; padding:4px; flex-shrink:0; line-height:1;">✕</button>
     </div>
@@ -373,13 +372,21 @@
         <div class="big-btn-icon" style="background:#7C3AED;">📅</div>
         <div class="big-btn-label">Find Appointment</div>
       </button>
-      <button class="big-btn" onclick="goTo('screen-search'); setTimeout(()=>loadOpenInvoices(),300)">
+      <button class="big-btn" onclick="goTo('screen-invoices'); loadOpenInvoices()">
         <div class="big-btn-icon cyan">💰</div>
-        <div class="big-btn-label">Open Invoices</div>
+        <div class="big-btn-label">Invoices</div>
+      </button>
+      <button class="big-btn" onclick="openUpcomingService()">
+        <div class="big-btn-icon" style="background:#15803D;">🔔</div>
+        <div class="big-btn-label">Upcoming Service</div>
       </button>
       <button class="big-btn" onclick="goTo('screen-inventory'); loadInventoryList();">
         <div class="big-btn-icon" style="background:#B45309;">📦</div>
         <div class="big-btn-label">Inventory</div>
+      </button>
+      <button class="big-btn" onclick="openShoppingList()">
+        <div class="big-btn-icon" style="background:#0E7490;"><svg viewBox="0 0 32 32" width="31" height="31" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14c0-8 14-8 14 0"/><path d="M3.5 14h25"/><path d="M5.8 14l2.2 12.3c.1.7.7 1.2 1.4 1.2h13.2c.7 0 1.3-.5 1.4-1.2L26.2 14"/><path d="M12.5 18v6M16 18v6M19.5 18v6"/></svg></div>
+        <div class="big-btn-label">Shopping List</div>
       </button>
       <button class="big-btn" onclick="goTo('screen-services-catalog'); loadServicesCatalog();">
         <div class="big-btn-icon" style="background:#0369A1;">🧰</div>
@@ -388,6 +395,10 @@
       <button class="big-btn" id="home-business-btn" onclick="openBusinessDashboard()">
         <div class="big-btn-icon" style="background:#1D4ED8;">📈</div>
         <div class="big-btn-label">Business Dashboard</div>
+      </button>
+      <button class="big-btn" id="home-ask-btn" onclick="openAskFarriTech()">
+        <div class="big-btn-icon" style="background:#7C3AED;">💬</div>
+        <div class="big-btn-label">Ask FarriTech</div>
       </button>
       <button class="big-btn" onclick="openDayRoute()">
         <div class="big-btn-icon" style="background:#EA580C;">🗺️</div>
@@ -427,10 +438,25 @@
   <div class="scroll-body" style="padding-top:8px;">
     <div id="search-loading" class="loading-wrap"><div class="spinner"></div></div>
     <div id="search-results"></div>
-    <div id="open-invoices-section" style="display:none;">
-      <div class="section-label" style="margin-top:8px;">💰 Outstanding Invoices</div>
-      <div id="open-invoices-list"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- SCREEN: INVOICES (home card — Open / Paid) -->
+<!-- ══════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-invoices">
+  <div class="header">
+    <button class="back-btn" onclick="goBack()">‹</button>
+    <div class="header-title">Invoices</div>
+  </div>
+  <div style="padding:12px 16px 0; flex-shrink:0; background:var(--bg);">
+    <div class="inv-filter">
+      <button id="inv-filter-open" class="active" onclick="loadOpenInvoices('outstanding')">💰 Open</button>
+      <button id="inv-filter-paid" onclick="loadOpenInvoices('paid')">✅ Paid</button>
     </div>
+  </div>
+  <div class="scroll-body" style="padding-top:0;">
+    <div id="open-invoices-list"></div>
   </div>
 </div>
 
@@ -451,6 +477,29 @@
   </div>
   <div class="scroll-body" style="padding-top:8px;">
     <div id="horse-search-results"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- SCREEN: UPCOMING SERVICE REPORT           -->
+<!-- ══════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-upcoming">
+  <div class="header">
+    <button class="back-btn" onclick="goBack()">‹</button>
+    <div class="header-title">Upcoming Service</div>
+  </div>
+  <div style="padding:12px 16px 0; flex-shrink:0; background:var(--bg);">
+    <div style="font-size:0.8rem; font-weight:700; color:var(--text-muted); margin-bottom:6px;">Horses due in the next…</div>
+    <div style="display:flex; gap:6px; margin-bottom:10px;" id="upcoming-weeks">
+      <button class="appt-filter-btn" data-weeks="1" onclick="setUpcomingWeeks(1)">1 wk</button>
+      <button class="appt-filter-btn" data-weeks="2" onclick="setUpcomingWeeks(2)">2 wks</button>
+      <button class="appt-filter-btn active" data-weeks="4" onclick="setUpcomingWeeks(4)">4 wks</button>
+      <button class="appt-filter-btn" data-weeks="6" onclick="setUpcomingWeeks(6)">6 wks</button>
+      <button class="appt-filter-btn" data-weeks="8" onclick="setUpcomingWeeks(8)">8 wks</button>
+    </div>
+  </div>
+  <div class="scroll-body" style="padding-top:0;">
+    <div id="upcoming-list"></div>
   </div>
 </div>
 
@@ -641,6 +690,28 @@
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════ -->
+<!-- SCREEN: ASK FARRITECH (AI assistant)      -->
+<!-- ══════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-ask">
+  <div class="header">
+    <button class="back-btn" onclick="goBack()">‹</button>
+    <div class="header-title">Ask FarriTech</div>
+  </div>
+  <div style="padding:12px 16px 0; flex-shrink:0; background:var(--bg);">
+    <form onsubmit="askFarriTech(); return false;" style="display:flex; gap:8px;">
+      <input class="search-input" id="ask-input" type="text" maxlength="500" autocomplete="off" enterkeyhint="send"
+        placeholder="Ask about your business…" style="padding-left:16px; flex:1; min-width:0;">
+      <button class="btn-primary" id="ask-send" type="submit" style="width:auto; padding:0 20px;">Ask</button>
+    </form>
+    <div id="ask-examples" style="display:flex; gap:8px; overflow-x:auto; padding:10px 0 4px; -webkit-overflow-scrolling:touch;"></div>
+  </div>
+  <div class="scroll-body" id="ask-scroll" style="padding-top:8px;">
+    <div id="ask-results"></div>
+    <p style="color:var(--text-muted); font-size:0.75rem; margin:4px 2px 0;">Ask FarriTech only reads your records; it never changes anything. It can slip up on wording, so tap “Show the numbers” to check a figure that matters.</p>
+  </div>
+</div>
+
 <div class="screen hidden" id="screen-refund">
   <div class="header">
     <button class="back-btn" onclick="goBack()">‹</button>
@@ -674,17 +745,34 @@
       <button id="pay-edit-invoice-btn" onclick="startEditInvoice(state.currentInvoice)" style="background:none; border:2px solid var(--border); border-radius:8px; padding:8px 16px; font-weight:700; font-size:0.85rem; color:var(--text-muted); cursor:pointer;">✏️ Edit Invoice</button>
     </div>
 
-    <div class="section-label">Payment Method</div>
-    <div class="pay-grid" id="pay-method-grid">
-      <div class="pay-chip" onclick="selectPayMethod('cash', this)"><span class="pay-chip-icon">💵</span>Cash</div>
-      <div class="pay-chip" onclick="selectPayMethod('check', this)"><span class="pay-chip-icon">🧾</span>Check</div>
-      <div class="pay-chip" onclick="selectPayMethod('card', this)"><span class="pay-chip-icon">💳</span>Card</div>
-      <div class="pay-chip" onclick="selectPayMethod('link', this)"><span class="pay-chip-icon">📲</span>Pay Link</div>
+    <div id="pay-resend-section">
+      <div class="section-label">Resend Invoice</div>
+      <div class="row-btns" style="margin-bottom:8px;">
+        <button class="btn-secondary" id="resend-sms-btn" onclick="openResend('sms')">💬 Text</button>
+        <button class="btn-secondary" id="resend-email-btn" onclick="openResend('email')">✉️ Email</button>
+      </div>
+      <div id="resend-panel" class="card" style="display:none; margin-bottom:12px;">
+        <div class="field" style="margin-bottom:10px;">
+          <label id="resend-to-label">Send to</label>
+          <input id="resend-to-input" type="tel" autocomplete="off">
+        </div>
+        <div class="row-btns">
+          <button class="btn-primary" id="resend-send-btn" onclick="resendInvoice()">Send</button>
+          <button class="btn-secondary" onclick="closeResend()">Cancel</button>
+        </div>
+      </div>
     </div>
 
-    <!-- Check number field -->
+    <div class="section-label">Payment Method</div>
+    <!-- Options are filled in by populatePayMethodOptions(): Card (charge now) plus every
+         FarriPricing.MANUAL_METHODS entry, the same list the desktop Record Payment dropdown shows. -->
+    <div class="field">
+      <select id="pay-method-select" onchange="selectPayMethod(this.value)"></select>
+    </div>
+
+    <!-- Check # / confirmation # / note for payments taken outside FarriTech -->
     <div id="check-fields" style="display:none;">
-      <div class="field"><label>Check #</label><input type="text" id="check-number" placeholder="e.g. 1042" inputmode="numeric" style="letter-spacing:2px;"></div>
+      <div class="field"><label id="check-number-label">Check #</label><input type="text" id="check-number" placeholder="e.g. 1042" inputmode="numeric" style="letter-spacing:2px;"></div>
     </div>
 
     <!-- Stripe Elements card entry (or, with iPOSpays connected, the iPOSpays card form) -->
@@ -704,22 +792,6 @@
         <label>Card Details</label>
         <div id="stripe-card-element" style="padding:14px; border:2px solid var(--border); border-radius:10px; background:var(--surface);"></div>
         <div id="stripe-card-error" style="color:#dc2626; font-size:0.82rem; margin-top:6px; display:none;"></div>
-      </div>
-    </div>
-
-    <!-- Send link options -->
-    <div id="link-fields" style="display:none;">
-      <div class="card" style="background:#EBF4FF; border:2px solid #bfdbfe;">
-        <div style="font-weight:700; color:var(--blue); margin-bottom:8px;">📲 Send Payment Link</div>
-        <div style="font-size:0.85rem; color:var(--text-muted);">Customer will receive a link to pay online.</div>
-        <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
-          <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; font-weight:600; cursor:pointer;">
-            <input type="checkbox" id="send-sms-link" style="width:18px;height:18px;"> Send via SMS
-          </label>
-          <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; font-weight:600; cursor:pointer;">
-            <input type="checkbox" id="send-email-link" style="width:18px;height:18px;"> Send via Email
-          </label>
-        </div>
       </div>
     </div>
 
@@ -768,6 +840,8 @@
     <button class="btn-primary" id="nc-save-btn" onclick="saveNewCustomer()">Save Customer</button>
     <div style="margin-top:8px;"></div>
     <button class="btn-secondary" onclick="goBack()">Cancel</button>
+    <!-- Edit mode only (see startEditCustomer / startNewCustomer) -->
+    <button class="btn-danger" id="nc-delete-btn" onclick="deleteCustomer()" style="display:none; margin-top:24px;">🗑️ Delete Customer</button>
   </div>
 </div>
 
@@ -1041,11 +1115,18 @@
     <div class="header-title">Inventory</div>
     <button onclick="startNewInventoryItem()" style="background:rgba(255,255,255,0.2);border:none;color:white;padding:6px 12px;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">+ New</button>
   </div>
+  <div id="inventory-search-wrap" style="padding:12px 16px 0; flex-shrink:0; background:var(--bg);">
+    <div class="search-wrap" style="margin-bottom:8px;">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" id="inventory-search" type="search" placeholder="Search your inventory and the catalog…" oninput="filterInventory()" autocomplete="off">
+    </div>
+  </div>
   <div class="scroll-body">
     <div id="inventory-low-stock-banner" style="display:none; background:#fff5f5; border:2px solid #fecaca; border-radius:10px; padding:10px 14px; margin-bottom:14px; color:#dc2626; font-weight:700; font-size:0.88rem;"></div>
     <button class="btn-secondary" onclick="openInventoryCatalog()" style="margin-bottom:14px;">📋 Add from Catalog</button>
     <div id="inventory-loading" class="loading-wrap"><div class="spinner"></div></div>
     <div id="inventory-list"></div>
+    <div id="inventory-extras"></div>
   </div>
 </div>
 
@@ -1092,6 +1173,58 @@
       Consumable — deduct stock automatically, alert on low stock
     </label>
     <button class="btn-primary" id="invf-save-btn" onclick="saveInventoryItemForm()">Save Item</button>
+    <div style="margin-top:8px;"></div>
+    <button class="btn-secondary" onclick="goBack()">Cancel</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- SCREEN: SHOPPING LIST                     -->
+<!-- ══════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-shopping">
+  <div class="header">
+    <button class="back-btn" onclick="goBack()">‹</button>
+    <div class="header-title">Shopping List</div>
+  </div>
+  <div style="padding:12px 16px 0; flex-shrink:0; background:var(--bg);">
+    <form onsubmit="addShoppingItem(); return false;" style="display:flex; gap:8px;">
+      <input class="search-input" id="shop-name" type="text" maxlength="100" autocomplete="off" enterkeyhint="done" placeholder="What do you need?" oninput="shopSuggestInput()" style="padding-left:16px; flex:1; min-width:0;">
+      <input class="search-input" id="shop-qty" type="number" inputmode="decimal" min="0" step="any" value="1" aria-label="Quantity" style="padding-left:12px; width:68px; flex:none;">
+      <button class="btn-primary" type="submit" style="width:auto; padding:0 18px;">Add</button>
+    </form>
+    <input class="search-input" id="shop-unit" type="text" maxlength="20" autocomplete="off" placeholder="Unit (optional): box, pair, lb…" aria-label="Unit" style="padding-left:16px; margin-top:8px; padding-top:10px; padding-bottom:10px;">
+    <div id="shop-error" style="color:var(--danger); font-size:0.85rem; margin-top:6px;"></div>
+    <div id="shop-suggest" style="max-height:42vh; overflow-y:auto; -webkit-overflow-scrolling:touch;"></div>
+  </div>
+  <div class="scroll-body" id="shop-scroll" style="padding-top:8px;">
+    <div id="shop-list"></div>
+  </div>
+</div>
+
+<div class="screen hidden" id="screen-shopping-stock">
+  <div class="header">
+    <button class="back-btn" onclick="goBack()">‹</button>
+    <div class="header-title">Add to inventory</div>
+  </div>
+  <div class="scroll-body">
+    <div id="shopstock-item" style="font-weight:700; font-size:1.05rem; margin-bottom:12px;"></div>
+    <div id="shopstock-modes" style="display:flex; gap:8px; margin-bottom:14px;">
+      <button type="button" class="btn-secondary" id="shopstock-mode-existing" onclick="setShopStockMode('existing')" style="padding:10px 8px; font-size:0.9rem;">Add to an item I have</button>
+      <button type="button" class="btn-secondary" id="shopstock-mode-new" onclick="setShopStockMode('new')" style="padding:10px 8px; font-size:0.9rem;">Create a new item</button>
+    </div>
+    <div class="field" id="shopstock-existing"><label>Inventory item</label><select id="shopstock-select"></select></div>
+    <div id="shopstock-new">
+      <div class="field"><label>Name *</label><input type="text" id="shopstock-name" maxlength="100"></div>
+      <div class="field"><label>Category <span style="font-weight:400; text-transform:none;">(optional)</span></label><input type="text" id="shopstock-category" placeholder="e.g. Shoes, Nails, Tools"></div>
+      <div class="field"><label>Unit <span style="font-weight:400; text-transform:none;">(optional)</span></label><input type="text" id="shopstock-unit" maxlength="20" placeholder="e.g. pair, box, each"></div>
+      <div class="field"><label>Cost per unit ($) <span style="font-weight:400; text-transform:none;">(optional)</span></label><input type="number" id="shopstock-cost" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+      <label style="display:flex; align-items:center; gap:10px; font-size:0.9rem; font-weight:600; cursor:pointer; margin:0 0 14px; padding:12px 14px; background:var(--surface); border-radius:10px;">
+        <input type="checkbox" id="shopstock-tool" style="width:18px;height:18px;flex-shrink:0;"> This is a tool or equipment (not used up)
+      </label>
+    </div>
+    <div class="field"><label>Quantity to add to stock</label><input type="number" id="shopstock-qty" min="0" step="any" inputmode="decimal"></div>
+    <div id="shopstock-error" style="color:var(--danger); font-size:0.9rem; margin-bottom:10px;"></div>
+    <button class="btn-primary" id="shopstock-save" onclick="saveShopStock()">Add to inventory</button>
     <div style="margin-top:8px;"></div>
     <button class="btn-secondary" onclick="goBack()">Cancel</button>
   </div>
@@ -1175,7 +1308,7 @@
 
     <div class="card" style="margin-top:14px;">
       <div class="card-title">💳 Stripe Payments</div>
-      <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Connect Stripe to accept card payments on invoices. Your keys are stored securely.</div>
+      <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Connect Stripe to accept card payments on invoices. Your keys are stored securely. Connect Stripe or iPOSpays, not both.</div>
       <div id="stripe-status-banner" style="display:none;"></div>
       <div class="field"><label>Publishable Key <span style="font-weight:400; color:var(--text-muted);">(starts with pk_)</span></label><input type="text" id="set-stripe-pk" placeholder="pk_live_…" style="font-family:monospace; font-size:0.82rem;"></div>
       <div class="field"><label>Secret Key <span style="font-weight:400; color:var(--text-muted);">(starts with rk_ or sk_)</span></label><input type="password" id="set-stripe-sk" placeholder="rk_live_…" style="font-family:monospace; font-size:0.82rem;"></div>
@@ -1187,7 +1320,7 @@
 
     <div class="card" style="margin-top:14px;">
       <div class="card-title">💳 iPOSpays Payments</div>
-      <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Take pay-link payments through your iPOSpays (Dejavoo) merchant account instead of Stripe. While connected, Pay Now links and Card payments open an iPOSpays payment page. Refund them from the customer's Invoice History.</div>
+      <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Take pay-link payments through your iPOSpays (Dejavoo) merchant account instead of Stripe. Connect one or the other, not both. While connected, Pay Now links and Card payments open an iPOSpays payment page. Refund them from the customer's Invoice History.</div>
       <div id="ipos-status-banner" style="display:none;"></div>
       <div id="ipos-form">
         <div class="field"><label>Environment</label><select id="set-ipos-mode"><option value="sandbox">Sandbox (testing)</option><option value="production">Production (real payments)</option></select></div>
@@ -1251,6 +1384,8 @@
 <script src="/api-auth.js"></script>
 <script src="/lib/pricing.js"></script>
 <script src="/lib/owner-dashboard.js"></script>
+<script src="/lib/shopping-list.js"></script>
+<script src="/lib/inventory-search.js"></script>
 <script src="/lib/horse-history.js"></script>
 
 <script>
@@ -1333,7 +1468,7 @@ const state = {
   currentHorse: null,
   customerHorses: [],   // horses for state.customer, populated by loadCustomerDetail()
   allHorses: [],        // every horse for this farrier, populated by loadAllHorses() — powers Find Horse
-  invoiceLines: [], // [{horseId, horseName, serviceId, serviceName, price}] — one per "+ Add Line" on screen-services
+  invoiceLines: [], // [{horseId, horseName, serviceId, serviceName, price, qty, note}] — one per "+ Add Line" on screen-services
 };
 
 // ── NETWORK STATUS + WRITE QUEUE ──
@@ -1596,6 +1731,7 @@ auth.onAuthStateChanged(async (user) => {
     renderStatusBanner();
     await resolveBusiness(user); // which business's records to load (own, or the team's)
     document.getElementById('home-business-btn').style.display = state.teamRole === 'farrier' ? 'none' : '';
+    document.getElementById('home-ask-btn').style.display = state.teamRole === 'farrier' ? 'none' : '';
     await Promise.allSettled([loadUserProfile(), loadServices(), loadCustomers(), loadAllHorses()]);
     bootLoading = false;
     renderStatusBanner();
@@ -1844,7 +1980,6 @@ function dismissOfflineTip() {
 
 // ── SEARCH ──
 async function filterCustomers(q) {
-  document.getElementById('open-invoices-section').style.display = 'none';
   document.getElementById('search-loading').style.display = 'none';
   const term = q.toLowerCase().trim();
   const filtered = term
@@ -1912,11 +2047,17 @@ function goToHorseSearch() {
   filterHorses('');
 }
 
+// A horse's owner, from its customerId when the horse doc has no customerName saved.
+function horseOwner(h) {
+  const c = h.customerId ? (state.customers || []).find(x => x.id === h.customerId) : null;
+  return { name: h.customerName || c?.name || '', farm: c?.farmName || '' };
+}
+
 function filterHorses(q) {
   const term = q.toLowerCase().trim();
   const all = state.allHorses || [];
   const filtered = term
-    ? all.filter(h => (h.name||'').toLowerCase().includes(term) || (h.customerName||'').toLowerCase().includes(term))
+    ? all.filter(h => (h.name||'').toLowerCase().includes(term) || horseOwner(h).name.toLowerCase().includes(term))
     : all;
 
   const el = document.getElementById('horse-search-results');
@@ -1926,16 +2067,16 @@ function filterHorses(q) {
     el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🐴</div><div class="empty-state-text">No horses found</div><div class="empty-state-sub">Try a different name, or add a new horse</div></div>`;
     return;
   }
-  el.innerHTML = filtered.map(h => `
+  el.innerHTML = filtered.map(h => { const owner = horseOwner(h); return `
     <div class="horse-row" data-hid="${h.id}">
       <div class="horse-row-avatar">🐴</div>
       <div>
-        <div class="customer-row-name">${h.name || 'Unnamed'}</div>
-        <div class="customer-row-sub">${h.customerName || 'Unknown owner'}</div>
+        <div class="customer-row-name">${h.name || 'Unnamed'} <span style="font-weight:500; color:var(--text-muted);">· ${owner.name || 'Unknown owner'}</span></div>
+        <div class="customer-row-sub">Last service: ${h.lastServiceDate ? fmtDate(h.lastServiceDate) : 'none yet'}${owner.farm ? ' · ' + owner.farm : ''}</div>
       </div>
       <div class="customer-row-arrow">›</div>
     </div>
-  `).join('');
+  `; }).join('');
 
   // Event delegation — touchend for instant response on iPad, click as fallback
   el.onclick = (e) => {
@@ -1963,6 +2104,109 @@ function openHorseFromSearch(h) {
   openHorseDetail(h);
 }
 
+// ── UPCOMING SERVICE REPORT ──
+// Every horse whose next service (lib/horse-history.js: its next booked appointment, or
+// last service + shoeing cycle) falls within the chosen number of weeks.
+// Appointments and invoices are pulled once per visit, then switching weeks re-filters.
+let _upcomingData = null;
+
+async function openUpcomingService() {
+  goTo('screen-upcoming');
+  _upcomingData = null;
+  const list = document.getElementById('upcoming-list');
+  list.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
+  try {
+    if (!(state.allHorses || []).length) await loadAllHorses();
+    const [aSnap, iSnap] = await Promise.all([
+      db.collection('appointments').where('farrierId', '==', bizId()).get(),
+      db.collection('invoices').where('farrierId', '==', bizId()).get(),
+    ]);
+    const appts = aSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const invs = iSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    _upcomingData = (state.allHorses || []).map(h => ({ h, hist: FarriHorseHistory.build(h, appts, invs) }));
+    const active = document.querySelector('#upcoming-weeks .active');
+    renderUpcoming(Number(active?.dataset.weeks) || 4);
+  } catch (e) {
+    console.error('Upcoming service error:', e);
+    list.innerHTML = `<div class="empty-state"><div class="empty-state-text">Couldn't load horses${netState.online ? '' : ' while offline'}</div></div>`;
+  }
+}
+
+function setUpcomingWeeks(weeks) {
+  document.querySelectorAll('#upcoming-weeks .appt-filter-btn').forEach(b => b.classList.toggle('active', Number(b.dataset.weeks) === weeks));
+  if (_upcomingData) renderUpcoming(weeks);
+}
+
+// Grouped by owner/farm: a farm shows up when at least one of its horses is due, with
+// those horses first and the owner's other horses (not due yet) listed under them, so a
+// farm visit can cover everything there. Farms are ordered by their earliest due date.
+function renderUpcoming(weeks) {
+  const list = document.getElementById('upcoming-list');
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(today.getTime() + weeks * 7 * 86400e3);
+  const isDue = x => x.hist.nextService && x.hist.nextService.date < end;
+
+  const groups = {};
+  _upcomingData.forEach(x => {
+    const owner = horseOwner(x.h);
+    const key = x.h.customerId || owner.name || 'unknown';
+    (groups[key] = groups[key] || { owner, due: [], other: [] })[isDue(x) ? 'due' : 'other'].push(x);
+  });
+  const farms = Object.values(groups).filter(g => g.due.length);
+  const byNext = (a, b) => (a.hist.nextService?.date || Infinity) - (b.hist.nextService?.date || Infinity);
+  farms.forEach(g => { g.due.sort(byNext); g.other.sort(byNext); });
+  farms.sort((a, b) => a.due[0].hist.nextService.date - b.due[0].hist.nextService.date);
+
+  const dueCount = farms.reduce((n, g) => n + g.due.length, 0);
+  const overdue = farms.reduce((n, g) => n + g.due.filter(x => x.hist.nextService.overdue).length, 0);
+  const noDate = _upcomingData.filter(x => !x.hist.nextService).length;
+  const noDateNote = noDate
+    ? `<div style="font-size:0.8rem; color:var(--text-muted); text-align:center; margin:12px 0;">${noDate} horse${noDate === 1 ? ' has' : 's have'} no appointment or shoeing cycle, so no due date.</div>`
+    : '';
+  if (!farms.length) {
+    list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🐴</div><div class="empty-state-text">No horses due in the next ${weeks} week${weeks === 1 ? '' : 's'}</div></div>` + noDateNote;
+    return;
+  }
+
+  const horseRow = ({ h, hist }, muted) => {
+    const next = hist.nextService;
+    const badge = !next ? '<span class="badge badge-muted">no due date</span>'
+      : !next.estimated ? '<span class="badge badge-success">booked</span>'
+      : next.overdue ? '<span class="badge badge-danger">overdue</span>'
+      : (muted ? '<span class="badge badge-muted">next</span>' : '<span class="badge badge-warning">due</span>');
+    return `
+      <div class="horse-row" style="padding:10px 12px; margin-bottom:6px;${muted ? ' opacity:0.7; box-shadow:none;' : ''}" onclick="openUpcomingHorse('${escapeHtml(h.id)}')">
+        <div style="flex:1; min-width:0;">
+          <div class="customer-row-name" style="font-size:0.95rem;">🐴 ${escapeHtml(h.name || 'Unnamed')}</div>
+          <div class="customer-row-sub">${next ? fmtDate(next.date) + ' ' : ''}${badge}${hist.lastService ? ' · last ' + fmtDate(hist.lastService.date) : ''}</div>
+        </div>
+        <div class="customer-row-arrow">›</div>
+      </div>`;
+  };
+
+  list.innerHTML = `
+    <div class="card" style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+      <div style="font-weight:700;">${dueCount} horse${dueCount === 1 ? '' : 's'} due at ${farms.length} farm${farms.length === 1 ? '' : 's'}</div>
+      ${overdue ? `<span class="badge badge-danger">${overdue} overdue</span>` : ''}
+    </div>
+  ` + farms.map(g => `
+    <div class="card" style="margin-bottom:12px; padding:12px;">
+      <div style="font-weight:800; color:var(--blue);">${escapeHtml(g.owner.farm || g.owner.name || 'Unknown owner')}</div>
+      ${g.owner.farm && g.owner.name ? `<div style="font-size:0.82rem; color:var(--text-muted);">${escapeHtml(g.owner.name)}</div>` : ''}
+      <div style="margin-top:8px;">${g.due.map(x => horseRow(x, false)).join('')}</div>
+      ${g.other.length ? `
+        <div style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em; margin:10px 0 6px;">Also at this farm · not due yet</div>
+        ${g.other.map(x => horseRow(x, true)).join('')}` : ''}
+    </div>
+  `).join('') + noDateNote;
+}
+
+function openUpcomingHorse(id) {
+  const h = (state.allHorses || []).find(x => x.id === id);
+  if (h) openHorseFromSearch(h);
+}
+
 // New Invoice / New Appt, pre-filled for one specific horse — used by the horse detail
 // screen's action buttons (reached either via a customer's horse list or Find Horse).
 // Both reuse the exact same setup the customer-profile buttons use, then just apply the
@@ -1979,34 +2223,80 @@ function startAppointmentForHorse(h) {
   renderApptHorsePicker([h.id]);
 }
 
-async function loadOpenInvoices() {
-  document.getElementById('search-input').value = '';
-  document.getElementById('search-results').innerHTML = '';
-  const sec = document.getElementById('open-invoices-section');
-  sec.style.display = 'block';
+// Home "Invoices" card: Open (customers who owe money) or Paid, both grouped by customer.
+async function loadOpenInvoices(status = 'outstanding') {
+  document.getElementById('inv-filter-open').classList.toggle('active', status === 'outstanding');
+  document.getElementById('inv-filter-paid').classList.toggle('active', status === 'paid');
   const list = document.getElementById('open-invoices-list');
   list.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
   try {
     const snap = await db.collection('invoices')
       .where('farrierId', '==', bizId())
-      .where('status', '==', 'outstanding')
-      .orderBy('createdAt', 'desc')
+      .where('status', '==', status)
       .get();
-    const invs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Sorted here rather than with orderBy so the query needs no composite index
+    // (same approach as the customer screen's invoice query).
+    const invs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a,b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     if (!invs.length) {
-      list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🎉</div><div class="empty-state-text">No outstanding invoices</div></div>`;
+      list.innerHTML = status === 'paid'
+        ? `<div class="empty-state"><div class="empty-state-icon">🧾</div><div class="empty-state-text">No paid invoices yet</div></div>`
+        : `<div class="empty-state"><div class="empty-state-icon">🎉</div><div class="empty-state-text">No outstanding invoices</div></div>`;
       return;
     }
-    list.innerHTML = invs.map(inv => `
-      <div class="invoice-row outstanding" onclick="openInvoicePayment(${JSON.stringify(inv).replace(/"/g,'&quot;')})">
+    // One row per customer with their total (owed, or paid), biggest first. Tapping a
+    // customer shows their invoices; unpaid ones open the invoice (pay / resend).
+    // Refunds stay on the customer screen's Invoice History.
+    const paid = status === 'paid';
+    const byCust = {};
+    invs.forEach(inv => {
+      const key = inv.customerName || 'Unknown customer';
+      (byCust[key] = byCust[key] || { name: key, farm: inv.customerFarmName || '', total: 0, invs: [] });
+      byCust[key].total += inv.total || 0;
+      byCust[key].invs.push(inv);
+    });
+    const custs = Object.values(byCust).sort((a,b) => b.total - a.total);
+    const grand = custs.reduce((sum, c) => sum + c.total, 0);
+    const invRow = paid
+      ? inv => `
+          <div class="invoice-row paid">
+            <div class="invoice-row-top">
+              <div class="invoice-row-num">#${inv.invoiceNumber}</div>
+              <div class="invoice-row-amount">$${(inv.total||0).toFixed(2)}</div>
+            </div>
+            <div class="invoice-row-bottom">${fmtDate(inv.paidAt || inv.createdAt)} · <span class="badge badge-success">paid</span></div>
+          </div>`
+      : inv => `
+          <div class="invoice-row outstanding" onclick="openInvoicePayment(${JSON.stringify(inv).replace(/"/g,'&quot;')})">
+            <div class="invoice-row-top">
+              <div class="invoice-row-num">#${inv.invoiceNumber}</div>
+              <div class="invoice-row-amount">$${(inv.total||0).toFixed(2)}</div>
+            </div>
+            <div class="invoice-row-bottom">${fmtDate(inv.createdAt)} · Tap to view invoice</div>
+          </div>`;
+    list.innerHTML = `
+      <div class="card" style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+        <div style="font-weight:700;">${paid ? `Paid by ${custs.length} customer${custs.length === 1 ? '' : 's'}` : `${custs.length} customer${custs.length === 1 ? '' : 's'} owe you`}</div>
+        <div style="font-weight:800; font-size:1.15rem; color:${paid ? 'var(--success)' : 'var(--blue)'};">$${grand.toFixed(2)}</div>
+      </div>
+    ` + custs.map((c, i) => `
+      <div class="invoice-row ${paid ? 'paid' : 'outstanding'}" onclick="toggleOwingCustomer(${i})">
         <div class="invoice-row-top">
-          <div class="invoice-row-num">#${inv.invoiceNumber} · ${inv.customerName}</div>
-          <div class="invoice-row-amount">$${(inv.total||0).toFixed(2)}</div>
+          <div class="invoice-row-num">${c.name}</div>
+          <div class="invoice-row-amount">$${c.total.toFixed(2)}</div>
         </div>
-        <div class="invoice-row-bottom">${fmtDate(inv.createdAt)} · Tap to collect payment</div>
+        <div class="invoice-row-bottom">${c.farm ? c.farm + ' · ' : ''}${c.invs.length} ${paid ? 'paid' : 'unpaid'} invoice${c.invs.length === 1 ? '' : 's'} · ${paid ? 'latest ' + fmtDate(c.invs[0].paidAt || c.invs[0].createdAt) : 'oldest ' + fmtDate(c.invs[c.invs.length - 1].createdAt)}</div>
+      </div>
+      <div id="owing-cust-${i}" style="display:none; margin:-4px 0 10px 16px;">
+        ${c.invs.map(invRow).join('')}
       </div>
     `).join('');
-  } catch(e) { list.innerHTML = '<div class="empty-state"><div class="empty-state-text">Error loading invoices</div></div>'; }
+  } catch(e) { console.error('Invoices load error:', e); list.innerHTML = '<div class="empty-state"><div class="empty-state-text">Error loading invoices</div></div>'; }
+}
+
+function toggleOwingCustomer(i) {
+  const el = document.getElementById('owing-cust-' + i);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
 function selectCustomer(c) {
@@ -2129,7 +2419,7 @@ async function loadCustomerDetail(c) {
             <div class="invoice-row-num">#${inv.invoiceNumber}</div>
             <div class="invoice-row-amount">$${(inv.total||0).toFixed(2)}</div>
           </div>
-          <div class="invoice-row-bottom">${fmtDate(inv.createdAt)} · Tap to collect</div>
+          <div class="invoice-row-bottom">${fmtDate(inv.createdAt)} · Tap to view invoice</div>
         </div>
       `).join('');
     }
@@ -2162,7 +2452,8 @@ async function loadCustomerDetail(c) {
 // Horse" jumps out to create a horse record that isn't on file yet, then comes right
 // back with a fresh line pre-selecting it.
 function emptyInvoiceLine() {
-  return { horseId: '', horseName: '', serviceId: '', serviceName: '', price: 0 };
+  // price is per horse; qty is how many horses it covers (see FarriPricing.lineAmount)
+  return { horseId: '', horseName: '', serviceId: '', serviceName: '', price: 0, qty: 1, note: '' };
 }
 
 function startNewInvoice() {
@@ -2190,7 +2481,7 @@ function splitInvoiceItemsForEdit(items) {
   const customs = [];
   (items || []).forEach(i => {
     if (i.serviceId) {
-      lines.push({ horseId: i.horseId || '', horseName: i.horseName || '', serviceId: i.serviceId, serviceName: i.description || '', price: i.amount || 0 });
+      lines.push({ horseId: i.horseId || '', horseName: i.horseName || '', serviceId: i.serviceId, serviceName: i.description || '', price: FarriPricing.itemUnitPrice(i), qty: FarriPricing.itemQty(i), note: i.note || '' });
     } else {
       customs.push({ name: i.description || '', price: i.amount || 0 });
     }
@@ -2261,7 +2552,13 @@ function renderInvoiceLines() {
       </select>
       <div class="horse-svc-price-wrap${line.serviceName ? ' show' : ''}" id="line-price-wrap-${idx}">
         <span style="font-weight:700; color:var(--text-muted);">$</span>
-        <input type="number" id="line-price-${idx}" min="0" step="0.01" value="${line.serviceName ? line.price.toFixed(2) : ''}" oninput="onLinePriceInput(${idx})">
+        <input type="number" id="line-price-${idx}" min="0" step="0.01" value="${line.serviceName ? line.price.toFixed(2) : ''}" oninput="onLinePriceInput(${idx})" aria-label="Price per horse">
+        <span style="font-weight:700; color:var(--text-muted);">×</span>
+        <input type="number" id="line-qty-${idx}" min="1" step="1" inputmode="numeric" value="${line.qty || 1}" oninput="onLineQtyInput(${idx})" aria-label="Quantity" style="flex:none; width:84px;">
+      </div>
+      <div id="line-total-hint-${idx}" style="font-size:0.8rem; color:var(--text-muted); margin-top:6px;"></div>
+      <div id="line-note-wrap-${idx}" style="display:${line.horseName === FarriPricing.MULTIPLE_HORSES ? 'block' : 'none'}; margin-top:8px;">
+        <input type="text" class="horse-svc-select" id="line-note-${idx}" placeholder="What are they? e.g. polo string, fronts only" autocomplete="off" oninput="onLineNoteInput(${idx})">
       </div>
     </div>
   `).join('');
@@ -2269,6 +2566,8 @@ function renderInvoiceLines() {
   // Re-apply each field's current value after the innerHTML rebuild.
   state.invoiceLines.forEach((line, idx) => {
     document.getElementById(`line-horse-input-${idx}`).value = line.horseName || '';
+    document.getElementById(`line-note-${idx}`).value = line.note || '';
+    updateLineTotalHint(idx);
     if (line.serviceName) {
       const i = state.services.findIndex(s => s.name === line.serviceName);
       if (i >= 0) document.getElementById(`line-service-${idx}`).value = i;
@@ -2287,11 +2586,25 @@ function onLineHorseInput(idx) {
   const input = document.getElementById(`line-horse-input-${idx}`);
   const q = input.value.trim().toLowerCase();
   const matches = (state.customerHorses || []).filter(h => !q || (h.name || '').toLowerCase().includes(q));
+  // Typing a horse's full name counts as picking it, so the line keeps the horse even if
+  // the farrier moves on without tapping the suggestion.
+  const exact = q ? (state.customerHorses || []).filter(h => (h.name || '').trim().toLowerCase() === q) : [];
+  const line = state.invoiceLines[idx];
+  if (exact.length === 1 && line && line.horseId !== exact[0].id) {
+    line.horseId = exact[0].id;
+    line.horseName = exact[0].name;
+    line.qty = 1; line.note = '';
+    document.getElementById(`line-qty-${idx}`).value = 1;
+    document.getElementById(`line-note-${idx}`).value = '';
+    document.getElementById(`line-note-wrap-${idx}`).style.display = 'none';
+    updateLineTotalHint(idx);
+  }
   const list = document.getElementById(`line-horse-suggestions-${idx}`);
   // Plain onclick — hiding the list is handled by the document-level click-outside
   // listener below, not by input blur (blur-vs-click ordering isn't reliable across
   // every input method, so selection could silently fail to register).
-  const generalRow = `<div class="horse-combo-suggestion" onclick="selectLineHorse(${idx}, '', '')">📋 General / Other</div>`;
+  const generalRow = `<div class="horse-combo-suggestion" onclick="selectLineHorse(${idx}, '', '')">📋 General / Other</div>`
+    + `<div class="horse-combo-suggestion" onclick="selectLineHorse(${idx}, '', '${FarriPricing.MULTIPLE_HORSES}')">👥 ${FarriPricing.MULTIPLE_HORSES}</div>`;
   // escapeHtml around the JSON.stringify'd name is essential — JSON.stringify uses
   // double quotes, which would otherwise terminate this double-quoted onclick attribute
   // early (silently truncating the handler) for any horse name once the browser parses it.
@@ -2306,6 +2619,15 @@ function selectLineHorse(idx, id, name) {
   line.horseName = name;
   document.getElementById(`line-horse-input-${idx}`).value = name;
   document.getElementById(`line-horse-suggestions-${idx}`).style.display = 'none';
+
+  // The note box is only for "Multiple horses" lines; picking anything else puts the
+  // quantity back to a single horse.
+  const isMultiple = name === FarriPricing.MULTIPLE_HORSES;
+  if (!isMultiple) { line.qty = 1; line.note = ''; }
+  document.getElementById(`line-qty-${idx}`).value = line.qty;
+  document.getElementById(`line-note-${idx}`).value = line.note;
+  document.getElementById(`line-note-wrap-${idx}`).style.display = isMultiple ? 'block' : 'none';
+  updateLineTotalHint(idx);
 
   // Default to this horse's last service (from its most recent invoice) so the farrier
   // just confirms/adjusts instead of picking from scratch every time — a real time
@@ -2324,7 +2646,7 @@ function selectLineHorse(idx, id, name) {
     serviceSelect.value = svcIdx;
     document.getElementById(`line-price-${idx}`).value = line.price ? line.price.toFixed(2) : '';
     document.getElementById(`line-price-wrap-${idx}`).classList.add('show');
-  } else if (!id) {
+  } else if (!id && !isMultiple) {
     // Switched to "General / Other" — no history to suggest from.
     line.serviceId = ''; line.serviceName = ''; line.price = 0;
     serviceSelect.value = '';
@@ -2365,12 +2687,36 @@ function onLineServiceChange(idx) {
     priceInput.value = line.price ? line.price.toFixed(2) : '';
     priceWrap.classList.add('show');
   }
+  updateLineTotalHint(idx);
   updateServiceTotal();
 }
 
 function onLinePriceInput(idx) {
   state.invoiceLines[idx].price = parseFloat(document.getElementById(`line-price-${idx}`).value) || 0;
+  updateLineTotalHint(idx);
   updateServiceTotal();
+}
+
+// Quantity is a whole number of horses, never below 1 (a blank box counts as 1 until typed over).
+function onLineQtyInput(idx) {
+  const n = Math.floor(parseFloat(document.getElementById(`line-qty-${idx}`).value));
+  state.invoiceLines[idx].qty = n >= 1 ? n : 1;
+  updateLineTotalHint(idx);
+  updateServiceTotal();
+}
+
+function onLineNoteInput(idx) {
+  state.invoiceLines[idx].note = document.getElementById(`line-note-${idx}`).value;
+}
+
+// "$150.00 each × 10 = $1,500.00" under a line whose quantity is more than 1.
+function updateLineTotalHint(idx) {
+  const line = state.invoiceLines[idx];
+  const el = document.getElementById(`line-total-hint-${idx}`);
+  if (!line || !el) return;
+  el.textContent = line.serviceName && line.qty > 1
+    ? `${FarriPricing.money(Math.round(line.price * 100))} each × ${line.qty} = ${FarriPricing.money(Math.round(FarriPricing.lineAmount(line.price, line.qty) * 100))}`
+    : '';
 }
 
 function addInvoiceLine() {
@@ -2440,7 +2786,7 @@ function addHorseFromAppointment() {
 }
 
 function updateServiceTotal() {
-  const lineTotal = (state.invoiceLines || []).filter(l => l.serviceName).reduce((s, l) => s + (l.price || 0), 0);
+  const lineTotal = (state.invoiceLines || []).filter(l => l.serviceName).reduce((s, l) => s + FarriPricing.lineAmount(l.price, l.qty), 0);
   const customTotal = state.customItems.reduce((s,ci) => s + ci.price, 0);
   const total = lineTotal + customTotal;
   document.getElementById('svc-total').textContent = '$' + total.toFixed(2);
@@ -2486,9 +2832,12 @@ function buildInvoiceItems() {
     .filter(l => l.serviceName)
     .map(l => ({
       description: l.serviceName,
-      amount: l.price || 0,
+      amount: FarriPricing.lineAmount(l.price, l.qty), // line total (price per horse × qty)
+      qty: FarriPricing.itemQty(l),
+      unitPrice: l.price || 0,
       horseId: l.horseId || '',
       horseName: l.horseName || '',
+      ...(l.horseName === FarriPricing.MULTIPLE_HORSES && String(l.note || '').trim() ? { note: String(l.note).trim() } : {}),
       serviceId: l.serviceId || '',
     }));
   const customLineItems = state.customItems.map(ci => ({
@@ -2509,7 +2858,7 @@ function continueToInvoiceReview() {
   document.getElementById('review-customer-farm').textContent = state.customer.farmName || '';
   document.getElementById('review-services-list').innerHTML = allItems.map(i => `
     <div class="info-row">
-      <div class="info-row-label">${escapeHtml(i.description)}${i.horseName ? ` <span style="color:var(--text-muted); font-weight:500;">(${escapeHtml(i.horseName)})</span>` : ''}</div>
+      <div class="info-row-label">${escapeHtml(i.description)}${FarriPricing.itemHorseLabel(i) ? ` <span style="color:var(--text-muted); font-weight:500;">(${escapeHtml(FarriPricing.itemHorseLabel(i))})</span>` : ''}</div>
       <div class="info-row-value">$${i.amount.toFixed(2)}</div>
     </div>
   `).join('');
@@ -2952,7 +3301,7 @@ async function updateExistingInvoice(inv, allItems, total) {
     performWrite(() => db.collection('horses').doc(i.horseId).update({
       lastServiceId: i.serviceId || '',
       lastServiceName: i.description,
-      lastServicePrice: i.amount,
+      lastServicePrice: FarriPricing.itemUnitPrice(i),
       lastServiceDate: firebase.firestore.FieldValue.serverTimestamp(),
     }));
   });
@@ -3011,13 +3360,13 @@ async function createInvoice() {
     performWrite(() => db.collection('horses').doc(i.horseId).update({
       lastServiceId: i.serviceId || '',
       lastServiceName: i.description,
-      lastServicePrice: i.amount,
+      lastServicePrice: FarriPricing.itemUnitPrice(i),
       lastServiceDate: firebase.firestore.FieldValue.serverTimestamp(),
     }));
     // Keep the in-memory copy in sync too, so picking the same horse again on this
     // same invoice (another line, or after "+ Add Line") already reflects it.
     const h = state.customerHorses.find(x => x.id === i.horseId);
-    if (h) { h.lastServiceId = i.serviceId || ''; h.lastServiceName = i.description; h.lastServicePrice = i.amount; }
+    if (h) { h.lastServiceId = i.serviceId || ''; h.lastServiceName = i.description; h.lastServicePrice = FarriPricing.itemUnitPrice(i); }
   });
 
   // ── Write mileage log entry if miles were entered ──
@@ -3052,7 +3401,7 @@ async function createInvoice() {
   } else if (stripeConnected && total > 0) {
     try {
       // The server prices the link from the saved invoice, so wait for the save to land.
-      await Promise.race([saved, new Promise((_, reject) => setTimeout(() => reject(new Error('Invoice is still saving — try Pay Link again in a moment')), 10000))]);
+      await Promise.race([saved, new Promise((_, reject) => setTimeout(() => reject(new Error('Invoice is still saving — try Resend Invoice in a moment')), 10000))]);
       const plRes = await fetch('/api/stripe-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3125,8 +3474,8 @@ async function saveAndSendSms() {
     state.editingInvoice = null;
     const bizName = state.userProfile?.businessName || 'Your Farrier';
     const msg = inv.paymentUrl
-      ? `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for $${inv.total.toFixed(2)} from ${bizName} is ready. Pay here: ${inv.paymentUrl}${FarriPricing.altPaySms(state.userProfile, inv)} Reply STOP to opt out.`
-      : `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for $${inv.total.toFixed(2)} from ${bizName} has been created. Reply STOP to opt out.`;
+      ? `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for $${inv.total.toFixed(2)} from ${bizName} is ready.${(FarriPricing.itemsSmsText?.(inv) || '')} Pay here: ${inv.paymentUrl}${FarriPricing.altPaySms(state.userProfile, inv)} Reply STOP to opt out.`
+      : `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for $${inv.total.toFixed(2)} from ${bizName} has been created.${(FarriPricing.itemsSmsText?.(inv) || '')} Reply STOP to opt out.`;
     const res = await fetch('/api/send-sms', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3332,20 +3681,15 @@ async function loadInventoryList() {
   document.getElementById('inventory-loading').style.display = 'flex';
   list.innerHTML = '';
   banner.style.display = 'none';
+  document.getElementById('inventory-extras').innerHTML = '';
   try {
     const snap = await db.collection('inventoryItems').where('farrierId', '==', bizId()).get();
     const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a,b) => (a.category || '').localeCompare(b.category || '') || (a.name || '').localeCompare(b.name || ''));
     document.getElementById('inventory-loading').style.display = 'none';
     if (!rows.length) {
-      list.innerHTML = `
-        <div class="card" style="border:2px solid #bfdbfe; background:#eff6ff;">
-          <div style="font-weight:700; font-size:1rem; margin-bottom:6px;">📋 Build your inventory from our supply catalog?</div>
-          <div style="font-size:0.88rem; color:var(--text-muted); margin-bottom:14px;">Tick the shoes, nails, pads and tools you carry — brand, size, part number and list price come filled in. You just count what's on the truck.</div>
-          <button class="btn-primary" onclick="openInventoryCatalog()">Browse catalog</button>
-          <div style="margin-top:8px;"></div>
-          <button class="btn-secondary" onclick="startNewInventoryItem()">I'll add my own</button>
-        </div>`;
+      state.inventoryRows = [];
+      renderInventoryList(); // empty: shows the "build your inventory" card until they type a search
       return;
     }
 
@@ -3355,28 +3699,131 @@ async function loadInventoryList() {
       banner.style.display = 'block';
     }
 
-    const renderRow = (item) => {
-      const isLow = item.isConsumable !== false && Number(item.quantityOnHand || 0) < Number(item.reorderThreshold || 0);
-      return `
-      <div class="horse-row">
-        <div class="horse-row-avatar" style="background:${isLow ? '#dc2626' : (item.isConsumable === false ? '#94a3b8' : '#B45309')};">${item.isConsumable === false ? '🔧' : '📦'}</div>
-        <div style="flex:1; min-width:0;" onclick='startEditInventoryItem(${JSON.stringify(item).replace(/"/g,'&quot;')})'>
-          <div class="customer-row-name">${escapeHtml(item.name || 'Unnamed')}${item.size ? ' (' + escapeHtml(item.size) + ')' : ''}</div>
-          <div class="customer-row-sub">${escapeHtml(item.category || 'No category')} · ${item.quantityOnHand ?? 0} ${escapeHtml(item.unit || '')}${isLow ? ' · ⚠ Low' : ''}</div>
-        </div>
-        <button onclick='event.stopPropagation(); restockInventoryItem(${JSON.stringify(item).replace(/"/g,'&quot;')})' style="background:var(--surface); border:2px solid var(--border); border-radius:8px; padding:6px 10px; font-size:0.8rem; font-weight:600; cursor:pointer;">Restock</button>
-      </div>`;
-    };
-
-    const consumables = rows.filter(i => i.isConsumable !== false);
-    const tools = rows.filter(i => i.isConsumable === false);
-    list.innerHTML =
-      (consumables.length ? `<div class="section-label">Shoes, Nails &amp; Consumables</div>${consumables.map(renderRow).join('')}` : '') +
-      (tools.length ? `<div class="section-label" style="margin-top:14px;">Tools</div>${tools.map(renderRow).join('')}` : '');
+    state.inventoryRows = rows;
+    renderInventoryList();
   } catch(e) {
     document.getElementById('inventory-loading').style.display = 'none';
     list.innerHTML = `<div class="empty-state"><div class="empty-state-text">Error loading inventory</div></div>`;
   }
+}
+
+
+function inventoryRowHtml(item) {
+  const isLow = item.isConsumable !== false && Number(item.quantityOnHand || 0) < Number(item.reorderThreshold || 0);
+  return `
+  <div class="horse-row">
+    <div class="horse-row-avatar" style="background:${isLow ? '#dc2626' : (item.isConsumable === false ? '#94a3b8' : '#B45309')};">${item.isConsumable === false ? '🔧' : '📦'}</div>
+    <div style="flex:1; min-width:0;" onclick='startEditInventoryItem(${JSON.stringify(item).replace(/"/g,'&quot;')})'>
+      <div class="customer-row-name">${escapeHtml(item.name || 'Unnamed')}${item.size ? ' (' + escapeHtml(item.size) + ')' : ''}</div>
+      <div class="customer-row-sub">${escapeHtml(item.category || 'No category')} · ${item.quantityOnHand ?? 0} ${escapeHtml(item.unit || '')}${isLow ? ' · ⚠ Low' : ''}</div>
+    </div>
+    <button onclick='event.stopPropagation(); restockInventoryItem(${JSON.stringify(item).replace(/"/g,'&quot;')})' style="background:var(--surface); border:2px solid var(--border); border-radius:8px; padding:6px 10px; font-size:0.8rem; font-weight:600; cursor:pointer;">Restock</button>
+  </div>`;
+}
+
+// ── Inventory search ──
+// Type to filter the farrier's own inventory as they go (lib/inventory-search.js). The supply catalog is searched
+// too, since the item may be there even though it isn't in this farrier's inventory yet: a catalog match can be
+// added with one tap (quantity 0, like the Add-from-Catalog picker), then it asks how many they have. If nothing
+// matches anywhere, it offers to add what they typed as a new item.
+function filterInventory() { renderInventoryList(); }
+
+const INVENTORY_ONBOARDING_HTML = `
+        <div class="card" style="border:2px solid #bfdbfe; background:#eff6ff;">
+          <div style="font-weight:700; font-size:1rem; margin-bottom:6px;">📋 Build your inventory from our supply catalog?</div>
+          <div style="font-size:0.88rem; color:var(--text-muted); margin-bottom:14px;">Tick the shoes, nails, pads and tools you carry — brand, size and part number come filled in. You just count what's on the truck.</div>
+          <button class="btn-primary" onclick="openInventoryCatalog()">Browse catalog</button>
+          <div style="margin-top:8px;"></div>
+          <button class="btn-secondary" onclick="startNewInventoryItem()">I'll add my own</button>
+        </div>`;
+
+function renderInventoryList() {
+  const IS = FarriInventorySearch, rows = state.inventoryRows || [];
+  const q = document.getElementById('inventory-search').value;
+  const searching = q.trim().length > 0;
+  if (!rows.length && !searching) { // a new inventory: offer to build it from the catalog until they start typing
+    document.getElementById('inventory-list').innerHTML = INVENTORY_ONBOARDING_HTML;
+    document.getElementById('inventory-extras').innerHTML = '';
+    return;
+  }
+  const shown = IS.search(rows, q);
+  const consumables = shown.filter(i => i.isConsumable !== false);
+  const tools = shown.filter(i => i.isConsumable === false);
+  document.getElementById('inventory-list').innerHTML =
+    (searching && shown.length ? `<div style="color:var(--text-muted); font-size:0.85rem; margin:0 2px 8px;">${shown.length} of ${rows.length} item${rows.length === 1 ? '' : 's'}</div>` : '') +
+    (consumables.length ? `<div class="section-label">Shoes, Nails &amp; Consumables</div>${consumables.map(inventoryRowHtml).join('')}` : '') +
+    (tools.length ? `<div class="section-label" style="margin-top:14px;">Tools</div>${tools.map(inventoryRowHtml).join('')}` : '');
+  renderInventoryExtras();
+}
+
+function renderInventoryExtras() {
+  const box = document.getElementById('inventory-extras');
+  const q = document.getElementById('inventory-search').value.trim();
+  if (!q) { box.innerHTML = ''; return; }
+  const IS = FarriInventorySearch, rows = state.inventoryRows || [];
+  const muted = (t) => `<div style="color:var(--text-muted); font-size:0.9rem; margin:10px 2px;">${t}</div>`;
+  const addNewBtn = (primary) => `<button type="button" class="${primary ? 'btn-primary' : 'btn-secondary'}" onclick="addInventoryFromSearch()" style="${primary ? '' : 'padding:10px 14px; font-size:0.9rem;'}">+ Add “${escapeHtml(q)}” as a new item</button>`;
+  if (!state.invCatalog && !state.invCatalogError) {
+    box.innerHTML = muted('Checking the supply catalog…');
+    if (!state.invCatalogLoading) {
+      state.invCatalogLoading = true;
+      loadSupplyCatalog().then(d => { state.invCatalog = d; }).catch(e => { state.invCatalogError = e.message || 'offline'; })
+        .finally(() => { state.invCatalogLoading = false; renderInventoryExtras(); });
+    }
+    return;
+  }
+  const shown = IS.search(rows, q);
+  const owned = new Set(rows.map(i => inventoryCatalogKey(i.name, i.size)));
+  const cat = state.invCatalog
+    ? IS.searchCatalog({ general: window.INVENTORY_CATALOG || [], products: state.invCatalog.products || [] }, q, { owned, keyFn: inventoryCatalogKey })
+    : { general: [], supply: [], totalGeneral: 0, totalSupply: 0 };
+  const count = cat.supply.length + cat.general.length;
+  let html = state.invCatalogError ? muted(`Couldn’t check the supply catalog right now (${escapeHtml(state.invCatalogError)}).`) : '';
+  if (count) {
+    html += `<div class="card" style="border:2px dashed var(--blue); margin-top:12px;"><div class="card-title" style="color:var(--text);">📋 In the supply catalog, not in your inventory yet</div>` +
+      cat.supply.map(({ pi, product, variants }) => `
+        <div style="padding:10px 0; border-top:1px solid var(--border);">
+          <div style="font-weight:700;">${escapeHtml(product.t)}</div>
+          <div style="font-size:0.8rem; color:var(--text-muted); margin:2px 0 8px;">${escapeHtml([product.b, product.c.split(' > ')[0]].filter(Boolean).join(' · '))}</div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">${variants.slice(0, 24).map(v => `<button type="button" class="btn-sm" onclick="addInventoryFromCatalog('s', ${pi}, ${v.vi})" style="background:var(--surface); border:2px solid var(--blue); color:var(--blue);">+ Add${v.size ? ' size ' + escapeHtml(v.size) : ''}</button>`).join('')}${variants.length > 24 ? `<span style="font-size:0.8rem; color:var(--text-muted); align-self:center;">+${variants.length - 24} more sizes in the full catalog</span>` : ''}</div>
+        </div>`).join('') +
+      cat.general.map(({ idx, entry }) => `
+        <div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-top:1px solid var(--border);">
+          <div style="flex:1; min-width:0;"><div style="font-weight:700;">${escapeHtml(entry.name)}</div><div style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(entry.category)}</div></div>
+          <button type="button" class="btn-sm" onclick="addInventoryFromCatalog('g', ${idx})" style="background:var(--surface); border:2px solid var(--blue); color:var(--blue);">+ Add</button>
+        </div>`).join('') +
+      ((cat.totalSupply > cat.supply.length || cat.totalGeneral > cat.general.length)
+        ? `<button type="button" class="btn-secondary" onclick="openInventoryCatalog()" style="margin-top:10px; padding:10px 14px; font-size:0.9rem;">Browse all ${cat.totalSupply + cat.totalGeneral} catalog matches</button>` : '') +
+      `</div>`;
+  }
+  const noMatchAnywhere = shown.length === 0 && count === 0;
+  if (noMatchAnywhere) {
+    html += `<div class="card" style="border:2px solid var(--blue); margin-top:12px;"><div style="font-weight:700; margin-bottom:10px;">Nothing in your inventory${state.invCatalogError ? '' : ' or the supply catalog'} matches “${escapeHtml(q)}”.</div>${addNewBtn(true)}</div>`;
+  } else if (!IS.hasExactName(rows, q)) {
+    html += `<div style="margin-top:12px;"><div style="color:var(--text-muted); font-size:0.85rem; margin:0 2px 6px;">Not what you’re looking for?</div>${addNewBtn(false)}</div>`;
+  }
+  box.innerHTML = html;
+}
+
+// Add a catalog item to the inventory with quantity 0 (the same fields the Add-from-Catalog picker saves), then ask how many.
+function addInventoryFromCatalog(kind, a, b) {
+  const fields = kind === 's'
+    ? inventoryItemFromSupplyCatalog(state.invCatalog.products[a], state.invCatalog.products[a].v[b])
+    : inventoryItemFromCatalog(window.INVENTORY_CATALOG[a]);
+  const ref = db.collection('inventoryItems').doc();
+  const ts = firebase.firestore.FieldValue.serverTimestamp();
+  performWrite(() => ref.set({ ...fields, farrierId: bizId(), createdAt: ts, updatedAt: ts }));
+  state.inventoryRows = [...(state.inventoryRows || []), { id: ref.id, ...fields, quantityOnHand: 0 }]; // it's theirs now, so it leaves the catalog list at once
+  renderInventoryList();
+  showToast(`Added ${fields.name} to your inventory`, 'success');
+  restockInventoryItem({ id: ref.id, ...fields }); // asks how many they have
+}
+
+// "Add as a new item" from the search: the usual New Item form with what they typed as the name.
+function addInventoryFromSearch() {
+  const q = document.getElementById('inventory-search').value.trim();
+  startNewInventoryItem();
+  document.getElementById('invf-name').value = q;
 }
 
 // Catalog picker. Two sources, both defined in inventory-catalog.js (shared with desktop):
@@ -3420,11 +3867,11 @@ function setCatalogTab(tab) {
 function catalogCheckRow(key, owned, label, sub) {
   const checked = owned || state.catalogSelected.has(key);
   return `
-    <label class="horse-row" style="${owned ? 'opacity:0.5;' : ''}">
+    <label class="horse-row">
       <input type="checkbox" ${checked ? 'checked' : ''} ${owned ? 'disabled' : ''} onchange="toggleCatalogKey('${key}', this.checked)" style="width:20px;height:20px;flex-shrink:0;">
       <div style="flex:1; min-width:0;">
         <div class="customer-row-name">${label}</div>
-        <div class="customer-row-sub">${owned ? 'Already in your inventory' : sub}</div>
+        <div class="customer-row-sub" ${owned ? 'style="color:#22c55e;font-weight:600;"' : ''}>${owned ? '✓ In inventory' : sub}</div>
       </div>
     </label>`;
 }
@@ -3453,10 +3900,9 @@ function toggleCatalogSearchAll() {
 
 function renderFdProduct(p, pi) {
   const brand = p.b ? ` <span style="font-weight:400;color:var(--text-muted);">— ${escapeHtml(p.b)}</span>` : '';
-  const price = (v) => v[2] ? '$' + Number(v[2]).toFixed(2) : '';
   if (p.v.length === 1 && !p.v[0][0]) {
     return catalogCheckRow(`fd:${pi}:0`, state.catalogOwned.has(inventoryCatalogKey(p.t, '')),
-      escapeHtml(p.t) + brand, [price(p.v[0]), p.u !== 'each' ? 'per ' + escapeHtml(p.u) : ''].filter(Boolean).join(' · '));
+      escapeHtml(p.t) + brand, p.u !== 'each' ? 'per ' + escapeHtml(p.u) : '');
   }
   const selCount = p.v.filter((_, vi) => state.catalogSelected.has(`fd:${pi}:${vi}`)).length;
   const isOpen = state.catalogOpenProduct === pi;
@@ -3478,9 +3924,9 @@ function renderFdProduct(p, pi) {
       const key = `fd:${pi}:${vi}`;
       const owned = state.catalogOwned.has(inventoryCatalogKey(p.t, v[0]));
       const on = owned || state.catalogSelected.has(key);
-      return `<label style="display:inline-flex; align-items:center; gap:6px; padding:8px 12px; border-radius:999px; background:var(--surface); border:2px solid ${on ? 'var(--blue)' : 'var(--border)'}; font-size:0.85rem; font-weight:600; ${owned ? 'opacity:0.5;' : ''}">
+      return `<label style="display:inline-flex; align-items:center; gap:6px; padding:8px 12px; border-radius:999px; background:var(--surface); border:2px solid ${owned ? '#22c55e' : on ? 'var(--blue)' : 'var(--border)'}; font-size:0.85rem; font-weight:600;">
         <input type="checkbox" ${on ? 'checked' : ''} ${owned ? 'disabled' : ''} onchange="toggleCatalogKey('${key}', this.checked); renderInventoryCatalog();" style="margin:0;">
-        ${escapeHtml(v[0] || 'Standard')}${v[2] ? `<span style="font-weight:400;color:var(--text-muted);">${price(v)}</span>` : ''}
+        ${escapeHtml(v[0] || 'Standard')}${owned ? ' <span style="color:#22c55e;">✓</span>' : ''}
       </label>`;
     }).join('') + `</div>`;
   }
@@ -3522,7 +3968,7 @@ function renderInventoryCatalog() {
           </div>`;
         if (isOpen) html += `<div style="padding-left:12px;">${inCat.map(({ p, pi }) => renderFdProduct(p, pi)).join('')}</div>`;
       });
-      html += `<div class="customer-row-sub" style="padding:10px 4px;">List prices as of ${escapeHtml(fd.retrieved)} — edit any item to enter your actual cost.</div>`;
+      html += `<div class="customer-row-sub" style="padding:10px 4px;">Edit any item to enter your cost.</div>`;
     }
   } else {
     let lastCat = null;
@@ -3682,6 +4128,290 @@ function restockInventoryItem(item) {
   }));
   showToast(qty > 0 ? 'Restocked!' : 'Adjusted!', 'success');
   loadInventoryList();
+}
+
+// ── SHOPPING LIST ──
+// Things to buy: shared with the whole business (team members included), live across phone and desktop, and
+// kept working offline (writes go through performWrite, so they queue and sync). Tick "Purchased", then
+// "Add to inventory" puts it into stock. lib/shopping-list.js cleans input and builds the writes; the inventory
+// update, its restock record and the list item's mark are committed as ONE batch.
+// Stored at farriers/{businessId}/shoppingList/{id}.
+const shopState = { items: [], unsub: null, stockItem: null, inventory: [], mode: 'existing' };
+const shopCol = () => db.collection('farriers').doc(bizId()).collection('shoppingList');
+const shopStamp = () => firebase.firestore.FieldValue.serverTimestamp();
+
+function openShoppingList() {
+  goTo('screen-shopping');
+  document.getElementById('shop-error').textContent = '';
+  document.getElementById('shop-suggest').innerHTML = '';
+  loadShopInventory();
+  if (shopState.unsub) { shopState.unsub(); shopState.unsub = null; }
+  shopState.unsub = shopCol().onSnapshot(
+    snap => { shopState.items = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderShoppingList(); },
+    err => { console.error('Shopping list error:', err); document.getElementById('shop-error').textContent = 'Couldn’t load the shopping list. Please try again.'; });
+}
+
+function renderShoppingList() {
+  const { toBuy, purchased } = FarriShopping.group(shopState.items);
+  const qtyLabel = (it) => escapeHtml(`${it.qty ?? 1}${it.unit ? ' ' + it.unit : ''}`);
+  const box = (checked, disabled, id) => `<input type="checkbox" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} onchange="toggleShoppingItem('${escapeHtml(id)}')" style="width:26px;height:26px;flex-shrink:0;" aria-label="Purchased">`;
+  const del = (id) => `<button type="button" onclick="removeShoppingItem('${escapeHtml(id)}')" aria-label="Remove" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;padding:6px 8px;cursor:pointer;">✕</button>`;
+  const toBuyHtml = toBuy.map(it => `
+    <div class="card" style="display:flex; align-items:center; gap:12px; padding:12px 14px; margin-bottom:8px;">
+      ${box(false, false, it.id)}
+      <div style="flex:1; min-width:0;"><div style="font-weight:700;">${escapeHtml(it.name)}</div><div style="font-size:0.85rem; color:var(--text-muted);">${qtyLabel(it)}</div></div>
+      ${del(it.id)}
+    </div>`).join('');
+  const doneHtml = purchased.map(it => `
+    <div class="card" style="padding:12px 14px; margin-bottom:8px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        ${box(true, !!it.inventoryItemId, it.id)}
+        <div style="flex:1; min-width:0;"><div style="font-weight:700; text-decoration:line-through; color:var(--text-muted);">${escapeHtml(it.name)}</div><div style="font-size:0.85rem; color:var(--text-muted);">${qtyLabel(it)}</div></div>
+        ${del(it.id)}
+      </div>
+      ${it.inventoryItemId
+        ? `<div style="margin-top:8px; color:var(--success); font-weight:700; font-size:0.9rem;">✓ In inventory${it.inventoryItemName ? ': ' + escapeHtml(it.inventoryItemName) : ''}</div>`
+        : `<button type="button" class="btn-primary" onclick="openShopStock('${escapeHtml(it.id)}')" style="margin-top:10px; padding:10px 14px; font-size:0.95rem;">Add to inventory</button>`}
+    </div>`).join('');
+  document.getElementById('shop-list').innerHTML =
+    `<div class="card-title" style="margin:4px 2px 8px;">To buy (${toBuy.length})</div>` +
+    (toBuy.length ? toBuyHtml : `<div style="color:var(--text-muted); padding:4px 2px 14px;">Nothing on the list. Add something above.</div>`) +
+    (purchased.length
+      ? `<div style="display:flex; align-items:center; justify-content:space-between; margin:14px 2px 8px;"><div class="card-title" style="margin:0;">Purchased (${purchased.length})</div>` +
+        `<button type="button" class="btn-sm" onclick="clearPurchasedShopping()" style="background:var(--surface); border:2px solid var(--border); color:var(--text);">Clear purchased</button></div>` + doneHtml
+      : '');
+}
+
+function addShoppingItem() {
+  const nameEl = document.getElementById('shop-name'), qtyEl = document.getElementById('shop-qty'), unitEl = document.getElementById('shop-unit');
+  const err = document.getElementById('shop-error');
+  const r = FarriShopping.cleanNewItem({ name: nameEl.value, qty: qtyEl.value, unit: unitEl.value });
+  if (!r.ok) { err.textContent = r.error; return; }
+  err.textContent = '';
+  performWrite(() => shopCol().add({ ...r.value, purchased: false, purchasedAt: null, inventoryItemId: '', createdAt: shopStamp(), createdBy: state.user?.uid || '' }));
+  nameEl.value = ''; qtyEl.value = '1'; unitEl.value = '';
+  shopState.suggestOff = false; renderShopSuggest(); // clears the suggestions
+  nameEl.focus();
+}
+
+function toggleShoppingItem(id) {
+  const it = shopState.items.find(x => x.id === id);
+  if (!it || it.inventoryItemId) { renderShoppingList(); return; }
+  performWrite(() => shopCol().doc(id).update(it.purchased
+    ? { purchased: false, purchasedAt: null, purchasedBy: '' }
+    : { purchased: true, purchasedAt: shopStamp(), purchasedBy: state.user?.uid || '' }));
+}
+
+function removeShoppingItem(id) {
+  const it = shopState.items.find(x => x.id === id);
+  if (!it || !confirm(`Remove “${it.name}” from the list?`)) return;
+  performWrite(() => shopCol().doc(id).delete());
+}
+
+function clearPurchasedShopping() {
+  const done = shopState.items.filter(i => i.purchased);
+  if (!done.length) return;
+  const notStocked = done.filter(i => !i.inventoryItemId).length;
+  const msg = `Clear ${done.length} purchased item${done.length === 1 ? '' : 's'} from the list?` +
+    (notStocked ? `\n\n${notStocked} of them ${notStocked === 1 ? 'hasn’t' : 'haven’t'} been added to your inventory yet, and won’t be.` : '');
+  if (!confirm(msg)) return;
+  performWrite(() => { const b = db.batch(); done.forEach(i => b.delete(shopCol().doc(i.id))); return b.commit(); });
+}
+
+// Add a purchased item to inventory: to one you already have, or as a new item.
+async function openShopStock(id) {
+  const it = shopState.items.find(x => x.id === id);
+  if (!it || it.inventoryItemId) return;
+  shopState.stockItem = it;
+  document.getElementById('shopstock-item').textContent = `${it.name} (bought: ${it.qty ?? 1}${it.unit ? ' ' + it.unit : ''})`;
+  document.getElementById('shopstock-qty').value = it.qty ?? 1;
+  document.getElementById('shopstock-name').value = it.name || '';
+  document.getElementById('shopstock-category').value = '';
+  document.getElementById('shopstock-unit').value = it.unit || '';
+  document.getElementById('shopstock-cost').value = '';
+  document.getElementById('shopstock-tool').checked = false;
+  document.getElementById('shopstock-error').textContent = '';
+  document.getElementById('shopstock-save').disabled = false;
+  document.getElementById('shopstock-select').innerHTML = '<option value="">Loading…</option>';
+  shopState.inventory = []; setShopStockMode('new');
+  goTo('screen-shopping-stock');
+  try {
+    const snap = await db.collection('inventoryItems').where('farrierId', '==', bizId()).get();
+    shopState.inventory = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  } catch (e) { console.error('Inventory load failed:', e); shopState.inventory = []; }
+  const sel = document.getElementById('shopstock-select');
+  sel.innerHTML = '<option value="">Choose…</option>' + shopState.inventory.map(i =>
+    `<option value="${escapeHtml(i.id)}">${escapeHtml(i.name)}${i.size ? ' (' + escapeHtml(i.size) + ')' : ''}, ${escapeHtml(String(i.quantityOnHand ?? 0))} ${escapeHtml(i.unit || '')} on hand</option>`).join('');
+  const match = FarriShopping.suggestInventoryMatch(it.name, shopState.inventory);
+  if (match) { sel.value = match.id; setShopStockMode('existing'); } else { setShopStockMode('new'); }
+}
+
+function setShopStockMode(mode) {
+  // "Add to an item I have" only makes sense when there are items to pick from.
+  if (mode === 'existing' && !shopState.inventory.length) mode = 'new';
+  shopState.mode = mode;
+  document.getElementById('shopstock-existing').style.display = mode === 'existing' ? '' : 'none';
+  document.getElementById('shopstock-new').style.display = mode === 'new' ? '' : 'none';
+  document.getElementById('shopstock-mode-existing').classList.toggle('selected', mode === 'existing');
+  document.getElementById('shopstock-mode-new').classList.toggle('selected', mode === 'new');
+  document.getElementById('shopstock-modes').style.display = shopState.inventory.length ? 'flex' : 'none';
+}
+
+function saveShopStock() {
+  const it = shopState.stockItem, err = document.getElementById('shopstock-error');
+  if (!it) return;
+  const mode = shopState.mode;
+  const existing = shopState.inventory.find(i => i.id === document.getElementById('shopstock-select').value);
+  const newRef = mode === 'new' ? db.collection('inventoryItems').doc() : null;
+  const r = FarriShopping.buildAddToInventory({
+    item: it, mode, existing, newId: newRef && newRef.id, qty: document.getElementById('shopstock-qty').value, farrierId: bizId(), userId: state.user?.uid || '',
+    fresh: { name: document.getElementById('shopstock-name').value, category: document.getElementById('shopstock-category').value, unit: document.getElementById('shopstock-unit').value,
+      costPerUnit: document.getElementById('shopstock-cost').value, isTool: document.getElementById('shopstock-tool').checked },
+    fv: firebase.firestore.FieldValue,
+  });
+  if (r.error) { err.textContent = r.error; return; }
+  err.textContent = '';
+  document.getElementById('shopstock-save').disabled = true; // one tap, one add
+  performWrite(() => {
+    const b = db.batch();
+    if (r.inventory.kind === 'update') b.update(db.collection('inventoryItems').doc(r.inventory.id), r.inventory.data);
+    else b.set(newRef, r.inventory.data);
+    b.set(db.collection('inventoryTransactions').doc(), r.transaction);
+    b.update(shopCol().doc(it.id), r.shopping);
+    return b.commit();
+  });
+  showToast(`Added ${r.qty} to ${r.shopping.inventoryItemName}${netState.online ? '' : ' (will sync when back online)'}`, 'success');
+  loadShopInventory(); // so the suggestions know it's in stock now
+  goBack();
+}
+
+// ── Shopping list suggestions ──
+// As they type the item, suggest matches from their own inventory (with how many they have) and from the supply
+// catalog (lib/inventory-search.js). Tapping one fills in the name and unit. If nothing matches anywhere it says so
+// and offers to add exactly what they typed as a new item. The catalog is downloaded the first time they type.
+function loadShopInventory() {
+  const bid = bizId();
+  db.collection('inventoryItems').where('farrierId', '==', bid).get()
+    .then(snap => { shopState.suggInventory = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderShopSuggest(); })
+    .catch(e => console.error('Inventory load failed:', e)); // suggestions just have fewer matches
+}
+
+function shopSuggestInput() { shopState.suggestOff = false; shopState.picked = new Set(); renderShopSuggest(); } // typing more clears any ticked choices
+
+function renderShopSuggest() {
+  const box = document.getElementById('shop-suggest');
+  const keepScroll = box.scrollTop;
+  const typed = document.getElementById('shop-name').value.trim();
+  if (!typed || shopState.suggestOff) { box.innerHTML = ''; shopState.sugg = null; return; }
+  const picked = shopState.picked || (shopState.picked = new Set());
+  const IS = FarriInventorySearch, inv = shopState.suggInventory || [];
+  if (!shopState.catalog && !shopState.catalogError && !shopState.catalogLoading) {
+    shopState.catalogLoading = true;
+    loadSupplyCatalog().then(d => { shopState.catalog = d; }).catch(e => { shopState.catalogError = e.message || 'offline'; })
+      .finally(() => { shopState.catalogLoading = false; renderShopSuggest(); });
+  }
+  const checking = !shopState.catalog && !shopState.catalogError;
+  const own = IS.search(inv, typed).slice(0, 5);
+  const owned = new Set(inv.map(i => inventoryCatalogKey(i.name, i.size)));
+  const cat = shopState.catalog
+    ? IS.searchCatalog({ general: window.INVENTORY_CATALOG || [], products: shopState.catalog.products || [] }, typed, { owned, keyFn: inventoryCatalogKey, maxSupply: 4, maxGeneral: 3 })
+    : { general: [], supply: [] };
+  shopState.sugg = { own, supply: cat.supply, general: cat.general };
+  const count = cat.supply.length + cat.general.length;
+  const nothing = own.length === 0 && !checking && count === 0;
+  const label = (t) => `<div style="font-size:0.72rem; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-muted); margin:8px 0 4px;">${t}</div>`;
+  const row = (onclick, left, right) => `<button type="button" onclick="${onclick}" style="display:flex; width:100%; justify-content:space-between; gap:10px; align-items:center; text-align:left; padding:10px 2px; background:none; border:none; border-top:1px solid var(--border); font-family:inherit; font-size:0.95rem; color:var(--text); cursor:pointer;"><span style="font-weight:700;">${left}</span><span style="font-size:0.8rem; color:var(--text-muted); text-align:right;">${right}</span></button>`;
+  const pickedBar = picked.size ? `<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 10px; margin:6px 0; border-radius:10px; background:var(--blue); color:#fff;">
+      <strong>${picked.size} selected</strong>
+      <button type="button" onclick="addSelectedShopVariants()" style="background:#fff; color:var(--blue); border:none; border-radius:8px; padding:7px 12px; font-weight:700; font-family:inherit; cursor:pointer;">Add ${picked.size} to the list</button>
+      <button type="button" onclick="clearShopPicked()" style="background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.7); border-radius:8px; padding:6px 10px; font-family:inherit; cursor:pointer;">Clear</button>
+      ${picked.size === 1 ? `<button type="button" onclick="fillShopFromPicked()" style="background:transparent; color:#fff; border:none; text-decoration:underline; font-family:inherit; cursor:pointer;">Fill the box instead</button>` : ''}
+    </div>` : '';
+  let html = '';
+  if (own.length) {
+    html += label('In your inventory') + own.map((i, n) => {
+      const low = i.isConsumable !== false && Number(i.quantityOnHand || 0) < Number(i.reorderThreshold || 0);
+      return row(`pickShopSuggestion('own', ${n})`, escapeHtml(i.name) + (i.size ? ' (' + escapeHtml(i.size) + ')' : ''),
+        `${escapeHtml(String(i.quantityOnHand ?? 0))} ${escapeHtml(i.unit || '')} on hand${low ? ' · ⚠ Low' : ''}`);
+    }).join('');
+  }
+  if (checking && !own.length) html += `<div style="color:var(--text-muted); font-size:0.9rem; padding:8px 2px;">Checking the supply catalog…</div>`;
+  if (count) {
+    html += label('In the supply catalog') + pickedBar +
+      cat.supply.map(({ pi, product, variants }, n) => `
+        <div style="padding:10px 2px; border-top:1px solid var(--border);">
+          <div style="font-weight:700;">${escapeHtml(product.t)}</div>
+          <div style="font-size:0.8rem; color:var(--text-muted); margin:2px 0 8px;">${escapeHtml([product.b, product.c.split(' > ')[0]].filter(Boolean).join(' · '))}</div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">${variants.slice(0, 12).map((v, vn) => {
+            if (variants.length === 1) return `<button type="button" class="btn-sm" onclick="pickShopSuggestion('supply', ${n}, ${vn})" style="background:var(--surface); border:2px solid var(--blue); color:var(--blue);">${escapeHtml(IS.variantLabel(v.size))}</button>`; // one choice only: use it
+            const on = picked.has(pi + ':' + v.vi);
+            return `<button type="button" class="btn-sm" aria-pressed="${on}" onclick="toggleShopVariant(${pi}, ${v.vi})" style="border:2px solid var(--blue); ${on ? 'background:var(--blue); color:#fff;' : 'background:var(--surface); color:var(--blue);'}">${on ? '✓ ' : ''}${escapeHtml(IS.variantLabel(v.size))}</button>`;
+          }).join('')}${variants.length > 12 ? `<span style="font-size:0.8rem; color:var(--text-muted); align-self:center;">+${variants.length - 12} more sizes: type the size you need</span>` : ''}</div>
+        </div>`).join('') +
+      cat.general.map(({ entry }, n) => row(`pickShopSuggestion('general', ${n})`, escapeHtml(entry.name), escapeHtml(entry.category))).join('') +
+      (picked.size > 1 ? pickedBar : '');
+  }
+  if (shopState.catalogError) html += `<div style="color:var(--text-muted); font-size:0.8rem; padding:6px 2px;">Couldn’t check the supply catalog right now (${escapeHtml(shopState.catalogError)}).</div>`;
+  if (nothing) {
+    html += `<div style="padding:8px 2px;"><div style="font-weight:700; margin-bottom:10px;">Nothing in your inventory${shopState.catalogError ? '' : ' or the supply catalog'} matches “${escapeHtml(typed)}”.</div>` +
+      `<button type="button" class="btn-primary" onclick="addShoppingItem()">+ Add “${escapeHtml(typed)}” to the list as a new item</button></div>`;
+  } else {
+    html += `<div style="color:var(--text-muted); font-size:0.8rem; padding:8px 2px 2px; border-top:1px solid var(--border); margin-top:4px;">Not what you’re looking for? Tap Add to put “${escapeHtml(typed)}” on the list as typed.</div>`;
+  }
+  box.innerHTML = `<div class="card" style="margin:8px 0 0; padding:6px 12px;">${html}</div>`;
+  box.scrollTop = keepScroll;
+}
+
+// Several choices of one catalog product (colours, sizes) can be ticked and added to the list together, each as its own
+// line, using the quantity in the box. Keys are '<product index>:<choice index>' into the loaded catalog.
+function toggleShopVariant(pi, vi) {
+  const set = shopState.picked || (shopState.picked = new Set()), k = pi + ':' + vi;
+  set.has(k) ? set.delete(k) : set.add(k);
+  renderShopSuggest();
+}
+function clearShopPicked() { shopState.picked = new Set(); renderShopSuggest(); }
+function shopPickedList() { return [...(shopState.picked || [])].map(k => k.split(':').map(Number)).sort((a, b) => a[0] - b[0] || a[1] - b[1]); }
+function fillShopFromPicked() {
+  const [pi, vi] = shopPickedList()[0] || [];
+  const product = shopState.catalog && shopState.catalog.products[pi]; if (!product) return;
+  const p = FarriInventorySearch.shoppingPick('supply', product, product.v[vi][0]);
+  document.getElementById('shop-name').value = p.name; document.getElementById('shop-unit').value = p.unit;
+  document.getElementById('shop-error').textContent = '';
+  shopState.picked = new Set(); shopState.suggestOff = true; renderShopSuggest();
+  document.getElementById('shop-qty').focus();
+}
+function addSelectedShopVariants() {
+  const list = shopPickedList(), err = document.getElementById('shop-error');
+  if (!list.length || !shopState.catalog) return;
+  const qty = document.getElementById('shop-qty').value, rows = [];
+  for (const [pi, vi] of list) {
+    const product = shopState.catalog.products[pi], pk = FarriInventorySearch.shoppingPick('supply', product, product.v[vi][0]);
+    const r = FarriShopping.cleanNewItem({ name: pk.name, qty, unit: pk.unit });
+    if (!r.ok) { err.textContent = r.error; return; }
+    rows.push(r.value);
+  }
+  err.textContent = '';
+  performWrite(() => { // all of them, or none
+    const b = db.batch();
+    rows.forEach(v => b.set(shopCol().doc(), { ...v, purchased: false, purchasedAt: null, inventoryItemId: '', createdAt: shopStamp(), createdBy: state.user?.uid || '' }));
+    return b.commit();
+  });
+  document.getElementById('shop-name').value = ''; document.getElementById('shop-qty').value = '1'; document.getElementById('shop-unit').value = '';
+  shopState.picked = new Set(); shopState.suggestOff = false; renderShopSuggest();
+  showToast(`Added ${rows.length} item${rows.length === 1 ? '' : 's'} to the list`, 'success');
+}
+
+function pickShopSuggestion(kind, a, b) {
+  const sg = shopState.sugg; if (!sg) return;
+  const IS = FarriInventorySearch;
+  const p = kind === 'own' ? IS.shoppingPick('own', sg.own[a])
+    : kind === 'supply' ? IS.shoppingPick('supply', sg.supply[a].product, sg.supply[a].variants[b].size)
+    : IS.shoppingPick('general', sg.general[a].entry);
+  document.getElementById('shop-name').value = p.name;
+  document.getElementById('shop-unit').value = p.unit;
+  document.getElementById('shop-error').textContent = '';
+  shopState.suggestOff = true; renderShopSuggest();
+  document.getElementById('shop-qty').focus();
 }
 
 // ── SETTINGS ──
@@ -3889,7 +4619,8 @@ function renderIposStatus(p, message) {
   document.getElementById('ipos-disconnect-btn').style.display = connected ? 'block' : 'none';
   if (connected) {
     el.style.cssText = 'display:block; background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:10px 12px; margin-bottom:12px; color:#16a34a; font-weight:600; font-size:0.88rem;';
-    el.textContent = `✅ iPOSpays connected — TPN ending ${p.ipospaysTpnLast4 || '••••'}${p.ipospaysMode === 'production' ? '' : ' (sandbox — test payments only)'}`;
+    el.textContent = `✅ iPOSpays connected — TPN ending ${p.ipospaysTpnLast4 || '••••'}${p.ipospaysMode === 'production' ? '' : ' (sandbox — test payments only)'}`
+      + (p.stripePublishableKey ? '. Stripe is connected too: card payments go through iPOSpays. Disconnect one of them.' : '');
   } else if (message) {
     el.style.cssText = 'display:block; background:#fef2f2; border:1px solid #fca5a5; border-radius:8px; padding:10px 12px; margin-bottom:12px; color:#dc2626; font-weight:600; font-size:0.88rem;';
     el.textContent = '❌ ' + message;
@@ -3929,12 +4660,14 @@ async function validateAndSaveIpos() {
 }
 
 async function disconnectIpos() {
-  if (!confirm('Disconnect iPOSpays? Pay Now links will go back to Stripe (if connected).')) return;
+  if (!confirm('Disconnect iPOSpays? Payment pages your customers haven\'t paid yet will be closed, and Pay Now links will go back to Stripe (if connected).')) return;
   if (!netState.online) { showToast('Disconnecting iPOSpays requires an internet connection', 'error'); return; }
+  let result = {};
   try {
     const res = await fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'ipospays_disconnect' }) });
-    if (!(await res.json()).success) throw new Error('disconnect failed');
-  } catch (e) { showToast('Could not disconnect iPOSpays — try again', 'error'); return; }
+    result = await res.json().catch(() => ({}));
+  } catch (e) { /* offline or server unreachable */ }
+  if (!result.success) { showToast(result.error || 'Could not disconnect iPOSpays — try again', 'error'); return; }
   await saveIposProfile({ ipospaysConnected: false, ipospaysMode: '', ipospaysTpnLast4: '' });
   renderIposStatus(state.userProfile);
   showToast('iPOSpays disconnected', 'success');
@@ -3980,13 +4713,15 @@ async function validateAndSaveStripe() {
 }
 
 async function disconnectStripe() {
-  if (!confirm('Remove your Stripe connection? Pay Now links will stop working until you reconnect.')) return;
+  if (!confirm('Remove your Stripe connection? Stripe payment pages your customers haven\'t paid yet will be closed, and Pay Now links will stop working until you connect a processor.')) return;
   // The key has to be removed on the server, so this needs signal.
   if (!netState.online) { showToast('Disconnecting Stripe requires an internet connection', 'error'); return; }
+  let result = {};
   try {
     const res = await fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disconnect' }) });
-    if (!(await res.json()).success) throw new Error('disconnect failed');
-  } catch (e) { showToast('Could not disconnect Stripe — try again', 'error'); return; }
+    result = await res.json().catch(() => ({}));
+  } catch (e) { /* offline or server unreachable */ }
+  if (!result.success) { showToast(result.error || 'Could not disconnect Stripe — try again', 'error'); return; }
   const suffix = '';
   state.userProfile = { ...(state.userProfile || {}), stripePublishableKey: '', stripeAccountName: '' };
   performWrite(() => db.collection('farriers').doc(bizId()).set({
@@ -4005,7 +4740,7 @@ function buildInvoiceEmail(inv, bizName, firstName, payUrl) {
   const total = (inv.total || 0).toFixed(2);
   const prices = FarriPricing.dualPrices(inv);
   const items = (inv.items || []).map(i =>
-    `<tr><td style="padding:6px 8px;font-size:14px;color:#374151;">${i.description||i.name||''}${i.horseName ? ` (${i.horseName})` : ''}</td><td style="padding:6px 8px;font-size:14px;color:#374151;text-align:right;">$${(i.amount||i.price||0).toFixed(2)}</td></tr>`
+    `<tr><td style="padding:6px 8px;font-size:14px;color:#374151;">${i.description||i.name||''}${FarriPricing.itemHorseLabel(i) ? ` (${FarriPricing.itemHorseLabel(i)})` : ''}</td><td style="padding:6px 8px;font-size:14px;color:#374151;text-align:right;">$${(i.amount||i.price||0).toFixed(2)}</td></tr>`
   ).join('');
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333;">
@@ -4070,6 +4805,88 @@ async function loadBusinessDashboard() {
     err.textContent = 'Couldn’t load the dashboard. Please try again.'; err.style.display = 'block';
   }
   loading.style.display = 'none';
+}
+
+// ── ASK FARRITECH ──
+// Type a question about the business, get an answer. The server (api/_lib/ask-ai.js, reached through
+// /api/stripe-payment action 'ask_ai') lets Claude pick a read-only calculation over this business's own
+// records; nothing is changed. Same as the desktop "Ask FarriTech" tab. Owners and managers only, and it
+// needs a connection (the answer is worked out on the server, not from this phone's synced copy).
+const ASK_EXAMPLES = ['Who owes me money this week?', 'How many active customers do I have?', 'How many horses did I shoe last week?', 'How much did I collect last month?', 'How many horses are due in the next 4 weeks?', 'What is my average invoice?'];
+const ASK_MONEY_KEYS = /^(total_owed|owed|total_collected|collected|refunds|collected_after_refunds|for_comparison_invoiced_in_range|total_invoiced|average_invoice|median_invoice|largest_invoice|smallest_invoice)$/;
+const askState = { thread: [], busy: false }; // thread, oldest first: { q, a, facts } or { q, error }
+
+function openAskFarriTech() {
+  if (state.teamRole === 'farrier') return;
+  goTo('screen-ask');
+  document.getElementById('ask-examples').innerHTML = ASK_EXAMPLES.map((q, i) =>
+    `<button type="button" class="btn-sm" style="flex:0 0 auto; background:#EBF4FF; color:var(--blue); white-space:nowrap;" onclick="askFarriTech(ASK_EXAMPLES[${i}])">${escapeHtml(q)}</button>`).join('');
+  renderAsk();
+}
+
+// "Show the numbers": what the server's calculations returned, as plain tables. Everything is escaped
+// (customer and horse names are data, not markup).
+function askFactsHtml(data) {
+  const label = (k) => escapeHtml(String(k).replace(/_/g, ' '));
+  const fmt = (k, v) => {
+    if (v == null) return '';
+    if (Array.isArray(v)) return escapeHtml(v.map(x => x && typeof x === 'object' ? Object.values(x).join(' · ') : String(x)).join('; '));
+    if (ASK_MONEY_KEYS.test(k)) return '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return escapeHtml(String(v));
+  };
+  const cell = 'padding:3px 10px 3px 0; text-align:left; vertical-align:top;';
+  return Object.entries(data || {}).map(([k, v]) => {
+    if (Array.isArray(v)) {
+      if (!v.length) return `<div><b>${label(k)}:</b> none</div>`;
+      const cols = [...new Set(v.flatMap(r => Object.keys(r || {})))]; // rows can have different fields
+      return `<div style="overflow-x:auto; margin:6px 0;"><table style="border-collapse:collapse; font-size:0.8rem;">`
+        + `<thead><tr>${cols.map(c => `<th style="${cell} color:var(--text-muted); font-weight:600;">${label(c)}</th>`).join('')}</tr></thead>`
+        + `<tbody>${v.map(row => `<tr>${cols.map(c => `<td style="${cell}">${fmt(c, row[c])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    }
+    if (v && typeof v === 'object') return `<div style="margin:6px 0;"><b>${label(k)}</b><div style="margin-left:10px;">${askFactsHtml(v)}</div></div>`;
+    return `<div><span style="color:var(--text-muted);">${label(k)}:</span> ${fmt(k, v)}</div>`;
+  }).join('');
+}
+
+function renderAsk() {
+  const box = document.getElementById('ask-results');
+  const busy = askState.busy;
+  document.getElementById('ask-send').disabled = busy;
+  document.getElementById('ask-send').textContent = busy ? '…' : 'Ask';
+  box.innerHTML = (busy ? `<div class="card" style="color:var(--text-muted);">Looking through your records…</div>` : '')
+    + askState.thread.slice().reverse().map(t => `<div class="card">
+        <div style="color:var(--text-muted); font-size:0.85rem; margin-bottom:6px;">${escapeHtml(t.q)}</div>
+        ${t.error
+          ? `<div style="color:var(--danger); font-size:0.95rem;">${escapeHtml(t.error)}</div>`
+          : `<div style="white-space:pre-wrap; font-size:1rem; line-height:1.45;">${escapeHtml(t.a)}</div>`}
+        ${!t.error && (t.facts || []).length ? `<details style="margin-top:10px; font-size:0.85rem;"><summary style="color:var(--blue); cursor:pointer;">Show the numbers</summary>
+          <div style="margin-top:8px;">${t.facts.map(f => `<div style="margin-bottom:10px;">${askFactsHtml(f.result)}</div>`).join('')}</div></details>` : ''}
+      </div>`).join('');
+}
+
+async function askFarriTech(text) {
+  const input = document.getElementById('ask-input');
+  const question = String(text == null ? input.value : text).trim();
+  if (!question || askState.busy) return;
+  if (!netState.online) { showToast('Ask FarriTech needs an internet connection', 'error'); return; }
+  askState.busy = true; input.value = ''; input.blur();
+  renderAsk();
+  document.getElementById('ask-scroll').scrollTop = 0;
+  // The last few answers, so a follow-up like "and last month?" makes sense.
+  const history = askState.thread.filter(t => !t.error).slice(-3).flatMap(t => [{ role: 'user', content: t.q }, { role: 'assistant', content: t.a }]);
+  try {
+    const res = await fetch('/api/stripe-payment', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'ask_ai', question, history, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) throw new Error(data.error || 'Something went wrong. Please try again.');
+    askState.thread.push({ q: question, a: data.answer, facts: data.facts || [] });
+  } catch (e) {
+    askState.thread.push({ q: question, error: e.message || 'Something went wrong. Please try again.' });
+  }
+  askState.busy = false;
+  renderAsk();
 }
 
 // ── REFUNDS ──
@@ -4171,41 +4988,145 @@ function openInvoicePayment(inv) {
   document.getElementById('pay-amount').textContent = FarriPricing.money(prices.cash);
   document.getElementById('pay-dual-price').textContent = prices.card !== null ? FarriPricing.dualPriceText(inv) : '';
   document.getElementById('pay-edit-invoice-btn').style.display = inv.status === 'outstanding' ? 'inline-block' : 'none';
+  document.getElementById('pay-resend-section').style.display = inv.status === 'paid' ? 'none' : 'block';
+  closeResend();
   document.getElementById('check-fields').style.display = 'none';
   document.getElementById('card-fields').style.display = 'none';
-  document.getElementById('link-fields').style.display = 'none';
   // Reset Stripe card element for fresh entry each time
   if (_stripeCard) { _stripeCard.destroy(); _stripeCard = null; }
   document.getElementById('confirm-pay-btn').disabled = true;
-  document.querySelectorAll('.pay-chip').forEach(c => c.classList.remove('selected'));
+  populatePayMethodOptions();
+  document.getElementById('check-number').value = '';
   document.getElementById('confirm-pay-btn').textContent = 'Confirm Payment';
-  updatePayMethodAvailability();
   goTo('screen-payment');
 }
 
-// Card and Pay Link both require network (a live Stripe charge, an emailed/texted
-// link) — grey them out while offline instead of letting the farrier tap one and
-// hit a confusing failure. Cash/Check stay available and queue like any other write.
+// "Resend Invoice" on the payment screen — Text/Email opens a panel pre-filled with the
+// invoice's phone/email so the farrier can check or change it, then Send texts or emails
+// the invoice with its pay link when online payments are connected (making one now if
+// it's missing). A new or changed number/email is saved back on the invoice.
+function openResend(channel) {
+  const inv = state.currentInvoice;
+  if (!inv) return;
+  const isSms = channel === 'sms';
+  state.resendChannel = channel;
+  document.getElementById('resend-panel').style.display = 'block';
+  document.getElementById('resend-to-label').textContent = isSms ? '💬 Text invoice to mobile number' : '✉️ Email invoice to';
+  const input = document.getElementById('resend-to-input');
+  input.type = isSms ? 'tel' : 'email';
+  input.placeholder = isSms ? '(555) 555-5555' : 'name@example.com';
+  input.value = (isSms ? inv.customerPhone : inv.customerEmail) || '';
+  document.getElementById('resend-sms-btn').classList.toggle('selected', isSms);
+  document.getElementById('resend-email-btn').classList.toggle('selected', !isSms);
+  input.focus();
+}
+
+function closeResend() {
+  state.resendChannel = null;
+  document.getElementById('resend-panel').style.display = 'none';
+}
+
+async function resendInvoice() {
+  const inv = state.currentInvoice;
+  const channel = state.resendChannel;
+  if (!inv || !channel) return;
+  if (!netState.online) { showToast('Sending needs an internet connection', 'error'); return; }
+  const isSms = channel === 'sms';
+  const field = isSms ? 'customerPhone' : 'customerEmail';
+  const to = document.getElementById('resend-to-input').value.trim();
+  if (!to) { showToast(isSms ? 'Enter a mobile number' : 'Enter an email address', 'error'); return; }
+  if (!isSms && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) { showToast('Enter a valid email address', 'error'); return; }
+  const btns = ['resend-sms-btn', 'resend-email-btn', 'resend-send-btn'].map(id => document.getElementById(id));
+  btns.forEach(b => b.disabled = true);
+  document.getElementById('resend-send-btn').textContent = 'Sending…';
+  try {
+    if (to !== (inv[field] || '') && inv.id) {
+      inv[field] = to;
+      performWrite(() => db.collection('invoices').doc(inv.id).update({ [field]: to }));
+    }
+    let payUrl = inv.paymentUrl || '';
+    if (!payUrl && onlinePayConnected() && inv.id) {
+      try {
+        const plRes = await fetch('/api/stripe-payment', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'payment_link', invoiceId: inv.id }),
+        });
+        const plData = await plRes.json();
+        if (plData.success && plData.paymentUrl) { payUrl = plData.paymentUrl; inv.paymentUrl = payUrl; }
+      } catch (e) { console.warn('Pay link not created:', e); }
+    }
+    const bizName = state.userProfile?.businessName || 'Your Farrier';
+    let ok, error;
+    if (isSms) {
+      const body = payUrl
+        ? `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for ${FarriPricing.dualPriceText(inv)} from ${bizName} is ready.${(FarriPricing.itemsSmsText?.(inv) || '')} Pay here: ${payUrl}${FarriPricing.altPaySms(state.userProfile, inv)} Reply STOP to opt out.`
+        : `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for ${FarriPricing.dualPriceText(inv)} from ${bizName} is ready.${(FarriPricing.itemsSmsText?.(inv) || '')} Reply STOP to opt out.`;
+      const data = await (await fetch('/api/send-sms', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, body }),
+      })).json();
+      ok = data.success; error = data.error;
+    } else {
+      const firstName = (inv.customerName || 'there').split(' ')[0];
+      const data = await (await fetch('/api/send-email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, subject: `Invoice #${inv.invoiceNumber} from ${bizName}`, html: buildInvoiceEmail(inv, bizName, firstName, payUrl) }),
+      })).json();
+      ok = data.ok; error = data.error;
+    }
+    if (ok) { showToast(`Invoice ${isSms ? 'texted' : 'emailed'} to ${to}`); closeResend(); }
+    else showToast(`${isSms ? 'Text' : 'Email'} failed: ${error || 'Unknown error'}`, 'error');
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+  btns.forEach(b => b.disabled = false);
+  document.getElementById('resend-send-btn').textContent = 'Send';
+}
+
+// Same methods as the desktop Record Payment dropdown, plus "Card (charge now)" for a live
+// charge. Card requires network, so it's disabled while offline instead of letting the farrier
+// pick it and hit a confusing failure. Everything else stays available and queues like any other write.
+const PAY_REFERENCE_FIELDS = {
+  check: { label: 'Check #', placeholder: 'e.g. 1042', numeric: true },
+  ach: { label: 'Confirmation #', placeholder: 'Confirmation #' },
+  zelle: { label: 'Confirmation #', placeholder: 'Confirmation #' },
+  venmo: { label: 'Venmo transaction ID', placeholder: 'Venmo transaction ID' },
+  card_terminal: { label: 'Last 4 or approval code', placeholder: 'Last 4 or approval code' },
+  other: { label: 'Note', placeholder: 'Optional note' },
+};
+
+function populatePayMethodOptions() {
+  const sel = document.getElementById('pay-method-select');
+  sel.innerHTML = '<option value="" disabled selected>Select payment method…</option>'
+    + '<option value="card">Card (charge now)</option>'
+    + Object.entries(FarriPricing.MANUAL_METHODS).map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+  updatePayMethodAvailability();
+}
+
 function updatePayMethodAvailability() {
-  document.querySelectorAll('#pay-method-grid .pay-chip').forEach(chip => {
-    const needsNetwork = /'card'|'link'/.test(chip.getAttribute('onclick') || '');
-    chip.classList.toggle('chip-offline-disabled', needsNetwork && !netState.online);
-  });
+  const opt = document.querySelector('#pay-method-select option[value="card"]');
+  if (opt) opt.disabled = !netState.online;
 }
 window.addEventListener('online', updatePayMethodAvailability);
 window.addEventListener('offline', updatePayMethodAvailability);
 
-function selectPayMethod(method, el) {
-  if ((method === 'card' || method === 'link') && !netState.online) {
+function selectPayMethod(method) {
+  if (method === 'card' && !netState.online) {
     showToast('Card payments require an internet connection', 'error');
+    document.getElementById('pay-method-select').value = state.selectedPayMethod || '';
     return;
   }
   state.selectedPayMethod = method;
-  document.querySelectorAll('.pay-chip').forEach(c => c.classList.remove('selected'));
-  el.classList.add('selected');
-  document.getElementById('check-fields').style.display = method === 'check' ? 'block' : 'none';
+  const ref = PAY_REFERENCE_FIELDS[method];
+  document.getElementById('check-fields').style.display = ref ? 'block' : 'none';
+  if (ref) {
+    const input = document.getElementById('check-number');
+    document.getElementById('check-number-label').textContent = ref.label;
+    input.placeholder = ref.placeholder;
+    input.inputMode = ref.numeric ? 'numeric' : 'text';
+    input.style.letterSpacing = ref.numeric ? '2px' : '';
+  }
   document.getElementById('card-fields').style.display  = method === 'card'  ? 'block' : 'none';
-  document.getElementById('link-fields').style.display  = method === 'link'  ? 'block' : 'none';
   const iposCard = method === 'card' && Boolean(state.userProfile?.ipospaysConnected);
   document.getElementById('ipos-card-fields').style.display = iposCard ? 'block' : 'none';
   document.getElementById('stripe-card-fields').style.display = iposCard ? 'none' : 'block';
@@ -4217,9 +5138,8 @@ function selectPayMethod(method, el) {
   const btn = document.getElementById('confirm-pay-btn');
   btn.disabled = false;
   const inv = state.currentInvoice;
-  btn.textContent = method === 'link' ? '📲 Send Payment Link'
-    : method === 'card' ? `✓ Charge ${FarriPricing.money(FarriPricing.getChargeCents(inv, 'card_keyed'))}`
-    : `✓ Record ${FarriPricing.money(FarriPricing.getChargeCents(inv, method))} ${method === 'check' ? 'Check' : 'Cash'}`;
+  btn.textContent = method === 'card' ? `✓ Charge ${FarriPricing.money(FarriPricing.getChargeCents(inv, 'card_keyed'))}`
+    : `✓ Record ${FarriPricing.money(FarriPricing.getChargeCents(inv, method))} ${FarriPricing.MANUAL_METHODS[method]}`;
 }
 
 async function confirmPayment() {
@@ -4231,88 +5151,7 @@ async function confirmPayment() {
   document.getElementById('pay-saving').style.display = 'block';
 
   try {
-    if (method === 'link') {
-      // Send payment link via SMS/email
-      const sendSms = document.getElementById('send-sms-link')?.checked;
-      const sendEmail = document.getElementById('send-email-link')?.checked;
-      let payUrl = inv.paymentUrl || '';
-
-      // Must select at least one delivery method
-      if (!sendSms && !sendEmail) {
-        showToast('Please select SMS or Email to send the link', 'error');
-        document.getElementById('confirm-pay-btn').disabled = false;
-        document.getElementById('pay-saving').style.display = 'none';
-        return;
-      }
-
-      // No link yet (invoice made offline, or the link failed when it was saved) — make
-      // one now; the server builds it from the saved invoice.
-      let linkError = '';
-      if (!payUrl && netState.online && onlinePayConnected() && inv.id) {
-        try {
-          const plRes = await fetch('/api/stripe-payment', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'payment_link', invoiceId: inv.id }),
-          });
-          const plData = await plRes.json();
-          if (plData.success && plData.paymentUrl) {
-            payUrl = plData.paymentUrl;
-            inv.paymentUrl = payUrl;
-          } else {
-            linkError = plData.error || 'Stripe error';
-          }
-        } catch (e) {
-          linkError = e.message;
-        }
-      }
-
-      // Must have a payment URL
-      if (!payUrl) {
-        showToast(linkError ? 'No payment link: ' + linkError
-          : !netState.online ? 'No payment link — you are offline'
-          : 'No payment link available — check Stripe is connected in Settings', 'error');
-        document.getElementById('confirm-pay-btn').disabled = false;
-        document.getElementById('pay-saving').style.display = 'none';
-        return;
-      }
-
-      let sent = [];
-      if (sendSms && inv.customerPhone) {
-        await fetch('/api/send-sms', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ to: inv.customerPhone, body: `Hi ${inv.customerName}, your invoice #${inv.invoiceNumber} for ${FarriPricing.dualPriceText(inv)} is ready. Pay here: ${payUrl}${FarriPricing.altPaySms(state.userProfile, inv)} Reply STOP to opt out.` })
-        });
-        sent.push('SMS');
-      } else if (sendSms && !inv.customerPhone) {
-        showToast('Customer has no phone number on file', 'error');
-        document.getElementById('confirm-pay-btn').disabled = false;
-        document.getElementById('pay-saving').style.display = 'none';
-        return;
-      }
-      if (sendEmail && inv.customerEmail) {
-        const bizName = state.userProfile?.businessName || 'Your Farrier';
-        const firstName = (inv.customerName || 'there').split(' ')[0];
-        const invoiceHtml = buildInvoiceEmail(inv, bizName, firstName, payUrl);
-        const emailRes = await fetch('/api/send-email', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: inv.customerEmail,
-            subject: `Invoice #${inv.invoiceNumber} from ${bizName}`,
-            html: invoiceHtml
-          })
-        });
-        const emailData = await emailRes.json();
-        console.log('📧 Email result:', emailData);
-        sent.push('Email');
-      } else if (sendEmail && !inv.customerEmail) {
-        showToast('Customer has no email on file', 'error');
-        document.getElementById('confirm-pay-btn').disabled = false;
-        document.getElementById('pay-saving').style.display = 'none';
-        return;
-      }
-      showSuccess('Link Sent!', `Payment link sent via ${sent.join(' & ')} to ${inv.customerName}`);
-    } else if (method === 'card') {
+    if (method === 'card') {
       const charged = state.userProfile?.ipospaysConnected ? await chargeCardViaIpos(inv) : await chargeCardViaStripe(inv);
       if (!charged) {
         document.getElementById('confirm-pay-btn').disabled = false;
@@ -4321,11 +5160,14 @@ async function confirmPayment() {
       }
       showSuccess('Payment Charged!', `$${Number(charged.amount).toFixed(2)} collected via card`);
     } else {
-      // Cash or check for the balance at the cash price. Online, the server records it and
-      // closes any open pay link so the customer can't also pay online. Offline, it's written
-      // straight to the invoice and syncs later (the pay link can't be closed until then).
-      const checkNumber = method === 'check' ? (document.getElementById('check-number')?.value.trim() || '') : '';
+      // Cash, check, ACH, Zelle, Venmo, an outside card terminal or other, for the balance (at the
+      // card price for an external card, the cash price otherwise). Online, the server records
+      // it and closes any open pay link so the customer can't also pay online. Offline, it's
+      // written straight to the invoice and syncs later (the pay link can't be closed until then).
+      const checkNumber = PAY_REFERENCE_FIELDS[method] ? (document.getElementById('check-number')?.value.trim() || '') : '';
       const amountCents = FarriPricing.getChargeCents(inv, method);
+      const methodLabel = FarriPricing.MANUAL_METHODS[method];
+      const isCard = FarriPricing.isCardMethod(method);
       if (netState.online) {
         const res = await fetch('/api/stripe-payment', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -4340,25 +5182,25 @@ async function confirmPayment() {
         }
       } else {
         const payment = {
-          amount: amountCents / 100, creditAmount: amountCents / 100, method,
-          memo: checkNumber || (method === 'check' ? 'Check' : 'Cash'), date: new Date().toISOString(),
+          amount: amountCents / 100, creditAmount: FarriPricing.balanceCents(inv) / 100, method: isCard ? 'credit_card' : method,
+          memo: checkNumber || methodLabel, date: new Date().toISOString(),
         };
         const payments = [...(inv.payments || []), payment];
         const paidAmount = payments.reduce((t, p) => t + (p.amount || 0), 0);
         const updateData = {
           status: 'paid',
           paidAt: firebase.firestore.FieldValue.serverTimestamp(),
-          paymentMethod: method,
+          paymentMethod: isCard ? 'card' : method,
           payments,
           paidAmount,
           amountPaidCents: Math.round(paidAmount * 100),
           balanceDue: 0,
-          priceApplied: 'cash',
+          priceApplied: isCard && FarriPricing.invoiceRate(inv) > 0 && !inv.cardFeeWaived ? 'card' : 'cash',
         };
         if (method === 'check') updateData.checkNumber = checkNumber;
         performWrite(() => db.collection('invoices').doc(inv.id).update(updateData));
       }
-      showSuccess('Payment Recorded!', `${FarriPricing.money(amountCents)} collected via ${method}` + (netState.online ? '' : ' (will sync when back online)'));
+      showSuccess('Payment Recorded!', `${FarriPricing.money(amountCents)} collected via ${methodLabel}` + (netState.online ? '' : ' (will sync when back online)'));
     }
   } catch(e) {
     showToast('Error: ' + e.message, 'error');
@@ -4405,6 +5247,7 @@ function startNewCustomer() {
   state.editingCustomerId = null;
   document.getElementById('nc-form-title').textContent = 'New Customer';
   document.getElementById('nc-save-btn').textContent = 'Save Customer';
+  document.getElementById('nc-delete-btn').style.display = 'none';
   ['nc-name','nc-farm','nc-manager-contact','nc-phone','nc-email','nc-notes','nc-address','nc-city','nc-state','nc-zip'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   state.ncContacts = []; renderNcContacts();
   document.getElementById('nc-address').style.display = '';
@@ -4421,6 +5264,7 @@ function startEditCustomer(c) {
   state.editingCustomerId = c.id;
   document.getElementById('nc-form-title').textContent = 'Edit Customer';
   document.getElementById('nc-save-btn').textContent = 'Save Changes';
+  document.getElementById('nc-delete-btn').style.display = '';
   document.getElementById('nc-name').value = c.name || '';
   document.getElementById('nc-farm').value = c.farmName || '';
   document.getElementById('nc-manager-contact').value = c.managerContact || '';
@@ -4490,6 +5334,64 @@ async function saveNewCustomer() {
     selectCustomer(newCustomer);
   }
   btn.disabled = false; btn.textContent = editingId ? 'Save Changes' : 'Save Customer';
+}
+
+// Deletes the customer record only. If the customer has horses, invoices or appointments the
+// farrier is told how many and has to confirm before it goes through. Looked up the same way the
+// customer screen lists them (horses by customerId, invoices/appointments by customerName).
+async function deleteCustomer() {
+  const id = state.editingCustomerId;
+  const c = state.customers.find(x => x.id === id);
+  if (!id || !c) return;
+  if (!netState.online) {
+    showToast("Can't check this customer's history while offline — try again when you're back online.", 'error');
+    return;
+  }
+
+  const btn = document.getElementById('nc-delete-btn');
+  btn.disabled = true; btn.textContent = 'Checking history…';
+  let horses, appts, invs;
+  try {
+    const [hSnap, aSnap, iSnap] = await Promise.all([
+      db.collection('horses').where('farrierId', '==', bizId()).where('customerId', '==', id).get(),
+      db.collection('appointments').where('farrierId', '==', bizId()).where('customerName', '==', c.name).get(),
+      db.collection('invoices').where('farrierId', '==', bizId()).where('customerName', '==', c.name).get(),
+    ]);
+    horses = hSnap.size;
+    appts = aSnap.size;
+    invs = iSnap.docs.map(d => d.data());
+  } catch (e) {
+    console.error('Customer history lookup error:', e);
+    showToast('Error checking history: ' + e.message, 'error');
+    return;
+  } finally {
+    btn.disabled = false; btn.textContent = '🗑️ Delete Customer';
+  }
+
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  // Paid (or part-paid) invoices are billing records, so they block the delete outright.
+  const paid = invs.filter(i => i.status === 'paid' || i.status === 'partial').length;
+  if (paid) {
+    showToast(`Can't delete ${c.name} — ${plural(paid, 'invoice')} ${paid === 1 ? 'has' : 'have'} been paid.`, 'error');
+    return;
+  }
+  const history = [horses && plural(horses, 'horse'), invs.length && plural(invs.length, 'invoice'), appts && plural(appts, 'appointment')].filter(Boolean);
+  const outstanding = invs.filter(i => i.status === 'outstanding').length;
+  const message = history.length
+    ? `${c.name} has ${history.length > 1 ? history.slice(0, -1).join(', ') + ' and ' + history[history.length - 1] : history[0]}.\n\n`
+      + 'Deleting removes the customer record only. Those horses, invoices and appointments stay in your account but will no longer be tied to a customer.\n\n'
+      + (outstanding ? `⚠️ ${plural(outstanding, 'invoice')} still outstanding.\n\n` : '')
+      + `Delete ${c.name} anyway?`
+    : `Delete ${c.name}? This cannot be undone.`;
+  if (!confirm(message)) return;
+
+  performWrite(() => db.collection('customers').doc(id).delete());
+  state.customers = state.customers.filter(x => x.id !== id);
+  state.customer = null;
+  state.editingCustomerId = null;
+  showToast(`${c.name} deleted.`, 'success');
+  goBack(); // edit form → customer screen
+  goBack(); // customer screen → wherever the farrier came from
 }
 
 // ── HORSES ──
@@ -4649,9 +5551,12 @@ async function loadHorseHistory(h) {
       db.collection('invoices').where('farrierId', '==', bizId()).get(),
     ]);
     if (state.currentHorse?.id !== h.id) return; // moved on to another horse meanwhile
+    const allInvs = iSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Unpaid rows open the invoice (pay / resend) via openHorseInvoice().
+    state.horseInvoices = Object.fromEntries(allInvs.map(inv => [inv.id, inv]));
     const hist = FarriHorseHistory.build(h,
       aSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-      iSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      allInvs);
     const last = hist.lastService, next = hist.nextService;
     const nextLabel = next ? (next.estimated ? (next.overdue ? 'Next Service (overdue)' : 'Next Service (est.)') : 'Next Service') : 'Next Service';
     const rows = [
@@ -4666,12 +5571,12 @@ async function loadHorseHistory(h) {
         <div class="appt-row-bottom">${esc(a.horseServices.join(', ')) || '—'}</div>
       </div>`).join('');
     const invHtml = hist.invoices.map(inv => `
-      <div class="invoice-row ${esc(inv.status)}">
+      <div class="invoice-row ${esc(inv.status)}"${inv.status === 'outstanding' ? ` onclick="openHorseInvoice('${esc(inv.id)}')"` : ''}>
         <div class="invoice-row-top">
           <div class="invoice-row-num">#${esc(inv.invoiceNumber || inv.id.slice(-6).toUpperCase())}</div>
           <div class="invoice-row-amount">$${inv.horseTotal.toFixed(2)}</div>
         </div>
-        <div class="invoice-row-bottom">${fmtDate(inv.date)} · ${esc(inv.horseLines.map(l => l.description).filter(Boolean).join(', ') || 'Service')} · <span class="badge badge-${inv.status === 'paid' ? 'success' : 'warning'}">${esc(inv.status || 'outstanding')}</span></div>
+        <div class="invoice-row-bottom">${fmtDate(inv.date)} · ${esc(inv.horseLines.map(l => l.description).filter(Boolean).join(', ') || 'Service')} · <span class="badge badge-${inv.status === 'paid' ? 'success' : 'warning'}">${esc(inv.status || 'outstanding')}</span>${inv.status === 'outstanding' ? ' · Tap to view invoice' : ''}</div>
       </div>`).join('');
     el.innerHTML = rows.map(([label, v]) => `<div class="info-row"><div class="info-row-label">${label}</div><div class="info-row-value">${v}</div></div>`).join('')
       + `<div class="section-label" style="margin-top:12px;">📋 Appointments (${hist.appointments.length})</div>`
@@ -4682,6 +5587,11 @@ async function loadHorseHistory(h) {
     console.error('Horse history error:', e);
     el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem;">Couldn't load history${netState.online ? '' : ' while offline'}.</div>`;
   }
+}
+
+function openHorseInvoice(id) {
+  const inv = state.horseInvoices?.[id];
+  if (inv) openInvoicePayment(inv);
 }
 
 // A horse that's appeared on a real invoice or appointment is service/billing
@@ -5563,7 +6473,6 @@ document.getElementById('screen-search').addEventListener('transitionend', funct
   if (e.target !== this) return;
   if (!this.classList.contains('hidden') && !this.classList.contains('slide-left')) {
     document.getElementById('search-loading').style.display = 'none';
-    document.getElementById('open-invoices-section').style.display = 'none';
     filterCustomers('');
     setTimeout(() => document.getElementById('search-input').focus(), 100);
   }

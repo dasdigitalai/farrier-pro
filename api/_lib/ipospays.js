@@ -20,10 +20,10 @@
 //   iposOpenRef            reference id of the payment page currently on offer
 //   iposLinks.{ref}        { url, chargeCents, creditCents, method, createdAt } for every page made
 //                          (method 'card_keyed' = a page the farrier opened to key in a card)
-//   iposTransactionId      iPOSpays transaction id once paid (refunds happen in the iPOSpays portal)
+//   iposTransactionId      iPOSpays transaction id once paid (the Refund button voids or refunds it)
 import crypto from 'crypto';
 import '../../lib/pricing.js';
-import { getDoc, patchDoc, serverAuth } from './firebase-rest.js';
+import { getDoc, patchDoc, queryIn, serverAuth } from './firebase-rest.js';
 import { applyPayment, payUrlFor, PaymentError, APP_URL } from './invoice-payments.js';
 
 const P = globalThis.FarriPricing;
@@ -165,8 +165,34 @@ export async function connectIpospays(farrierId, { tpn, apiKey, secretKey, ecomT
   return { mode, tpnLast4: tpn.slice(-4) };
 }
 
+// Pages already sent stay payable at iPOSpays for up to LINK_EXPIRY_DAYS, and once the keys
+// are gone a payment on one can't be confirmed (or refunded) here. So close every open page
+// first (recording any that were just paid), and keep the keys if one can't be closed.
 export async function disconnectIpospays(farrierId) {
+  const creds = await getIposCreds(farrierId);
+  let closed = 0, paid = 0;
+  if (creds) {
+    const open = (await queryIn('invoices', 'farrierId', [farrierId])).filter(inv => inv.iposOpenRef);
+    const failed = [];
+    for (let i = 0; i < open.length; i += 5) {
+      await Promise.all(open.slice(i, i + 5).map(async (inv) => {
+        try {
+          const result = await closeIposPages(creds, inv.id, inv);
+          if (result.paid) paid++;
+          else if (result.closed === false) failed.push(inv.invoiceNumber || inv.id);
+          else closed++;
+        } catch (e) {
+          console.error('iPOSpays disconnect: could not close page', inv.id, e);
+          failed.push(inv.invoiceNumber || inv.id);
+        }
+      }));
+    }
+    if (failed.length) {
+      throw new PaymentError(`iPOSpays is still connected: couldn’t close the payment page for invoice${failed.length > 1 ? 's' : ''} #${failed.join(', #')}. Try again in a minute.`, 502);
+    }
+  }
   await patchDoc(`farrierSecrets/${farrierId}`, {}, SECRET_FIELDS);
+  return { closed, paid };
 }
 
 // ── Payment pages ──
@@ -442,7 +468,8 @@ async function inOpenBatch(creds, rrn) {
 
 // Closes every payment page still on offer for the invoice, so the customer can't pay
 // for something that's already settled. Any page that turns out to be paid is recorded
-// instead — then { paid: true }.
+// instead — then { paid: true }. If iPOSpays can't be reached to cancel the page, it's
+// left on offer and { closed: false } comes back.
 export async function closeIposPages(creds, invoiceId, invoice) {
   const ref = invoice.iposOpenRef;
   const link = ref && invoice.iposLinks?.[ref];
@@ -452,7 +479,11 @@ export async function closeIposPages(creds, invoiceId, invoice) {
   const t = linkToken(link.url);
   if (t) {
     const r = await fetch(`${hosts(creds.mode).payment}/api/v1/cancel`, { method: 'POST', headers: { Authorization: t } }).catch(() => null);
-    if (r && !r.ok) {
+    if (!r) {
+      console.warn('iPOSpays cancel got no response:', invoiceId, ref);
+      return { paid: false, closed: false };
+    }
+    if (!r.ok) {
       // Can't cancel a page that was paid a moment ago — look once more.
       const again = await syncIposPayment(creds, invoiceId, ref);
       if (again.paid) return { paid: true };
@@ -460,7 +491,7 @@ export async function closeIposPages(creds, invoiceId, invoice) {
     }
   }
   await patchDoc(`invoices/${invoiceId}`, { iposOpenRef: '' });
-  return { paid: false };
+  return { paid: false, closed: true };
 }
 
 // ── Callback: POST /api/ipospays/callback/{invoiceId}?ref=… ──

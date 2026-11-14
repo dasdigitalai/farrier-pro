@@ -27,6 +27,8 @@
   <script src="/api-auth.js"></script>
   <script src="/lib/pricing.js"></script>
   <script src="/lib/owner-dashboard.js"></script>
+  <script src="/lib/shopping-list.js"></script>
+  <script src="/lib/inventory-search.js"></script>
   <script src="/lib/horse-history.js"></script>
   
   <!-- Google API for Calendar -->
@@ -1502,6 +1504,71 @@
     0 18px 46px rgba(14,165,233,0.3) !important;
   transform: translateY(-2px) !important;
 }
+
+/* ── Desktop light theme ──
+   The signed-in desktop app (FarrierDashboard → .ft-desktop) is light. Everything else on
+   this page keeps its own look: the sign-in screen (.ft-auth-shell), the customer booking
+   page (.booking-page). The mobile app (mobile.html) and support desk are separate pages.
+   The rules above were written for the old dark theme; these override them inside .ft-desktop. */
+body:has(.ft-desktop) { background: #f1f5f9; }
+.ft-desktop {
+  --bg: #f1f5f9;
+  --surface: #ffffff;
+  --text: #1e293b;
+  --text-muted: #64748b;
+  --border: #cbd5e1;
+  --secondary: #e2e8f0;
+  --primary-light: #1d4ed8; /* was a pale cyan, too faint as text on white */
+  --accent: #2563eb;
+  background: var(--bg);
+  color: var(--text);
+}
+.ft-desktop .card,
+.ft-desktop .stat-card,
+.ft-desktop .calendar,
+.ft-desktop .appointment-item {
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.05);
+}
+.ft-desktop .appointment-item:hover { border-color: #93c5fd; box-shadow: 0 4px 16px rgba(38,131,251,0.15); }
+.ft-desktop .card .appointment-item { background: #f8fafc; }
+.ft-desktop .card h3,
+.ft-desktop .card h4 { color: #1d4ed8; }
+.ft-desktop .stat-label { color: #64748b; }
+.ft-desktop .tab.active { text-shadow: none; }
+.ft-desktop .btn-primary:hover { border-color: var(--primary-light); }
+.ft-desktop .btn-secondary { color: #1e293b; }
+
+/* Inputs: white with a gray border instead of dark fills */
+.ft-desktop input[type="date"], .ft-desktop input[type="time"], .ft-desktop input[type="number"],
+.ft-desktop input[type="text"], .ft-desktop input[type="email"], .ft-desktop input[type="tel"],
+.ft-desktop input[type="search"], .ft-desktop input[type="password"], .ft-desktop input:not([type]),
+.ft-desktop textarea, .ft-desktop select,
+.ft-desktop .form-group input, .ft-desktop .form-group textarea, .ft-desktop .form-group select {
+  background: #ffffff;
+  color: #1e293b;
+  border-color: #cbd5e1;
+}
+.ft-desktop input::placeholder, .ft-desktop textarea::placeholder { color: #94a3b8; }
+.ft-desktop input:disabled, .ft-desktop textarea:disabled, .ft-desktop select:disabled { background: #f1f5f9; color: #64748b; -webkit-text-fill-color: #64748b; opacity: 1; }
+.ft-desktop input[type="date"] { color-scheme: light; }
+.ft-desktop input[type="date"]::-webkit-calendar-picker-indicator { filter: none; opacity: 0.6; }
+
+/* Calendar */
+.ft-desktop .calendar-grid,
+.ft-desktop .calendar-day { border-color: #e2e8f0; }
+.ft-desktop .calendar-day.header { color: #1d4ed8; background: #eff6ff; }
+.ft-desktop .calendar-day:not(.header):hover { background: #eff6ff; }
+.ft-desktop .calendar-day.has-appointment { background: #dbeafe; color: #1d4ed8; }
+.ft-desktop .calendar-day.today { background: var(--primary); color: #fff; }
+
+/* Status badges and messages: light tints */
+.ft-desktop .badge-success { background: #dcfce7; color: #166534; border-color: #86efac; }
+.ft-desktop .badge-warning { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+.ft-desktop .badge-secondary { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+.ft-desktop .badge-pending { background: #ede9fe; color: #5b21b6; border-color: #c4b5fd; }
+.ft-desktop .success-message { background: #f0fdf4; color: #166534; border-color: #86efac; }
+.ft-desktop .error-message { background: #fef2f2; }
 </style>
 
   <!-- Google Places Autocomplete (Address accuracy for Smart Route) -->
@@ -1564,6 +1631,23 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         return "";
       };
 
+      // horseId → name for invoice lines saved with only a horseId (no horseName).
+      const resolveHorseNames_ = async (items) => {
+        const names = {};
+        const missing = [...new Set((items || []).filter(it => it.horseId && !safeText_(it.horseName)).map(it => it.horseId))];
+        await Promise.all(missing.map(async (id) => {
+          try {
+            const snap = await db.collection('horses').doc(id).get();
+            if (snap.exists) names[id] = safeText_(snap.data()?.name);
+          } catch (e) { /* no access or offline: leave it blank */ }
+        }));
+        return names;
+      };
+
+      // The horse cell for an invoice line: name, or "Multiple horses — note" (qty has its own column).
+      const lineHorseLabel_ = (it, names) =>
+        safeText_(FarriPricing.itemHorseLabel({ ...it, horseName: safeText_(it.horseName) || names[it.horseId] || '', qty: 1 }));
+
       async function generateInvoicePdfBlobUrl(invoice, farrierProfile) {
         if (!window.jspdf?.jsPDF) throw new Error("jsPDF not loaded");
         const { jsPDF } = window.jspdf;
@@ -1604,8 +1688,11 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
               r.readAsDataURL(blob);
             });
 
-            // Draw logo (fit into 120x50)
-            doc.addImage(dataUrl, "PNG", 48, 40, 120, 50);
+            // Draw logo: as large as fits in 150x52 without stretching it
+            const fmt = /^data:image\/jpe?g/i.test(dataUrl) ? "JPEG" : "PNG";
+            const lp = doc.getImageProperties(dataUrl);
+            const ls = Math.min(150 / lp.width, 52 / lp.height);
+            doc.addImage(dataUrl, fmt, 48, 40, lp.width * ls, lp.height * ls);
           } catch (e) {
             // If logo fails, fall back to text
           }
@@ -1660,9 +1747,24 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         }
 
         // Bill to
+        const custName = safeText_(invoice.customerName || "");
+        const custFarmName = safeText_(invoice.customerFarmName || "");
+        const custEmail = safeText_(invoice.customerEmail || "");
+        const custPhone = safeText_(invoice.customerPhone || "");
+
+        // Payment QR (if paymentUrl exists), made up front so the Bill To box can make room for it
+        const payUrl = buildInvoicePayUrl_(invoice);
+        let qr = "";
+        if (payUrl) { try { qr = await qrToDataUrl_(payUrl); } catch (e) {} }
+
+        // The box grows with what's in it (name, then farm / email / phone when there are any),
+        // and with the QR code when there is one, so nothing hangs out of the bottom.
+        const extraLines = [custFarmName, custEmail, custPhone].filter(Boolean).length;
+        const lastLineY = extraLines ? 228 + (extraLines - 1) * 14 : 212;
+        const billBoxBottom = Math.max(lastLineY + 14, qr ? 298 : 0);
         doc.setDrawColor(220);
         doc.setLineWidth(1);
-        doc.roundedRect(48, 170, pageW - 96, 78, 10, 10);
+        doc.roundedRect(48, 170, pageW - 96, billBoxBottom - 170, 10, 10);
 
         doc.setFont("helvetica", "bold");
         doc.setFontSize(10);
@@ -1670,39 +1772,30 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
 
         doc.setFont("helvetica", "normal");
         doc.setFontSize(11);
-        const custName = safeText_(invoice.customerName || "");
-        const custFarmName = safeText_(invoice.customerFarmName || "");
-        const custEmail = safeText_(invoice.customerEmail || "");
-        const custPhone = safeText_(invoice.customerPhone || "");
-
         doc.text(custName, 64, 212);
         let custY = 228;
         if (custFarmName) { doc.setFont("helvetica", "italic"); doc.text(custFarmName, 64, custY); doc.setFont("helvetica", "normal"); custY += 14; }
         if (custEmail) { doc.text(custEmail, 64, custY); custY += 14; }
         if (custPhone) { doc.text(custPhone, 64, custY); custY += 14; }
 
-        // Payment QR (if paymentUrl exists)
-        const payUrl = buildInvoicePayUrl_(invoice);
-        if (payUrl) {
+        if (qr) {
           try {
-            const qr = await qrToDataUrl_(payUrl);
-            if (qr) {
-              doc.setFont("helvetica", "bold");
-              doc.setFontSize(9);
-              doc.text("PAY ONLINE", pageW - 150, 192, { align: "center" });
-              doc.addImage(qr, "PNG", pageW - 190, 200, 80, 80);
-              doc.setFont("helvetica", "normal");
-              doc.setFontSize(8);
-              doc.text("Scan to pay", pageW - 150, 290, { align: "center" });
-            }
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(9);
+            doc.text("PAY ONLINE", pageW - 150, 192, { align: "center" });
+            doc.addImage(qr, "PNG", pageW - 190, 200, 80, 80);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(8);
+            doc.text("Scan to pay", pageW - 150, 290, { align: "center" });
           } catch (e) {}
         }
 
-        // Items table header
-        let y = 270;
+        // Items table header (always starts below the Bill To box)
+        let y = Math.max(270, billBoxBottom + 24);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(10);
-        doc.text("DESCRIPTION", 48, y);
+        doc.text("HORSE", 48, y);
+        doc.text("DESCRIPTION", 178, y);
         doc.text("QTY", pageW - 220, y, { align: "right" });
         doc.text("RATE", pageW - 140, y, { align: "right" });
         doc.text("AMOUNT", pageW - 48, y, { align: "right" });
@@ -1715,22 +1808,23 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         doc.setFontSize(10);
 
         const items = Array.isArray(invoice.items) ? invoice.items : [];
-        const maxDescW = pageW - 48 - 240; // leave room for qty/rate/amount
+        const horseW = 120;                 // HORSE column, x 48–168
+        const maxDescW = pageW - 178 - 240; // DESCRIPTION from x 178, leaving room for qty/rate/amount
         const lineH = 14;
 
-        const computeTotal = () => items.reduce((sum, it) => {
-          const qty = Number(it.qty || 1);
-          const rate = Number(it.amount ?? it.unitPriceSnapshot ?? 0);
-          return sum + (qty * rate);
-        }, 0);
+        // Lines saved with only a horseId (no name) get the name from the horse record.
+        const horseNames = await resolveHorseNames_(items);
+
+        // `amount` is the line total (rate × qty); the rate is the per-horse price.
+        const computeTotal = () => items.reduce((sum, it) => sum + Number(it.amount ?? it.unitPriceSnapshot ?? 0), 0);
 
         for (const it of items) {
           const rawDesc = safeText_(it.serviceNameSnapshot || it.description || "");
           const desc = rawDesc === 'Custom Service (enter manually)' ? 'Custom Service' : rawDesc;
-          const horse = safeText_(it.horseName || "");
-          const qty = Number(it.qty || 1);
-          const rate = Number(it.amount ?? it.unitPriceSnapshot ?? 0);
-          const lineTotal = qty * rate;
+          const horse = lineHorseLabel_(it, horseNames);
+          const qty = FarriPricing.itemQty(it);
+          const lineTotal = Number(it.amount ?? it.unitPriceSnapshot ?? 0);
+          const rate = FarriPricing.itemUnitPrice(it);
 
           // Page break
           if (y > pageH - 140) {
@@ -1738,13 +1832,14 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
             y = 72;
           }
 
-          // Description + optional horse/comment
-          let yAfter = pdfWrapText_(doc, desc, 48, y, maxDescW, lineH);
+          // Horse (with "× qty — note" for a Multiple horses line), then the service
+          let yAfter = y;
           if (horse) {
-            doc.setTextColor(90);
-            yAfter = pdfWrapText_(doc, `Horse/Comment: ${horse}`, 48, yAfter, maxDescW, lineH);
-            doc.setTextColor(0);
+            doc.setFont("helvetica", "bold");
+            yAfter = pdfWrapText_(doc, horse, 48, y, horseW, lineH);
+            doc.setFont("helvetica", "normal");
           }
+          yAfter = Math.max(yAfter, pdfWrapText_(doc, desc, 178, y, maxDescW, lineH));
 
           // Numbers aligned to first line y
           doc.text(String(qty), pageW - 220, y, { align: "right" });
@@ -1753,7 +1848,7 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
 
           y = Math.max(yAfter, y + lineH) + 10;
           doc.setDrawColor(235);
-          doc.line(48, y - 6, pageW - 48, y - 6);
+          doc.line(48, y - 14, pageW - 48, y - 14); // between this row and the next, not through its text
         }
 
         // Totals
@@ -1962,13 +2057,19 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         const takesOnline = !!(_userProfile?.stripePublishableKey || _userProfile?.ipospaysConnected);
         const payUrl = buildInvoicePayUrl_(invoice) || (takesOnline && invoice.id ? `${window.location.origin}/pay/${invoice.id}` : "");
 
-        // Build services list
-        const serviceLines = (invoice.lineItems || invoice.services || []).map(item => {
-          const desc = item.description || item.name || item;
-          const qty = item.quantity || 1;
-          const price = item.unitPrice || item.price || 0;
+        // Build services list from the invoice's lines (items[]), one row per line with its horse.
+        const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+        const items = Array.isArray(invoice.items) ? invoice.items : [];
+        const horseNames = await resolveHorseNames_(items);
+        const serviceLines = items.map(item => {
+          const rawDesc = safeText_(item.serviceNameSnapshot || item.description || "");
+          const desc = rawDesc === 'Custom Service (enter manually)' ? 'Custom Service' : rawDesc;
+          const horse = lineHorseLabel_(item, horseNames);
+          const qty = FarriPricing.itemQty(item);
+          const price = FarriPricing.itemUnitPrice(item);
           return `<tr>
-            <td style="padding:6px 8px;font-size:14px;color:#374151;">${desc}</td>
+            <td style="padding:6px 8px;font-size:14px;color:#374151;font-weight:600;">${esc(horse)}</td>
+            <td style="padding:6px 8px;font-size:14px;color:#374151;">${esc(desc)}</td>
             <td style="padding:6px 8px;font-size:14px;color:#374151;text-align:center;">${qty}</td>
             <td style="padding:6px 8px;font-size:14px;color:#374151;text-align:right;">$${Number(price).toFixed(2)}</td>
           </tr>`;
@@ -2000,6 +2101,7 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
       ${serviceLines ? `
       <table style="width:100%;border-collapse:collapse;margin-top:12px;border-top:1px solid #e2e8f0;">
         <thead><tr style="background:#f1f5f9;">
+          <th style="padding:8px;font-size:12px;color:#6b7280;text-align:left;font-weight:600;">Horse</th>
           <th style="padding:8px;font-size:12px;color:#6b7280;text-align:left;font-weight:600;">Service</th>
           <th style="padding:8px;font-size:12px;color:#6b7280;text-align:center;font-weight:600;">Qty</th>
           <th style="padding:8px;font-size:12px;color:#6b7280;text-align:right;font-weight:600;">Price</th>
@@ -2140,6 +2242,18 @@ async function seedDefaultServicesIfEmpty_(userId) {
   console.log("✅ Default services seeded");
 }
 
+// Tells the server a new farrier account was just created so it can text the FarriTech
+// owner (api/notify-signup). Fire-and-forget — never blocks or fails a signup.
+function notifySignup_(user) {
+  if (!user) return;
+  user.getIdToken().then(token => fetch('/api/notify-signup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: '{}',
+    keepalive: true, // the signup screen redirects right away
+  })).catch(e => console.warn('Signup alert failed', e));
+}
+
 // Ensures the farrier profile doc exists and surfaces permission/config errors clearly
 async function ensureFarriTechfile_(uid, profile) {
   if (!db || !uid) throw new Error("Firestore is not initialized.");
@@ -2159,15 +2273,6 @@ async function ensureFarriTechfile_(uid, profile) {
     const snap = await ref.get();
     if (!snap.exists) {
       throw new Error("Farrier profile was not created. This is usually a Firestore Rules/Permissions issue.");
-    }
-    // A new profile (only signups pass createdAt): text FarriTech's owner. The server sends
-    // it once per farrier, so a retry or recovery can't double up.
-    if (profile && profile.createdAt) {
-      fetch("/api/send-sms", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ alert: "new_signup" }),
-      }).catch(() => {});
     }
     return snap.data();
   } catch (e) {
@@ -2560,25 +2665,6 @@ ${appointment.comments ? `   ${appointment.comments}` : '   (None)'}
   const finishSignup = urlParams.get("finishSignup") === "1" || urlParams.has("leadId") || urlParams.has("lead") || urlParams.has("lid");
 
 
-  // Support admin gate (must be outside conditional renders)
-  const [isAdmin, setIsAdmin] = useState(null);
-
-  useEffect(() => {
-    // Only check admin access when support mode is enabled and a user is signed in
-    if (!support || !user) {
-      setIsAdmin(null);
-      return;
-    }
-    (async () => {
-      try {
-        const doc = await db.collection("supportAdmins").doc(user.uid).get();
-        setIsAdmin(doc.exists && (doc.data()?.active !== false));
-      } catch (e) {
-        console.error("Admin check failed", e);
-        setIsAdmin(false);
-      }
-    })();
-  }, [support, user?.uid]);
   const clearSupportSession = async () => {
     try {
       if (supportSessionId && db) {
@@ -2820,34 +2906,10 @@ ${appointment.comments ? `   ${appointment.comments}` : '   (None)'}
     return <CustomerBookingView farrierId={farrierIdParam} />;
   }
 
-  // Support portal view
+  // Support portal view — moved to its own page, support.html (/support).
 if (support) {
-  if (!user) return <AuthView />;
-
-  // Firestore-based admin gate (easy + no custom claims)
-  if (isAdmin === null) {
-    return (
-      <div className="page">
-        <div className="card">
-          <h2>Checking access…</h2>
-          <p>Loading support portal…</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <div className="page">
-        <div className="card">
-          <h2>Access denied</h2>
-          <p>This account is not allowed to access the support portal.</p>
-        </div>
-      </div>
-    );
-  }
-
-  return <SupportPortal user={user} />;
+  window.location.replace('/support');
+  return null;
   }
 
   // Finish signup (post-billing activation)
@@ -2889,7 +2951,7 @@ if (support) {
       {/* Inactivity Warning Modal */}
       {showInactivityWarning && (
         <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:99999, display:'flex', alignItems:'center', justifyContent:'center'}}>
-          <div style={{background:'var(--surface)', color:'var(--text)', borderRadius:'12px', padding:'2rem', maxWidth:'420px', width:'90%', textAlign:'center', border:'2px solid rgba(38,131,251,0.45)', boxShadow:'0 20px 60px rgba(0,0,0,0.6)'}}>
+          <div style={{background:'var(--surface)', color:'var(--text)', borderRadius:'12px', padding:'2rem', maxWidth:'420px', width:'90%', textAlign:'center', border:'1px solid #cbd5e1', boxShadow:'0 20px 60px rgba(0,0,0,0.6)'}}>
             <div style={{fontSize:'3rem', marginBottom:'1rem'}}>⏱️</div>
             <h2 style={{marginBottom:'0.75rem', color:'var(--text)'}}>Still there?</h2>
             <p style={{color:'var(--text-muted)', marginBottom:'1.5rem'}}>
@@ -3054,6 +3116,7 @@ const [loading, setLoading] = useState(false);
               googleCalendarConnected: false,
               bookingUrl: window.location.origin + '?farrier=' + user.uid
             });
+            notifySignup_(user);
 }
 
           // User will be automatically logged in by Firebase
@@ -3109,6 +3172,7 @@ const [loading, setLoading] = useState(false);
       googleCalendarConnected: false,
       bookingUrl: window.location.origin + '?farrier=' + user.uid
     });
+    notifySignup_(user);
 
     // Services are no longer auto-seeded here — the first-time setup wizard
     // (SetupWizardView) is now how a new farrier adds their own real services
@@ -3513,6 +3577,7 @@ console.log("✅ Writing farrier doc, UID:", uid, "farrierId:", farrierDoc?.farr
       try {
         await ensureFarriTechfile_(uid, farrierDoc);
         console.log("✅ Farrier profile written successfully");
+        notifySignup_(newUser);
       } catch (writeErr) {
         console.error("❌ ensureFarriTechfile_ failed:", writeErr?.code, writeErr?.message);
         throw writeErr;
@@ -3587,6 +3652,7 @@ console.log("✅ Writing farrier doc, UID:", uid, "farrierId:", farrierDoc?.farr
           };
 
           await ensureFarriTechfile_(recoveryUid, recoveryDoc);
+          notifySignup_(existingUser);
           if (leadId) {
             try {
               await db.collection("leads").doc(leadId).set({
@@ -3723,105 +3789,20 @@ console.log("✅ Writing farrier doc, UID:", uid, "farrierId:", farrierDoc?.farr
 }
 
 
-   function SupportPortal({ user }) {
-  const [q, setQ] = useState('');
-  const [farriers, setFarriers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [reason, setReason] = useState('Troubleshooting');
-
-  useEffect(() => {
-    (async () => {
-      if (!db) return;
-      const snap = await db.collection('farriers').get();
-      setFarriers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
-    })();
-  }, []);
-
-  const filtered = farriers.filter(f => {
-    const s = (q || '').toLowerCase();
-    return (
-      (f.businessName || '').toLowerCase().includes(s) ||
-      (f.email || '').toLowerCase().includes(s) ||
-      (f.phone || '').toLowerCase().includes(s)
-    );
-  });
-
-  const startSession = async (targetFarrierId) => {
-    const expires = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
-
-    const docRef = await db.collection('supportSessions').add({
-      supportAgentUid: user.uid,
-      targetFarrierId,
-      reason,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      expiresAt: firebase.firestore.Timestamp.fromDate(expires),
-      endedAt: null
-    });
-
-    // Redirect into the normal app in support mode
-    const u = new URL(window.location.href);
-    u.searchParams.delete('support');
-    u.searchParams.set('supportSession', docRef.id);
-    window.location.href = u.toString();
-  };
-
-  return (
-    <div className="app-container">
-      <header className="app-header">
-        <div className="header-content">
-          <div className="logo">
-            <span className="logo-icon">🐴</span>
-            <span>Support Portal</span>
-          </div>
-        </div>
-      </header>
-
-      <div className="auth-container">
-        <div className="card">
-          <h2>Impersonate a Farrier</h2>
-
-          <div className="form-group">
-            <label>Search</label>
-            <input value={q} onChange={(e)=>setQ(e.target.value)} placeholder="business, email, phone..." />
-          </div>
-
-          <div className="form-group">
-            <label>Reason (required)</label>
-            <input value={reason} onChange={(e)=>setReason(e.target.value)} />
-          </div>
-
-          {loading ? (
-            <p>Loading…</p>
-          ) : (
-            <div style={{marginTop:'12px'}}>
-              {filtered.map(f => (
-                <div key={f.id} className="card" style={{marginBottom:'10px'}}>
-                  <div><strong>{f.businessName || '(no business name)'}</strong></div>
-                  <div style={{color:'var(--text-muted)'}}>{f.email || ''} {f.phone ? `• ${fmtPhone(f.phone)}` : ''}</div>
-                  <div style={{marginTop:'8px'}}>
-                    <button className="btn btn-primary" onClick={()=>startSession(f.id)}>
-                      Login as this Farrier
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {filtered.length === 0 && <p style={{color:'var(--text-muted)'}}>No matches.</p>}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
 // Emails allowed to manage sponsor banners on the customer portal (FarriTech support/admins only — not farrier accounts)
 const SPONSOR_ADMIN_EMAILS = ['david@dasconsulting.com', 'david@dasdigitalai.com', 'eaven777@gmail.com'];
 
 function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupportMode, supportSession, clearSupportSession }) {
 
       const isSponsorAdmin = SPONSOR_ADMIN_EMAILS.includes((user?.email || '').toLowerCase());
+      // FarriTech support staff get a button to the support desk (support.html).
+      const [isSupportStaff, setIsSupportStaff] = useState(false);
+      useEffect(() => {
+        if (!user?.uid || !db) return;
+        db.collection('supportAdmins').doc(user.uid).get()
+          .then(d => setIsSupportStaff(d.exists && d.data()?.active !== false))
+          .catch(() => setIsSupportStaff(false));
+      }, [user?.uid]);
       const [tab, setTab] = useState('qrcode');
       const [openNavGroup, setOpenNavGroup] = useState(null);
 
@@ -3903,11 +3884,13 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
         { id: 'dashboard', label: 'Dashboard', icon: '📊' },
         // Owner dashboard: owners and managers (not a team member with the farrier role).
         ...(window.FarriTeam?.role === 'farrier' ? [] : [{ id: 'business', label: 'Business', icon: '📈' }]),
+        ...(window.FarriTeam?.role === 'farrier' ? [] : [{ id: 'ask', label: 'Ask FarriTech', icon: '💬' }]),
         { id: 'calendar', label: 'Calendar', icon: '📅' },
         { id: 'appointments', label: 'Appointments', icon: '📋' },
         { id: 'invoices', label: 'Invoices', icon: '💰' },
         { id: 'customers', label: 'Customers', icon: '👥' },
         { id: 'horses', label: 'Horses', icon: '🐴' },
+        { id: 'upcoming', label: 'Upcoming Service', icon: '🔔' },
         { id: 'services', label: 'Services', icon: '🧾' },
         // Business-wide revenue: not for a team member with the farrier role (api/_lib/team.js).
         ...(window.FarriTeam?.role === 'farrier' ? [] : [{ id: 'reports', label: 'Reports', icon: '📈' }]),
@@ -3918,7 +3901,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
       ];
 
       return (
-        <div className="app-container">
+        <div className="app-container ft-desktop">
           <header style={{
             backgroundColor: '#2683FB',
             position: 'sticky',
@@ -3946,6 +3929,24 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                   Logged in as {user.email}
                 </div>
               </div>
+              {isSupportStaff && !isSupportMode && (
+                <a
+                  href="/support"
+                  style={{
+                    padding: '0.5rem 1rem',
+                    background: 'rgba(255,255,255,0.18)',
+                    border: '1px solid rgba(255,255,255,0.4)',
+                    color: 'white',
+                    borderRadius: '8px',
+                    fontSize: '0.9rem',
+                    fontWeight: '600',
+                    textDecoration: 'none',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  🛟 Support
+                </a>
+              )}
               <button
                 onClick={handleLogout}
                 style={{
@@ -3972,18 +3973,19 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
           </header>
 
           <nav style={{
-            backgroundColor: '#0D1320',
-            borderBottom: '1px solid rgba(255,255,255,0.08)',
+            backgroundColor: '#ffffff',
+            borderBottom: '1px solid #e2e8f0',
             position: 'sticky',
             top: '80px',
             zIndex: 99,
-            boxShadow: '0 2px 12px rgba(0,0,0,0.3)'
+            boxShadow: '0 1px 4px rgba(15,23,42,0.06)'
           }}>
             {(() => {
               const navGroups = [
                 { label: '📊 Overview', items: [
                   { id: 'dashboard', label: 'Dashboard', icon: '📊' },
                   ...(window.FarriTeam?.role === 'farrier' ? [] : [{ id: 'business', label: 'Business Dashboard', icon: '📈' }]),
+                  ...(window.FarriTeam?.role === 'farrier' ? [] : [{ id: 'ask', label: 'Ask FarriTech', icon: '💬' }]),
                   { id: 'qrcode', label: 'My QR Code', icon: '📱' },
                   { id: 'about', label: 'About', icon: 'ℹ️' },
                 ]},
@@ -4000,10 +4002,12 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                 { label: '👥 Clients', items: [
                   { id: 'customers', label: 'Customers', icon: '👥' },
                   { id: 'horses', label: 'Horses', icon: '🐴' },
+                  { id: 'upcoming', label: 'Upcoming Service', icon: '🔔' },
                 ]},
                 { label: '⚙️ Manage', items: [
                   { id: 'services', label: 'Services', icon: '🧾' },
                   { id: 'inventory', label: 'Inventory', icon: '📦' },
+                  { id: 'shopping', label: 'Shopping List', icon: '🛒' },
                   { id: 'data', label: 'Data Management', icon: '🗂️' },
                   { id: 'settings', label: 'Settings', icon: '⚙️' },
                   { id: 'tutorials', label: 'Video Tutorials', icon: '▶️' },
@@ -4045,13 +4049,13 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                             gap: '0.4rem',
                             fontSize: '0.88rem',
                             fontWeight: isGroupActive ? '700' : '500',
-                            color: isGroupActive ? '#46C5FF' : 'rgba(255,255,255,0.75)',
-                            borderBottom: isGroupActive ? '2px solid #46C5FF' : '2px solid transparent',
+                            color: isGroupActive ? '#2683FB' : '#475569',
+                            borderBottom: isGroupActive ? '2px solid #2683FB' : '2px solid transparent',
                             transition: 'all 0.15s',
                             whiteSpace: 'nowrap',
                           }}
-                          onMouseOver={(e) => { if (!isGroupActive) e.currentTarget.style.color = 'white'; }}
-                          onMouseOut={(e) => { if (!isGroupActive) e.currentTarget.style.color = 'rgba(255,255,255,0.75)'; }}
+                          onMouseOver={(e) => { if (!isGroupActive) e.currentTarget.style.color = '#0f172a'; }}
+                          onMouseOut={(e) => { if (!isGroupActive) e.currentTarget.style.color = '#475569'; }}
                         >
                           {isGroupActive ? `${activeItem.icon} ${activeItem.label}` : group.label}
                           <span style={{
@@ -4069,11 +4073,11 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                             position: 'absolute',
                             top: 'calc(100% - 2px)',
                             left: 0,
-                            backgroundColor: '#0D1320',
-                            border: '1.5px solid rgba(70,197,255,0.35)',
-                            borderTop: '2px solid #46C5FF',
+                            backgroundColor: '#ffffff',
+                            border: '1px solid #e2e8f0',
+                            borderTop: '2px solid #2683FB',
                             borderRadius: '0 0 10px 10px',
-                            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                            boxShadow: '0 8px 24px rgba(15,23,42,0.12)',
                             minWidth: '180px',
                             zIndex: 200,
                             overflow: 'hidden'
@@ -4087,18 +4091,18 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                                   width: '100%',
                                   textAlign: 'left',
                                   padding: '0.75rem 1.25rem',
-                                  background: tab === item.id ? 'rgba(70,197,255,0.12)' : 'none',
+                                  background: tab === item.id ? '#eff6ff' : 'none',
                                   border: 'none',
-                                  borderLeft: tab === item.id ? '3px solid #46C5FF' : '3px solid transparent',
-                                  color: tab === item.id ? '#46C5FF' : 'rgba(255,255,255,0.8)',
+                                  borderLeft: tab === item.id ? '3px solid #2683FB' : '3px solid transparent',
+                                  color: tab === item.id ? '#2683FB' : '#334155',
                                   fontSize: '0.88rem',
                                   fontWeight: tab === item.id ? '600' : '400',
                                   cursor: 'pointer',
                                   transition: 'all 0.15s',
                                   gap: '0.5rem',
                                 }}
-                                onMouseOver={(e) => { if (tab !== item.id) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'white'; }}}
-                                onMouseOut={(e) => { if (tab !== item.id) { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'rgba(255,255,255,0.8)'; }}}
+                                onMouseOver={(e) => { if (tab !== item.id) { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#0f172a'; }}}
+                                onMouseOut={(e) => { if (tab !== item.id) { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#334155'; }}}
                               >
                                 {item.icon} {item.label}
                               </button>
@@ -4129,12 +4133,15 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
             {tab === 'invoices' && <InvoicesView userId={farrierId} userProfile={userProfile} />}
             {tab === 'customers' && <CustomersView userId={farrierId} userProfile={userProfile} />}
             {tab === 'horses' && <HorsesView userId={farrierId} />}
+            {tab === 'upcoming' && <HorsesView userId={farrierId} upcoming />}
             {tab === 'sponsors' && isSponsorAdmin && <SponsorBannersView />}
             {tab === 'services' && <ServicesView userId={farrierId} />}
             {tab === 'inventory' && <InventoryView userId={farrierId} />}
+            {tab === 'shopping' && <ShoppingListView userId={farrierId} />}
             {tab === 'data' && <DataManagementView userId={farrierId} />}
             {tab === 'reports' && window.FarriTeam?.role !== 'farrier' && <ReportsView userId={farrierId} />}
             {tab === 'business' && window.FarriTeam?.role !== 'farrier' && <OwnerDashboardView userId={farrierId} />}
+            {tab === 'ask' && window.FarriTeam?.role !== 'farrier' && <AskAIView />}
             {tab === 'mileage' && <MileageLogView userId={farrierId} userProfile={userProfile} />}
             {tab === 'route' && <RouteSheetView userId={farrierId} userProfile={userProfile} />}
             {tab === 'settings' && <SettingsView user={user} userProfile={userProfile} setUserProfile={setUserProfile} farrierId={farrierId} />}
@@ -4630,10 +4637,10 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
               </div>
             ) : (
               <select value={formSource} onChange={e => setFormSource(e.target.value)}
-                style={{ width: '100%', padding: '0.75rem', borderRadius: 8, border: '2px solid rgba(38,131,251,0.45)', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', background: 'rgba(22,32,50,0.95)', color: 'var(--text)', colorScheme: 'dark' }}>
-                <option value="referral" style={{background:'#1e2d45', color:'#e8f0fe'}}>🤝 Referral</option>
-                <option value="existing" style={{background:'#1e2d45', color:'#e8f0fe'}}>⭐ Existing</option>
-                <option value="marketing" style={{background:'#1e2d45', color:'#e8f0fe'}}>📣 Marketing</option>
+                style={{ width: '100%', padding: '0.75rem', borderRadius: 8, border: '1px solid #cbd5e1', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', background: '#fff', color: 'var(--text)', colorScheme: 'light' }}>
+                <option value="referral">🤝 Referral</option>
+                <option value="existing">⭐ Existing</option>
+                <option value="marketing">📣 Marketing</option>
               </select>
             )}
           </div>
@@ -4764,10 +4771,10 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                 { label: 'Total Paid', val: fmtMoney(customerDetail.totalPaid), icon: '✅', color: '#10b981' },
                 { label: 'Outstanding', val: fmtMoney(customerDetail.balance), icon: '⚠️', color: customerDetail.balance > 0 ? '#ef4444' : '#10b981' },
               ].map(s => (
-                <div key={s.label} style={{ background: 'var(--surface)', borderRadius: 12, padding: '1rem 1.25rem', boxShadow: '0 2px 12px rgba(0,0,0,0.3)', border: `2px solid ${s.color}22` }}>
+                <div key={s.label} style={{ background: 'var(--surface)', borderRadius: 12, padding: '1rem 1.25rem', boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.05)', border: `2px solid ${s.color}22` }}>
                   <div style={{ fontSize: '1.4rem' }}>{s.icon}</div>
                   <div style={{ fontSize: '1.4rem', fontWeight: 700, color: s.color }}>{s.val}</div>
-                  <div style={{ fontSize: '0.8rem', color: '#8ab4d8' }}>{s.label}</div>
+                  <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{s.label}</div>
                 </div>
               ))}
             </div>
@@ -4885,7 +4892,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
           {/* Delete confirm */}
           {confirmDelete && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-              <div style={{ background: 'var(--surface)', color: 'var(--text)', borderRadius: 16, padding: '2rem', maxWidth: 400, width: '90%', textAlign: 'center', border: '2px solid rgba(38,131,251,0.45)' }}>
+              <div style={{ background: 'var(--surface)', color: 'var(--text)', borderRadius: 16, padding: '2rem', maxWidth: 400, width: '90%', textAlign: 'center', border: '1px solid #cbd5e1' }}>
                 <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⚠️</div>
                 <h3 style={{ marginBottom: '0.5rem' }}>Delete {confirmDelete.name}?</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
@@ -4986,7 +4993,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
               {filtered.map(cust => (
                 <div key={cust.id || cust.email} onClick={() => openDetail(cust)}
-                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.1rem', background: 'var(--surface)', borderRadius: 12, border: '2px solid rgba(38,131,251,0.45)', cursor: 'pointer', transition: 'all 0.15s', flexWrap: 'wrap', gap: '0.5rem' }}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.1rem', background: 'var(--surface)', borderRadius: 12, border: '1px solid #cbd5e1', cursor: 'pointer', transition: 'all 0.15s', flexWrap: 'wrap', gap: '0.5rem' }}
                   onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
                   onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
                 >
@@ -5032,7 +5039,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
           {/* Delete confirm modal */}
           {confirmDelete && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-              <div style={{ background: 'var(--surface)', color: 'var(--text)', borderRadius: 16, padding: '2rem', maxWidth: 400, width: '90%', textAlign: 'center', border: '2px solid rgba(38,131,251,0.45)' }}>
+              <div style={{ background: 'var(--surface)', color: 'var(--text)', borderRadius: 16, padding: '2rem', maxWidth: 400, width: '90%', textAlign: 'center', border: '1px solid #cbd5e1' }}>
                 <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⚠️</div>
                 <h3 style={{ marginBottom: '0.5rem' }}>Delete {confirmDelete.name}?</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
@@ -5054,8 +5061,12 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
     // lists all of that customer's horses), then see its whole history: last and
     // next service, every appointment and every invoice line for that horse
     // (lib/horse-history.js decides what belongs to it).
+    // With `upcoming` (the Upcoming Service tab) the list is instead every horse due for
+    // service within N weeks, grouped by farm, plus each farm's other horses — the same
+    // report as mobile.html's renderUpcoming().
     // ─────────────────────────────────────────
-    function HorsesView({ userId }) {
+    function HorsesView({ userId, upcoming }) {
+      const [weeks, setWeeks] = useState(4);
       const [horses, setHorses] = useState([]);
       const [customersById, setCustomersById] = useState({});
       const [appointments, setAppointments] = useState([]);
@@ -5118,7 +5129,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
 
         return (
           <div>
-            <button className="btn btn-sm btn-outline" onClick={() => setSelected(null)} style={{ marginBottom: '1rem' }}>← Back to Horses</button>
+            <button className="btn btn-sm btn-outline" onClick={() => setSelected(null)} style={{ marginBottom: '1rem' }}>← Back to {upcoming ? 'Upcoming Service' : 'Horses'}</button>
 
             <div className="card" style={{ marginBottom: '1rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
@@ -5163,10 +5174,10 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                 { icon: '📋', label: 'Appointments', val: hist.appointments.length, color: '#8b5cf6' },
                 { icon: '💰', label: 'Billed for this horse', val: fmtMoney(hist.totalBilled), sub: `${hist.invoices.length} invoice${hist.invoices.length === 1 ? '' : 's'}`, color: '#f59e0b' },
               ].map(s => (
-                <div key={s.label} style={{ background: 'var(--surface)', borderRadius: 12, padding: '1rem 1.25rem', boxShadow: '0 2px 12px rgba(0,0,0,0.3)', border: `2px solid ${s.color}22` }}>
+                <div key={s.label} style={{ background: 'var(--surface)', borderRadius: 12, padding: '1rem 1.25rem', boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.05)', border: `2px solid ${s.color}22` }}>
                   <div style={{ fontSize: '1.4rem' }}>{s.icon}</div>
                   <div style={{ fontSize: '1.3rem', fontWeight: 700, color: s.color }}>{s.val}</div>
-                  <div style={{ fontSize: '0.8rem', color: '#8ab4d8' }}>{s.label}</div>
+                  <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{s.label}</div>
                   {s.sub && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{s.sub}</div>}
                 </div>
               ))}
@@ -5208,7 +5219,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                         <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{fmtDay(inv.date)}</div>
                         {inv.horseLines.map((l, i) => (
                           <div key={i} style={{ fontSize: '0.8rem', color: 'var(--text)', opacity: 0.85 }}>
-                            🔧 {l.description || 'Service'}{Number(l.qty) > 1 ? ` × ${l.qty}` : ''} — {fmtMoney((Number(l.amount) || 0) * (Number(l.qty) || 1))}
+                            🔧 {l.description || 'Service'}{Number(l.qty) > 1 ? ` × ${l.qty}` : ''} — {fmtMoney(Number(l.amount) || 0)}
                           </div>
                         ))}
                       </div>
@@ -5231,6 +5242,100 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                 onClose={() => setEditHorse(null)}
                 onSaved={() => load()}
               />
+            )}
+          </div>
+        );
+      }
+
+      // ── UPCOMING SERVICE ── a farm appears when at least one of its horses is due within
+      // `weeks`; due horses first, then the owner's other horses. Farms by earliest due date.
+      if (upcoming) {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const end = new Date(today.getTime() + weeks * 7 * 86400e3);
+        const all = horses.map(h => ({ h, hist: window.FarriHorseHistory.build(h, appointments, invoices) }));
+        const isDue = x => x.hist.nextService && x.hist.nextService.date < end;
+        const byFarm = {};
+        all.forEach(x => {
+          const key = x.h.customerId || ownerName(x.h);
+          (byFarm[key] = byFarm[key] || { owner: customersById[x.h.customerId], name: ownerName(x.h), due: [], other: [] })[isDue(x) ? 'due' : 'other'].push(x);
+        });
+        const byNext = (a, b) => (a.hist.nextService?.date || Infinity) - (b.hist.nextService?.date || Infinity);
+        const farms = Object.values(byFarm).filter(g => g.due.length);
+        farms.forEach(g => { g.due.sort(byNext); g.other.sort(byNext); });
+        farms.sort((a, b) => a.due[0].hist.nextService.date - b.due[0].hist.nextService.date);
+        const dueCount = farms.reduce((n, g) => n + g.due.length, 0);
+        const overdue = farms.reduce((n, g) => n + g.due.filter(x => x.hist.nextService.overdue).length, 0);
+        const noDate = all.filter(x => !x.hist.nextService).length;
+        const horseRow = ({ h, hist }, muted) => {
+          const next = hist.nextService;
+          const tag = !next ? pill('no due date', '#94a3b8')
+            : !next.estimated ? pill('booked', '#10b981')
+            : next.overdue ? pill('overdue', '#ef4444')
+            : muted ? pill('next', '#94a3b8') : pill('due', '#f59e0b');
+          return (
+            <div key={h.id} onClick={() => setSelected(h)} style={{ ...rowStyle, cursor: 'pointer', ...(muted ? { background: 'transparent', border: '1px solid var(--border)', opacity: 0.75 } : {}) }}>
+              <div>
+                <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>🐴 {h.name || 'Unnamed'}</span>
+                {h.breed && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}> — {h.breed}</span>}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', color: 'var(--text-muted)', fontSize: '0.8rem', flexWrap: 'wrap' }}>
+                {next && <span style={{ fontWeight: 600, color: next.overdue ? '#ef4444' : undefined }}>{fmtDay(next.date)}</span>}
+                {tag}
+                <span>Last: {hist.lastService ? fmtDay(hist.lastService.date) : '—'}</span>
+                <span>›</span>
+              </div>
+            </div>
+          );
+        };
+        return (
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <h2 style={{ margin: 0, color: 'var(--primary)' }}>🔔 Upcoming Service</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>Due in the next</span>
+                {[1, 2, 4, 6, 8].map(w => (
+                  <button key={w} className={`btn btn-sm ${weeks === w ? 'btn-primary' : 'btn-outline'}`} onClick={() => setWeeks(w)}>{w} wk{w === 1 ? '' : 's'}</button>
+                ))}
+              </div>
+            </div>
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>⏳ Loading horses…</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {farms.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No horses due in the next {weeks} week{weeks === 1 ? '' : 's'}.</div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', fontWeight: 700 }}>
+                      {dueCount} horse{dueCount === 1 ? '' : 's'} due at {farms.length} farm{farms.length === 1 ? '' : 's'}
+                      {overdue > 0 && pill(`${overdue} overdue`, '#ef4444')}
+                    </div>
+                    {farms.map(g => (
+                      <div key={g.due[0].h.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '0.9rem' }}>
+                        <div style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '1.05rem' }}>{g.owner?.farmName || g.name}</div>
+                        {g.owner?.farmName && <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>👤 {g.name}</div>}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.6rem' }}>
+                          {g.due.map(x => horseRow(x, false))}
+                        </div>
+                        {g.other.length > 0 && (
+                          <>
+                            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '0.8rem 0 0.4rem' }}>Also at this farm · not due yet</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                              {g.other.map(x => horseRow(x, true))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </>
+                )}
+                {noDate > 0 && (
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    {noDate} horse{noDate === 1 ? ' has' : 's have'} no appointment or shoeing cycle, so no due date. Set a shoeing cycle on the horse to include it.
+                  </div>
+                )}
+              </div>
             )}
           </div>
         );
@@ -5485,7 +5590,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                 const isActive = b.active !== false;
                 return (
                   <div key={b.id}
-                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.1rem', background: 'var(--surface)', borderRadius: 12, border: '2px solid rgba(38,131,251,0.45)', flexWrap: 'wrap', gap: '0.75rem' }}
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.1rem', background: 'var(--surface)', borderRadius: 12, border: '1px solid #cbd5e1', flexWrap: 'wrap', gap: '0.75rem' }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', minWidth: 0 }}>
                       <div style={{ width: 88, height: 48, borderRadius: 8, background: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0, border: '1px solid var(--border)' }}>
@@ -5517,7 +5622,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
 
           {confirmDelete && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-              <div style={{ background: 'var(--surface)', color: 'var(--text)', borderRadius: 16, padding: '2rem', maxWidth: 400, width: '90%', textAlign: 'center', border: '2px solid rgba(38,131,251,0.45)' }}>
+              <div style={{ background: 'var(--surface)', color: 'var(--text)', borderRadius: 16, padding: '2rem', maxWidth: 400, width: '90%', textAlign: 'center', border: '1px solid #cbd5e1' }}>
                 <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⚠️</div>
                 <h3 style={{ marginBottom: '0.5rem' }}>Delete {confirmDelete.businessName}?</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
@@ -5954,8 +6059,8 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
         setSending(false);
       };
 
-      const inputStyle = { width: '100%', padding: '0.75rem', borderRadius: 8, border: '2px solid rgba(38,131,251,0.45)', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', boxSizing: 'border-box', background: 'rgba(22,32,50,0.95)', color: 'var(--text)', colorScheme: 'dark' };
-      const cardStyle = { background: 'var(--surface)', borderRadius: 12, padding: '1.5rem', boxShadow: '0 2px 12px rgba(0,0,0,0.3)', marginBottom: '1.25rem', border: '2px solid rgba(38,131,251,0.45)', color: 'var(--text)' };
+      const inputStyle = { width: '100%', padding: '0.75rem', borderRadius: 8, border: '1px solid #cbd5e1', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', boxSizing: 'border-box', background: '#fff', color: 'var(--text)', colorScheme: 'light' };
+      const cardStyle = { background: 'var(--surface)', borderRadius: 12, padding: '1.5rem', boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.05)', marginBottom: '1.25rem', border: '1px solid #cbd5e1', color: 'var(--text)' };
 
       return (
         <div style={{ maxWidth: 680, margin: '0 auto' }}>
@@ -6016,7 +6121,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
             )}
 
             {routeGenerated && totalDistance && (
-              <div style={{ padding: '0.6rem 1rem', background: '#0d2a15', border: '1.5px solid #4ade80', borderRadius: 8, marginBottom: '1rem', fontSize: '0.9rem', color: '#4ade80', fontWeight: 600 }}>
+              <div style={{ padding: '0.6rem 1rem', background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 8, marginBottom: '1rem', fontSize: '0.9rem', color: '#166534', fontWeight: 600 }}>
                 🚗 Optimised route · {totalDistance} mi · ~{totalDuration} min driving
               </div>
             )}
@@ -6086,7 +6191,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                         📅 Next appt: {c.nextAppt.requestedDate} {c.nextAppt.requestedTime ? `at ${c.nextAppt.requestedTime}` : ''}
                       </div>
                     ) : (
-                      <div style={{ fontSize: '0.8rem', marginTop: 3, color: '#4ade80', fontWeight: 600 }}>
+                      <div style={{ fontSize: '0.8rem', marginTop: 3, color: '#166534', fontWeight: 600 }}>
                         ✅ No upcoming appointment scheduled
                       </div>
                     )}
@@ -6125,7 +6230,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
               </div>
 
               {sendResult && (
-                <div style={{ marginTop: '0.75rem', padding: '0.7rem 1rem', background: '#0d2a15', borderRadius: 8, border: '1.5px solid #4ade80', fontSize: '0.92rem', fontWeight: 600, color: '#4ade80' }}>
+                <div style={{ marginTop: '0.75rem', padding: '0.7rem 1rem', background: '#f0fdf4', borderRadius: 8, border: '1.5px solid #86efac', fontSize: '0.92rem', fontWeight: 600, color: '#16a34a' }}>
                   {sendResult}
                 </div>
               )}
@@ -6172,6 +6277,103 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
           {state.error && <div className="error-message">{state.error}</div>}
           {state.loading && !state.stamp && <div style={{color: 'var(--text-muted)'}}>Loading your numbers…</div>}
           <div ref={boxRef} />
+        </div>
+      );
+    }
+
+    // Ask FarriTech — type a question about your business, get an answer. The server (api/_lib/ask-ai.js)
+    // lets Claude pick a read-only calculation over this business's own records; nothing is changed.
+    // Each answer carries the figures it was built from, under "Show the numbers".
+    const ASK_EXAMPLES = ['Who owes me money this week?', 'How many active customers do I have?', 'How many horses did I shoe last week?', 'How much did I collect last month?', 'How many horses are due in the next 4 weeks?'];
+    const ASK_MONEY_KEYS = /^(total_owed|owed|total_collected|collected|refunds|collected_after_refunds|for_comparison_invoiced_in_range|total_invoiced|average_invoice|median_invoice|largest_invoice|smallest_invoice)$/;
+    function AskFacts({ data, depth = 0 }) {
+      const label = (k) => k.replace(/_/g, ' ');
+      const fmt = (k, v) => {
+        if (v == null) return '';
+        // A list inside a table cell (e.g. a horse's services): "Full Set · 2; Trim · 1".
+        if (Array.isArray(v)) return v.map(x => x && typeof x === 'object' ? Object.values(x).join(' · ') : String(x)).join('; ');
+        return ASK_MONEY_KEYS.test(k) ? '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v);
+      };
+      const cell = { padding: '0.25rem 0.75rem 0.25rem 0', textAlign: 'left', verticalAlign: 'top' };
+      return (
+        <div style={{ marginLeft: depth ? '0.75rem' : 0 }}>
+          {Object.entries(data).map(([k, v]) => {
+            if (Array.isArray(v)) {
+              if (!v.length) return <div key={k}><b>{label(k)}:</b> none</div>;
+              // Rows can have different fields (e.g. a horse on file but never invoiced), so use every field seen.
+              const cols = [...new Set(v.flatMap(r => Object.keys(r || {})))];
+              return (
+                <table key={k} style={{ margin: '0.5rem 0', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
+                  <thead><tr>{cols.map(c => <th key={c} style={{ ...cell, color: 'var(--text-muted)', fontWeight: 600 }}>{label(c)}</th>)}</tr></thead>
+                  <tbody>{v.map((row, i) => <tr key={i}>{cols.map(c => <td key={c} style={cell}>{fmt(c, row[c])}</td>)}</tr>)}</tbody>
+                </table>
+              );
+            }
+            if (v && typeof v === 'object') return <div key={k} style={{ margin: '0.4rem 0' }}><b>{label(k)}</b><AskFacts data={v} depth={depth + 1} /></div>;
+            return <div key={k}><span style={{ color: 'var(--text-muted)' }}>{label(k)}:</span> {fmt(k, v)}</div>;
+          })}
+        </div>
+      );
+    }
+
+    function AskAIView() {
+      const [q, setQ] = useState('');
+      const [busy, setBusy] = useState(false);
+      const [thread, setThread] = useState([]); // oldest first: { q, a, facts } or { q, error }
+      const ask = async (text) => {
+        const question = (text == null ? q : text).trim();
+        if (!question || busy) return;
+        setBusy(true); setQ('');
+        // The last few answers, so a follow-up like "and last month?" makes sense.
+        const history = thread.filter(t => !t.error).slice(-3).flatMap(t => [{ role: 'user', content: t.q }, { role: 'assistant', content: t.a }]);
+        try {
+          const res = await fetch('/api/stripe-payment', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'ask_ai', question, history, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.success) throw new Error(data.error || 'Something went wrong. Please try again.');
+          setThread(t => [...t, { q: question, a: data.answer, facts: data.facts || [] }]);
+        } catch (e) {
+          setThread(t => [...t, { q: question, error: e.message }]);
+        }
+        setBusy(false);
+      };
+      return (
+        <div style={{ maxWidth: '820px' }}>
+          <h1 style={{ fontSize: '2rem', color: 'var(--primary)', margin: '0 0 0.25rem' }}>Ask FarriTech</h1>
+          <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>Ask anything about your business, in your own words. Answers come from your invoices, customers and appointments.</p>
+          <div className="card" style={{ padding: '1.25rem' }}>
+            <form onSubmit={e => { e.preventDefault(); ask(); }} style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <input type="text" value={q} maxLength={500} autoFocus disabled={busy}
+                placeholder="e.g. Who owes me money this week?"
+                onChange={e => setQ(e.target.value)} style={{ flex: '1 1 260px', minWidth: 0 }} />
+              <button type="submit" className="btn btn-primary" disabled={busy || !q.trim()}>{busy ? 'Thinking…' : 'Ask'}</button>
+            </form>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
+              {ASK_EXAMPLES.map(ex => (
+                <button key={ex} type="button" className="btn btn-sm btn-outline" disabled={busy} onClick={() => ask(ex)}>{ex}</button>
+              ))}
+            </div>
+          </div>
+          {busy && <div className="card" style={{ padding: '1.25rem', color: 'var(--text-muted)' }}>Looking through your records…</div>}
+          {[...thread].reverse().map((t, i) => (
+            <div key={thread.length - i} className="card" style={{ padding: '1.25rem' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>{t.q}</div>
+              {t.error
+                ? <div className="error-message">{t.error}</div>
+                : <div style={{ whiteSpace: 'pre-wrap', fontSize: '1.05rem', lineHeight: 1.5 }}>{t.a}</div>}
+              {!t.error && t.facts.length > 0 && (
+                <details style={{ marginTop: '0.9rem', fontSize: '0.9rem' }}>
+                  <summary style={{ cursor: 'pointer', color: 'var(--primary)' }}>Show the numbers</summary>
+                  <div style={{ marginTop: '0.5rem' }}>
+                    {t.facts.map((f, j) => <div key={j} style={{ marginBottom: '0.75rem' }}><AskFacts data={f.result} /></div>)}
+                  </div>
+                </details>
+              )}
+            </div>
+          ))}
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Ask FarriTech only reads your records; it never changes anything. It can make mistakes in how it words things, so use “Show the numbers” to check a figure that matters.</p>
         </div>
       );
     }
@@ -7067,7 +7269,7 @@ function FarrierDashboard({ user, userProfile, setUserProfile, farrierId, isSupp
                               <div style={{marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid #e5e7eb'}}>
                                 {inv.items.map((item, idx) => (
                                   <div key={idx} style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.25rem'}}>
-                                    • {item.description}{item.horseName ? ` (${item.horseName})` : ''} - ${parseFloat(item.amount || 0).toFixed(2)}
+                                    • {item.description}{FarriPricing.itemHorseLabel(item) ? ` (${FarriPricing.itemHorseLabel(item)})` : ''} - ${parseFloat(item.amount || 0).toFixed(2)}
                                   </div>
                                 ))}
                               </div>
@@ -7336,6 +7538,10 @@ function ServicesView({ userId }) {
       const [itemModal, setItemModal] = useState(null); // { item } | null — null = closed, item: null = add
       const [restockModal, setRestockModal] = useState(null); // { item } | null
       const [catalogOpen, setCatalogOpen] = useState(false);
+      const [query, setQuery] = useState('');
+      const [catalogDoc, setCatalogDoc] = useState(null);   // the supply catalog, loaded the first time something is searched
+      const [catalogError, setCatalogError] = useState('');
+      const [adding, setAdding] = useState(false);
 
       const loadItems = async () => {
         if (!db) return;
@@ -7349,9 +7555,43 @@ function ServicesView({ userId }) {
 
       useEffect(() => { loadItems(); }, [userId]);
 
-      const consumables = items.filter(i => i.isConsumable !== false);
-      const tools = items.filter(i => i.isConsumable === false);
-      const lowStock = consumables.filter(i => Number(i.quantityOnHand || 0) < Number(i.reorderThreshold || 0));
+      // Search as you type (lib/inventory-search.js). The low-stock warning always looks at everything, not just what's shown.
+      const IS = window.FarriInventorySearch;
+      const lowStock = items.filter(i => i.isConsumable !== false).filter(i => Number(i.quantityOnHand || 0) < Number(i.reorderThreshold || 0));
+      const searching = query.trim().length > 0;
+      const shown = IS.search(items, query);
+      const consumables = shown.filter(i => i.isConsumable !== false);
+      const tools = shown.filter(i => i.isConsumable === false);
+      const canAddNew = searching && !IS.hasExactName(items, query);
+      const addNew = () => setItemModal({ item: { name: query.trim() } }); // opens "Add Item" with the typed name filled in
+
+      // The supply catalog (what the Add-from-Catalog picker offers) is searched too: the item may be there even though it isn't
+      // in this farrier's own inventory yet. Loaded once, on the first search; items they already have are left out.
+      useEffect(() => {
+        if (!searching || catalogDoc || catalogError) return;
+        loadSupplyCatalog().then(setCatalogDoc).catch(e => setCatalogError(e.message || 'Couldn\u2019t load the catalog'));
+      }, [searching]);
+      const ownedKeys = new Set(items.map(i => inventoryCatalogKey(i.name, i.size)));
+      const cat = searching && catalogDoc
+        ? IS.searchCatalog({ general: window.INVENTORY_CATALOG || [], products: catalogDoc.products || [] }, query, { owned: ownedKeys, keyFn: inventoryCatalogKey })
+        : null;
+      const catalogCount = cat ? cat.supply.length + cat.general.length : 0;
+      const checkingCatalog = searching && !catalogDoc && !catalogError;
+      const noMatchAnywhere = searching && shown.length === 0 && !checkingCatalog && catalogCount === 0;
+      // Add a catalog item to the inventory (quantity 0, like the picker does), then ask how many they have.
+      const addFromCatalog = async (fields) => {
+        if (adding) return;
+        setAdding(true);
+        try {
+          const ref = db.collection('inventoryItems').doc();
+          const ts = firebase.firestore.FieldValue.serverTimestamp();
+          await ref.set({ ...fields, farrierId: userId, createdAt: ts, updatedAt: ts });
+          const added = { id: ref.id, ...fields, quantityOnHand: 0 };
+          setItems(prev => [...prev, added]);
+          setRestockModal({ item: added });
+        } catch (e) { alert('Couldn\u2019t add that: ' + e.message); }
+        setAdding(false);
+      };
 
       const renderRow = (item, showReorderBadge) => {
         const isLow = showReorderBadge && Number(item.quantityOnHand || 0) < Number(item.reorderThreshold || 0);
@@ -7392,11 +7632,11 @@ function ServicesView({ userId }) {
             <div>Loading...</div>
           ) : (
             <React.Fragment>
-              {items.length === 0 && (
+              {items.length === 0 && !searching && (
                 <div style={{ padding: '1.25rem', borderRadius: 12, background: 'var(--surface)', border: '2px solid var(--primary)', marginBottom: '1rem' }}>
                   <div style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: '0.35rem' }}>📋 Build your inventory from our supply catalog?</div>
                   <div style={{ color: 'var(--text-muted)', marginBottom: '0.9rem' }}>
-                    Tick the shoes, nails, pads and tools you carry — brand, size, part number and list price come filled in. You just count what's on the truck.
+                    Tick the shoes, nails, pads and tools you carry — brand, size and part number come filled in. You just count what's on the truck.
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button className="btn btn-primary" onClick={() => setCatalogOpen(true)}>Browse catalog</button>
@@ -7404,6 +7644,32 @@ function ServicesView({ userId }) {
                   </div>
                 </div>
               )}
+              {(
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <input type="text" value={query} onChange={e => setQuery(e.target.value)} aria-label="Search inventory"
+                    placeholder="🔍 Search your inventory and the supply catalog: name, brand, size, part #…" autoComplete="off"
+                    style={{ flex: 1, minWidth: 0, padding: '0.7rem 0.9rem', borderRadius: 8, border: '2px solid var(--border)', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', boxSizing: 'border-box' }} />
+                  {searching && <button type="button" className="btn btn-sm btn-outline" onClick={() => setQuery('')} aria-label="Clear search">✕</button>}
+                </div>
+              )}
+              {searching && (
+                <div style={{ marginBottom: '0.75rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                  {shown.length === 0 ? '' : `${shown.length} of ${items.length} item${items.length === 1 ? '' : 's'}`}
+                </div>
+              )}
+              {searching && checkingCatalog && shown.length === 0 && (
+                <div style={{ marginBottom: '0.75rem', color: 'var(--text-muted)' }}>Checking the supply catalog…</div>
+              )}
+              {searching && catalogError && (
+                <div style={{ marginBottom: '0.75rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Couldn’t check the supply catalog right now ({catalogError}).</div>
+              )}
+              {noMatchAnywhere && (
+                <div style={{ padding: '1.25rem', borderRadius: 12, background: 'var(--surface)', border: '2px solid var(--primary)', marginBottom: '1rem' }}>
+                  <div style={{ fontWeight: 700, marginBottom: '0.6rem' }}>Nothing in your inventory{catalogError ? '' : ' or the supply catalog'} matches “{query.trim()}”.</div>
+                  <button type="button" className="btn btn-primary" onClick={addNew}>+ Add “{query.trim()}” as a new item</button>
+                </div>
+              )}
+              {(!searching || consumables.length > 0) && (<React.Fragment>
               <h3 style={{ marginTop: '1rem' }}>Shoes, Nails &amp; Consumables</h3>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
@@ -7421,7 +7687,10 @@ function ServicesView({ userId }) {
                   ) : consumables.map(item => renderRow(item, true))}
                 </tbody>
               </table>
+              </React.Fragment>)}
 
+
+              {(!searching || tools.length > 0) && (<React.Fragment>
               <h3 style={{ marginTop: '1.5rem' }}>Tools</h3>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
@@ -7439,6 +7708,41 @@ function ServicesView({ userId }) {
                   ) : tools.map(item => renderRow(item, false))}
                 </tbody>
               </table>
+              </React.Fragment>)}
+              {cat && catalogCount > 0 && (
+                <div style={{ marginTop: '1rem', padding: '1rem', borderRadius: 12, border: '2px dashed var(--primary)', background: 'var(--surface)' }}>
+                  <div style={{ fontWeight: 700, marginBottom: '0.4rem' }}>📋 In the supply catalog, not in your inventory yet</div>
+                  {cat.supply.map(({ pi, product, variants }) => (
+                    <div key={'s' + pi} style={{ padding: '0.55rem 0', borderTop: '1px solid var(--border)' }}>
+                      <div style={{ fontWeight: 600 }}>{product.t}</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '0.1rem 0 0.4rem' }}>{[product.b, product.c.split(' > ')[0]].filter(Boolean).join(' · ')}</div>
+                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                        {variants.slice(0, 24).map(v => (
+                          <button key={v.vi} type="button" className="btn btn-sm btn-outline" disabled={adding}
+                            onClick={() => addFromCatalog(inventoryItemFromSupplyCatalog(product, product.v[v.vi]))}>+ Add{v.size ? ` size ${v.size}` : ''}</button>
+                        ))}
+                        {variants.length > 24 && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>+{variants.length - 24} more sizes in the full catalog</span>}
+                      </div>
+                    </div>
+                  ))}
+                  {cat.general.map(({ idx, entry }) => (
+                    <div key={'g' + idx} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.55rem 0', borderTop: '1px solid var(--border)' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}><span style={{ fontWeight: 600 }}>{entry.name}</span> <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{entry.category}</span></div>
+                      <button type="button" className="btn btn-sm btn-outline" disabled={adding} onClick={() => addFromCatalog(inventoryItemFromCatalog(entry))}>+ Add</button>
+                    </div>
+                  ))}
+                  {(cat.totalSupply > cat.supply.length || cat.totalGeneral > cat.general.length) && (
+                    <div style={{ marginTop: '0.6rem' }}><button type="button" className="btn btn-sm btn-outline" onClick={() => setCatalogOpen(true)}>Browse all {cat.totalSupply + cat.totalGeneral} catalog matches</button></div>
+                  )}
+                </div>
+              )}
+              {searching && canAddNew && !noMatchAnywhere && !checkingCatalog && (
+                <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Not what you’re looking for?</span>
+                  <button type="button" className="btn btn-sm btn-outline" onClick={addNew}>+ Add “{query.trim()}” as a new item</button>
+                </div>
+              )}
+
             </React.Fragment>
           )}
 
@@ -7449,7 +7753,7 @@ function ServicesView({ userId }) {
           )}
 
           {catalogOpen && (
-            <InventoryCatalogModal userId={userId} existingItems={items}
+            <InventoryCatalogModal userId={userId} existingItems={items} initialSearch={query.trim()}
               onClose={() => setCatalogOpen(false)}
               onSaved={() => loadItems()} />
           )}
@@ -7469,7 +7773,7 @@ function ServicesView({ userId }) {
     // Picks are copied into the farrier's inventoryItems (qty 0) in one batch. Items the
     // farrier already has (same name + size) show checked-off and disabled, so
     // re-opening the catalog never creates duplicates.
-    function InventoryCatalogModal({ userId, existingItems, onClose, onSaved }) {
+    function InventoryCatalogModal({ userId, existingItems, initialSearch, onClose, onSaved }) {
       const generic = window.INVENTORY_CATALOG || [];
       const owned = new Set(existingItems.map(i => inventoryCatalogKey(i.name, i.size)));
       const [tab, setTab] = useState('fd');
@@ -7478,7 +7782,7 @@ function ServicesView({ userId }) {
       const [openCat, setOpenCat] = useState(null);
       const [openProduct, setOpenProduct] = useState(null);
       const [selected, setSelected] = useState(() => new Set()); // 'fd:<p>:<v>' | 'gen:<idx>'
-      const [search, setSearch] = useState('');
+      const [search, setSearch] = useState(initialSearch || '');
       const [saving, setSaving] = useState(false);
 
       useEffect(() => {
@@ -7525,9 +7829,9 @@ function ServicesView({ userId }) {
             const isOwned = owned.has(inventoryCatalogKey(p.t, v[0]));
             const on = isOwned || selected.has(key);
             return (
-              <label key={vi} title={v[1] ? `Part # ${v[1]}` : ''} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.25rem 0.55rem', borderRadius: 999, border: `2px solid ${on ? 'var(--primary)' : 'var(--border)'}`, fontSize: '0.85rem', cursor: isOwned ? 'default' : 'pointer', opacity: isOwned ? 0.5 : 1 }}>
+              <label key={vi} title={v[1] ? `Part # ${v[1]}` : ''} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.25rem 0.55rem', borderRadius: 999, border: `2px solid ${isOwned ? '#22c55e' : on ? 'var(--primary)' : 'var(--border)'}`, fontSize: '0.85rem', cursor: isOwned ? 'default' : 'pointer' }} {...(isOwned ? { title: 'Already in your inventory' } : {})}>
                 <input type="checkbox" checked={on} disabled={isOwned} onChange={() => toggleKey(key)} style={{ margin: 0 }} />
-                {v[0] || 'Standard'}{v[2] ? <span style={{ color: 'var(--text-muted)' }}> · ${Number(v[2]).toFixed(2)}</span> : null}
+                {v[0] || 'Standard'}{isOwned && <span style={{ color: '#22c55e' }}> ✓</span>}
               </label>
             );
           })}
@@ -7542,10 +7846,10 @@ function ServicesView({ userId }) {
           const key = `fd:${pi}:0`;
           const isOwned = owned.has(inventoryCatalogKey(p.t, ''));
           return (
-            <label key={pi} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0', opacity: isOwned ? 0.5 : 1, cursor: isOwned ? 'default' : 'pointer' }}>
+            <label key={pi} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0', cursor: isOwned ? 'default' : 'pointer' }}>
               <input type="checkbox" checked={isOwned || selected.has(key)} disabled={isOwned} onChange={() => toggleKey(key)} />
               <span style={{ flex: 1 }}>{p.t}{p.b ? <span style={{ color: 'var(--text-muted)' }}> — {p.b}</span> : null}</span>
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{isOwned ? 'already added' : p.v[0][2] ? `$${Number(p.v[0][2]).toFixed(2)}` : ''}</span>
+              {isOwned && <span style={{ color: '#22c55e', fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap' }}>✓ In inventory</span>}
             </label>
           );
         }
@@ -7621,7 +7925,7 @@ function ServicesView({ userId }) {
             </div>
             <p style={{ margin: '0 0 0.75rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
               {tab === 'fd'
-                ? 'Pick the sizes you carry. Brand, size, part number and list price are filled in — click Edit afterwards to set quantity, reorder level, or your actual cost.'
+                ? 'Pick the sizes you carry. Brand, size and part number are filled in — click Edit afterwards to set quantity, reorder level and your cost.'
                 : "For anything not in the supply catalog. They're added with a quantity of 0 — click Edit on each to fill in details."}
             </p>
             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
@@ -7677,10 +7981,10 @@ function ServicesView({ userId }) {
                       {genVisible.filter(v => v.entry.category === cat).map(({ entry, idx }) => {
                         const isOwned = owned.has(inventoryCatalogKey(entry.name, ''));
                         return (
-                          <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', opacity: isOwned ? 0.5 : 1, cursor: isOwned ? 'default' : 'pointer' }}>
+                          <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', cursor: isOwned ? 'default' : 'pointer' }}>
                             <input type="checkbox" checked={isOwned || selected.has(`gen:${idx}`)} disabled={isOwned} onChange={() => toggleKey(`gen:${idx}`)} />
                             <span style={{ flex: 1 }}>{entry.name}</span>
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{isOwned ? 'already added' : `per ${entry.unit}`}</span>
+                            {isOwned ? <span style={{ color: '#22c55e', fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap' }}>✓ In inventory</span> : <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>per {entry.unit}</span>}
                           </label>
                         );
                       })}
@@ -7691,13 +7995,371 @@ function ServicesView({ userId }) {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem', marginTop: '0.5rem' }}>
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{tab === 'fd' && fd ? `List prices as of ${fd.retrieved}` : ''}</span>
+              <span />
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button className="btn btn-outline" onClick={onClose}>Cancel</button>
                 <button className="btn btn-primary" disabled={!selected.size || saving} onClick={handleAdd}>
                   {saving ? 'Adding…' : selected.size ? `Add ${selected.size} item${selected.size > 1 ? 's' : ''}` : 'Select items to add'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── SHOPPING LIST ── things to buy, shared with the whole business (team members included) and live-updating
+    // across phone and desktop. Tick "Purchased" when it's bought; then "Add to inventory" puts it into stock.
+    // lib/shopping-list.js cleans input and builds the writes; the inventory update, its restock record and the
+    // list item's "in inventory" mark are committed as ONE batch, so a purchase is never half-recorded.
+    // Stored at farriers/{businessId}/shoppingList/{id} (already covered by the farriers/{id}/{document=**} rule).
+    function ShoppingListView({ userId }) {
+      const S = window.FarriShopping;
+      const [items, setItems] = useState(null); // null = still loading
+      const [name, setName] = useState('');
+      const [qty, setQty] = useState('1');
+      const [unit, setUnit] = useState('');
+      const [error, setError] = useState('');
+      const [notice, setNotice] = useState('');
+      const [adding, setAdding] = useState(false);
+      const [stockFor, setStockFor] = useState(null); // the purchased item being added to inventory
+      const nameRef = React.useRef(null);
+      const qtyRef = React.useRef(null);
+      // As they type the item, suggest matches from their own inventory and from the supply catalog (lib/inventory-search.js).
+      const [inventory, setInventory] = useState([]);
+      const [catalogDoc, setCatalogDoc] = useState(null);   // the supply catalog, loaded the first time they type
+      const [catalogError, setCatalogError] = useState('');
+      const [suggest, setSuggest] = useState(false);        // panel open (closed after picking, adding, or Escape)
+      const [picked, setPicked] = useState(() => new Set()); // catalog choices ticked to add together: '<product index>:<choice index>'
+      const col = () => db.collection('farriers').doc(userId).collection('shoppingList');
+      const me = () => firebase.auth().currentUser?.uid || '';
+      const stamp = () => firebase.firestore.FieldValue.serverTimestamp();
+
+      useEffect(() => {
+        if (!db || !userId) return undefined;
+        return col().onSnapshot(
+          snap => setItems(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+          e => { console.error('Shopping list error:', e); setError('Couldn’t load the shopping list. Please reload the page.'); setItems([]); });
+      }, [userId]);
+
+      const loadInventory = () => {
+        if (!db || !userId) return;
+        db.collection('inventoryItems').where('farrierId', '==', userId).get()
+          .then(snap => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+          .catch(e => console.error('Inventory load failed:', e)); // suggestions just have fewer matches
+      };
+      useEffect(() => { loadInventory(); }, [userId]);
+      const typed = name.trim();
+      useEffect(() => {
+        if (!suggest || !typed || catalogDoc || catalogError) return;
+        loadSupplyCatalog().then(setCatalogDoc).catch(e => setCatalogError(e.message || 'Couldn\u2019t load the catalog'));
+      }, [suggest, typed.length > 0]);
+
+      const IS = window.FarriInventorySearch;
+      const showSuggest = suggest && typed.length > 0;
+      const ownMatches = showSuggest ? IS.search(inventory, typed).slice(0, 6) : [];
+      const ownedKeys = new Set(inventory.map(i => inventoryCatalogKey(i.name, i.size)));
+      const cat = showSuggest && catalogDoc
+        ? IS.searchCatalog({ general: window.INVENTORY_CATALOG || [], products: catalogDoc.products || [] }, typed, { owned: ownedKeys, keyFn: inventoryCatalogKey, maxSupply: 5, maxGeneral: 4 })
+        : null;
+      const catCount = cat ? cat.supply.length + cat.general.length : 0;
+      const checkingCatalog = showSuggest && !catalogDoc && !catalogError;
+      const nothingFound = showSuggest && ownMatches.length === 0 && !checkingCatalog && catCount === 0;
+      const pick = (kind, thing, size) => {
+        const p = IS.shoppingPick(kind, thing, size);
+        setName(p.name); setUnit(p.unit); setSuggest(false); setError('');
+        qtyRef.current && qtyRef.current.focus();
+      };
+
+      // A catalog product with several choices (colours, sizes) can have more than one ticked, then added to the list together,
+      // each as its own line, using the quantity in the box.
+      const togglePicked = (key) => setPicked(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+      const pickedList = () => [...picked].map(k => k.split(':').map(Number)).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      const fillFromPicked = () => { const [pi, vi] = pickedList()[0]; const product = catalogDoc.products[pi]; setPicked(new Set()); pick('supply', product, product.v[vi][0]); };
+      const addPicked = async () => {
+        if (!catalogDoc || picked.size === 0 || adding) return;
+        const rows = [];
+        for (const [pi, vi] of pickedList()) {
+          const product = catalogDoc.products[pi], pk = IS.shoppingPick('supply', product, product.v[vi][0]);
+          const r = S.cleanNewItem({ name: pk.name, qty, unit: pk.unit });
+          if (!r.ok) { setError(r.error); return; }
+          rows.push(r.value);
+        }
+        setError(''); setNotice(''); setAdding(true);
+        try {
+          const b = db.batch(); // all of them, or none
+          rows.forEach(v => b.set(col().doc(), { ...v, purchased: false, purchasedAt: null, inventoryItemId: '', createdAt: stamp(), createdBy: me() }));
+          await b.commit();
+          setPicked(new Set()); setName(''); setQty('1'); setUnit(''); setSuggest(false);
+          setNotice(`Added ${rows.length} item${rows.length === 1 ? '' : 's'} to the list.`);
+          nameRef.current && nameRef.current.focus();
+        } catch (ex) { setError('Couldn’t add those: ' + ex.message); }
+        setAdding(false);
+      };
+
+      const { toBuy, purchased } = S.group(items || []);
+
+      const add = async (e) => {
+        e.preventDefault();
+        const r = S.cleanNewItem({ name, qty, unit });
+        if (!r.ok) { setError(r.error); return; }
+        setError(''); setNotice(''); setAdding(true);
+        try {
+          await col().add({ ...r.value, purchased: false, purchasedAt: null, inventoryItemId: '', createdAt: stamp(), createdBy: me() });
+          setName(''); setQty('1'); setUnit(''); setSuggest(false);
+          nameRef.current && nameRef.current.focus();
+        } catch (ex) { setError('Couldn’t add that: ' + ex.message); }
+        setAdding(false);
+      };
+      const tick = async (it) => {
+        setError(''); setNotice('');
+        try {
+          await col().doc(it.id).update(it.purchased ? { purchased: false, purchasedAt: null, purchasedBy: '' } : { purchased: true, purchasedAt: stamp(), purchasedBy: me() });
+        } catch (ex) { setError('Couldn’t update that: ' + ex.message); }
+      };
+      const remove = async (it) => {
+        if (!confirm(`Remove “${it.name}” from the list?`)) return;
+        try { await col().doc(it.id).delete(); } catch (ex) { setError('Couldn’t remove that: ' + ex.message); }
+      };
+      const clearPurchased = async () => {
+        const notStocked = purchased.filter(i => !i.inventoryItemId).length;
+        const msg = `Clear ${purchased.length} purchased item${purchased.length === 1 ? '' : 's'} from the list?` +
+          (notStocked ? `\n\n${notStocked} of them ${notStocked === 1 ? 'hasn’t' : 'haven’t'} been added to your inventory yet, and won’t be.` : '');
+        if (!confirm(msg)) return;
+        try { const b = db.batch(); purchased.forEach(i => b.delete(col().doc(i.id))); await b.commit(); }
+        catch (ex) { setError('Couldn’t clear the list: ' + ex.message); }
+      };
+
+      const pickedBar = picked.size > 0 && (
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', padding: '0.5rem 0.6rem', margin: '0.25rem 0 0.5rem', borderRadius: 8, background: 'var(--primary)', color: '#fff' }}>
+          <strong>{picked.size} selected</strong>
+          <button type="button" className="btn btn-sm" disabled={adding} onClick={addPicked} style={{ background: '#fff', color: 'var(--primary)', fontWeight: 700 }}>{adding ? 'Adding…' : `Add ${picked.size} to the list`}</button>
+          <button type="button" className="btn btn-sm" onClick={() => setPicked(new Set())} style={{ background: 'transparent', color: '#fff', border: '1px solid rgba(255,255,255,0.7)' }}>Clear</button>
+          {picked.size === 1 && <button type="button" className="btn btn-sm" onClick={fillFromPicked} style={{ background: 'transparent', color: '#fff', textDecoration: 'underline' }}>Fill the box instead</button>}
+        </div>
+      );
+      const inputStyle = { padding: '0.6rem 0.75rem', borderRadius: 8, border: '2px solid var(--border)', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', boxSizing: 'border-box', minWidth: 0 };
+      const row = { display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 0', borderTop: '1px solid var(--border)' };
+      const qtyLabel = (it) => `${it.qty ?? 1}${it.unit ? ' ' + it.unit : ''}`;
+
+      return (
+        <div style={{ maxWidth: 760 }}>
+          <h1 style={{ fontSize: '2rem', color: 'var(--primary)', margin: '0 0 0.25rem' }}>Shopping List</h1>
+          <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>What you need to buy. Tick it when you've bought it, then add it to your inventory.</p>
+
+          <div className="card" style={{ padding: '1.25rem' }}>
+            <form onSubmit={add} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <input ref={nameRef} type="text" value={name} maxLength={100} placeholder="What do you need? e.g. Horseshoe nails" disabled={adding}
+                onChange={e => { setName(e.target.value); setSuggest(true); setPicked(new Set()); }} onKeyDown={e => { if (e.key === 'Escape') setSuggest(false); }}
+                autoComplete="off" style={{ ...inputStyle, flex: '1 1 220px' }} aria-label="Item" />
+              <input ref={qtyRef} type="number" value={qty} min="0" step="any" disabled={adding} onChange={e => setQty(e.target.value)} style={{ ...inputStyle, width: 80 }} aria-label="Quantity" />
+              <input type="text" value={unit} maxLength={20} placeholder="unit (box…)" disabled={adding} onChange={e => setUnit(e.target.value)} style={{ ...inputStyle, width: 110 }} aria-label="Unit" />
+              <button type="submit" className="btn btn-primary" disabled={adding || !name.trim()}>{adding ? 'Adding…' : 'Add'}</button>
+            </form>
+            {showSuggest && (ownMatches.length > 0 || catCount > 0 || checkingCatalog || nothingFound || catalogError) && (
+              <div role="listbox" aria-label="Suggestions" style={{ marginTop: '0.75rem', border: '1px solid var(--border)', borderRadius: 10, padding: '0.5rem 0.75rem', background: 'var(--surface)' }}>
+                {ownMatches.length > 0 && (<React.Fragment>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '0.25rem 0' }}>In your inventory</div>
+                  {ownMatches.map(i => {
+                    const low = i.isConsumable !== false && Number(i.quantityOnHand || 0) < Number(i.reorderThreshold || 0);
+                    return (
+                      <button key={i.id} type="button" role="option" onClick={() => pick('own', i)}
+                        style={{ display: 'flex', width: '100%', justifyContent: 'space-between', gap: '0.75rem', padding: '0.5rem 0.25rem', background: 'none', border: 'none', borderTop: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left', color: 'inherit', font: 'inherit' }}>
+                        <span style={{ fontWeight: 600 }}>{i.name}{i.size ? ` (${i.size})` : ''}</span>
+                        <span style={{ color: low ? '#dc2626' : 'var(--text-muted)', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>{i.quantityOnHand ?? 0} {i.unit || ''} on hand{low ? ' · ⚠ Low' : ''}</span>
+                      </button>
+                    );
+                  })}
+                </React.Fragment>)}
+                {checkingCatalog && ownMatches.length === 0 && <div style={{ color: 'var(--text-muted)', padding: '0.4rem 0' }}>Checking the supply catalog…</div>}
+                {cat && catCount > 0 && (<React.Fragment>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '0.5rem 0 0.25rem' }}>In the supply catalog</div>
+                  {pickedBar}
+                  {cat.supply.map(({ pi, product, variants }) => (
+                    <div key={'s' + pi} style={{ padding: '0.5rem 0.25rem', borderTop: '1px solid var(--border)' }}>
+                      <div style={{ fontWeight: 600 }}>{product.t}</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '0.1rem 0 0.35rem' }}>{[product.b, product.c.split(' > ')[0]].filter(Boolean).join(' · ')}</div>
+                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        {variants.slice(0, 12).map(v => {
+                          if (variants.length === 1) return <button key={v.vi} type="button" className="btn btn-sm btn-outline" onClick={() => pick('supply', product, v.size)}>{IS.variantLabel(v.size)}</button>; // only one choice: use it
+                          const on = picked.has(`${pi}:${v.vi}`);
+                          return <button key={v.vi} type="button" aria-pressed={on} className={on ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline'} onClick={() => togglePicked(`${pi}:${v.vi}`)}>{on ? '✓ ' : ''}{IS.variantLabel(v.size)}</button>;
+                        })}
+                        {variants.length > 12 && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', alignSelf: 'center' }}>+{variants.length - 12} more sizes: type the size you need</span>}
+                      </div>
+                    </div>
+                  ))}
+                  {cat.general.map(({ idx, entry }) => (
+                    <button key={'g' + idx} type="button" role="option" onClick={() => pick('general', entry)}
+                      style={{ display: 'flex', width: '100%', justifyContent: 'space-between', gap: '0.75rem', padding: '0.5rem 0.25rem', background: 'none', border: 'none', borderTop: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left', color: 'inherit', font: 'inherit' }}>
+                      <span style={{ fontWeight: 600 }}>{entry.name}</span><span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{entry.category}</span>
+                    </button>
+                  ))}
+                  {picked.size > 1 && pickedBar}
+                </React.Fragment>)}
+                {catalogError && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', padding: '0.4rem 0' }}>Couldn’t check the supply catalog right now ({catalogError}).</div>}
+                {nothingFound ? (
+                  <div style={{ padding: '0.4rem 0' }}>
+                    <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Nothing in your inventory{catalogError ? '' : ' or the supply catalog'} matches “{typed}”.</div>
+                    <button type="button" className="btn btn-primary" disabled={adding} onClick={() => add({ preventDefault() {} })}>+ Add “{typed}” to the list as a new item</button>
+                  </div>
+                ) : (
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)', marginTop: '0.25rem' }}>Not what you’re looking for? Press Add to put “{typed}” on the list as typed.</div>
+                )}
+              </div>
+            )}
+            {error && <div className="error-message" style={{ marginTop: '0.75rem' }}>{error}</div>}
+            {notice && <div style={{ marginTop: '0.75rem', color: '#16a34a', fontWeight: 600 }}>{notice}</div>}
+          </div>
+
+          {items === null && <div className="card" style={{ color: 'var(--text-muted)' }}>Loading your list…</div>}
+
+          {items !== null && (
+            <div className="card" style={{ padding: '1.25rem' }}>
+              <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.15rem' }}>To buy ({toBuy.length})</h2>
+              {toBuy.length === 0 && <div style={{ color: 'var(--text-muted)' }}>Nothing on the list. Add something above.</div>}
+              {toBuy.map((it, i) => (
+                <div key={it.id} style={{ ...row, borderTop: i ? row.borderTop : 'none' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, cursor: 'pointer', margin: 0 }}>
+                    <input type="checkbox" checked={false} onChange={() => tick(it)} style={{ width: 20, height: 20 }} aria-label={`Purchased: ${it.name}`} />
+                    <span style={{ fontWeight: 600 }}>{it.name}</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{qtyLabel(it)}</span>
+                  </label>
+                  <button type="button" className="btn btn-sm btn-outline" onClick={() => remove(it)} aria-label={`Remove ${it.name}`}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {items !== null && purchased.length > 0 && (
+            <div className="card" style={{ padding: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                <h2 style={{ margin: 0, fontSize: '1.15rem' }}>Purchased ({purchased.length})</h2>
+                <button type="button" className="btn btn-sm btn-outline" onClick={clearPurchased}>Clear purchased</button>
+              </div>
+              {purchased.map((it, i) => (
+                <div key={it.id} style={{ ...row, borderTop: i ? row.borderTop : 'none' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, margin: 0, cursor: it.inventoryItemId ? 'default' : 'pointer' }}>
+                    <input type="checkbox" checked disabled={!!it.inventoryItemId} onChange={() => tick(it)} style={{ width: 20, height: 20 }}
+                      aria-label={`Purchased: ${it.name}`} title={it.inventoryItemId ? 'Already in your inventory' : 'Untick if you haven’t bought it'} />
+                    <span style={{ textDecoration: 'line-through', color: 'var(--text-muted)' }}>{it.name}</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{qtyLabel(it)}</span>
+                  </label>
+                  {it.inventoryItemId
+                    ? <span style={{ color: '#16a34a', fontWeight: 600, fontSize: '0.9rem' }}>✓ In inventory{it.inventoryItemName ? `: ${it.inventoryItemName}` : ''}</span>
+                    : <button type="button" className="btn btn-sm btn-primary" onClick={() => { setError(''); setNotice(''); setStockFor(it); }}>Add to inventory</button>}
+                  <button type="button" className="btn btn-sm btn-outline" onClick={() => remove(it)} aria-label={`Remove ${it.name}`}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {stockFor && (
+            <ShoppingToInventoryModal item={stockFor} userId={userId} onClose={() => setStockFor(null)} onDone={(m) => { setNotice(m); loadInventory(); }} />
+          )}
+        </div>
+      );
+    }
+
+    function ShoppingToInventoryModal({ item, userId, onClose, onDone }) {
+      const S = window.FarriShopping;
+      const [inv, setInv] = useState(null); // inventory items; null = loading
+      const [mode, setMode] = useState('existing');
+      const [existingId, setExistingId] = useState('');
+      const [qty, setQty] = useState(String(item.qty ?? 1));
+      const [fresh, setFresh] = useState({ name: item.name || '', category: '', unit: item.unit || '', costPerUnit: '', isTool: false });
+      const [saving, setSaving] = useState(false);
+      const [error, setError] = useState('');
+      const inputStyle = { width: '100%', padding: '0.75rem', borderRadius: 8, border: '2px solid var(--border)', fontFamily: 'Outfit,sans-serif', fontSize: '1rem', boxSizing: 'border-box' };
+
+      useEffect(() => {
+        let live = true;
+        (async () => {
+          let rows = [];
+          try {
+            const snap = await db.collection('inventoryItems').where('farrierId', '==', userId).get();
+            rows = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+          } catch (e) { console.error('Inventory load failed:', e); }
+          if (!live) return;
+          setInv(rows);
+          const match = S.suggestInventoryMatch(item.name, rows);
+          if (match) { setExistingId(match.id); setMode('existing'); } else { setMode('new'); }
+        })();
+        return () => { live = false; };
+      }, []);
+
+      const save = async () => {
+        setError('');
+        const existing = (inv || []).find(i => i.id === existingId);
+        const newRef = mode === 'new' ? db.collection('inventoryItems').doc() : null;
+        const r = S.buildAddToInventory({ item, mode, existing, fresh, newId: newRef && newRef.id, qty, farrierId: userId,
+          userId: firebase.auth().currentUser?.uid || '', fv: firebase.firestore.FieldValue });
+        if (r.error) { setError(r.error); return; }
+        setSaving(true);
+        try {
+          const batch = db.batch();
+          if (r.inventory.kind === 'update') batch.update(db.collection('inventoryItems').doc(r.inventory.id), r.inventory.data);
+          else batch.set(newRef, r.inventory.data);
+          batch.set(db.collection('inventoryTransactions').doc(), r.transaction);
+          batch.update(db.collection('farriers').doc(userId).collection('shoppingList').doc(item.id), r.shopping);
+          await batch.commit();
+          onDone(`Added ${r.qty} ${r.shopping.inventoryItemName ? 'to ' + r.shopping.inventoryItemName : 'to inventory'}.`);
+          onClose();
+        } catch (ex) { setError('Couldn’t update your inventory: ' + ex.message); setSaving(false); }
+      };
+      const setF = (k, v) => setFresh(f => ({ ...f, [k]: v }));
+
+      return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div className="card" style={{ maxWidth: 460, width: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h2 style={{ margin: 0, color: 'var(--primary)' }}>Add to inventory</h2>
+              <button className="btn btn-sm btn-outline" onClick={onClose} disabled={saving}>✕ Close</button>
+            </div>
+            <p style={{ marginTop: 0 }}><strong>{item.name}</strong> <span style={{ color: 'var(--text-muted)' }}>(bought: {item.qty ?? 1}{item.unit ? ' ' + item.unit : ''})</span></p>
+
+            {inv === null ? <div style={{ color: 'var(--text-muted)' }}>Loading your inventory…</div> : (<>
+              {inv.length > 0 && (
+                <div style={{ display: 'flex', gap: '1.25rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', cursor: 'pointer' }}><input type="radio" name="stockmode" checked={mode === 'existing'} onChange={() => setMode('existing')} /> Add to an item I already have</label>
+                  <label style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', cursor: 'pointer' }}><input type="radio" name="stockmode" checked={mode === 'new'} onChange={() => setMode('new')} /> Create a new item</label>
+                </div>
+              )}
+
+              {mode === 'existing' && inv.length > 0 && (
+                <div className="form-group">
+                  <label>Inventory item</label>
+                  <select value={existingId} onChange={e => setExistingId(e.target.value)} style={inputStyle}>
+                    <option value="">Choose…</option>
+                    {inv.map(i => <option key={i.id} value={i.id}>{i.name}{i.size ? ` (${i.size})` : ''}, {i.quantityOnHand ?? 0} {i.unit || ''} on hand</option>)}
+                  </select>
+                </div>
+              )}
+
+              {mode === 'new' && (<>
+                <div className="form-group"><label>Name *</label><input type="text" value={fresh.name} maxLength={100} onChange={e => setF('name', e.target.value)} style={inputStyle} /></div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div className="form-group"><label>Category</label><input type="text" value={fresh.category} placeholder="Shoes, Nails, Tools" onChange={e => setF('category', e.target.value)} style={inputStyle} /></div>
+                  <div className="form-group"><label>Unit</label><input type="text" value={fresh.unit} placeholder="box, pair, each" maxLength={20} onChange={e => setF('unit', e.target.value)} style={inputStyle} /></div>
+                </div>
+                <div className="form-group"><label>Cost per unit ($)</label><input type="number" min="0" step="0.01" value={fresh.costPerUnit} onChange={e => setF('costPerUnit', e.target.value)} style={inputStyle} /></div>
+                <div className="form-group">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
+                    <input type="checkbox" checked={fresh.isTool} onChange={e => setF('isTool', e.target.checked)} /> This is a tool or equipment (not used up)
+                  </label>
+                </div>
+              </>)}
+
+              <div className="form-group">
+                <label>Quantity to add to stock</label>
+                <input type="number" min="0" step="any" value={qty} onChange={e => setQty(e.target.value)} style={inputStyle} />
+              </div>
+            </>)}
+
+            {error && <div className="error-message" style={{ marginBottom: '0.75rem' }}>{error}</div>}
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button className="btn btn-outline" onClick={onClose} style={{ flex: 1 }} disabled={saving}>Cancel</button>
+              <button className="btn btn-primary" onClick={save} style={{ flex: 2 }} disabled={saving || inv === null}>{saving ? '⏳ Saving…' : '✅ Add to inventory'}</button>
             </div>
           </div>
         </div>
@@ -8308,7 +8970,7 @@ function ServicesView({ userId }) {
               invoiceDate: dateStr,
               dueDate: dateStr,
               item: item.description || item.serviceNameSnapshot || 'Service',
-              itemDescription: item.horseName ? `${item.description || ''} (${item.horseName})` : (item.description || ''),
+              itemDescription: FarriPricing.itemHorseLabel(item) ? `${item.description || ''} (${FarriPricing.itemHorseLabel(item)})` : (item.description || ''),
               itemAmount: Number(item.amount || 0).toFixed(2),
               memo: inv.notes || '',
             });
@@ -10371,243 +11033,276 @@ function ServicesView({ userId }) {
 }
 
 function CalendarView({ userId }) {
-      const [currentDate, setCurrentDate] = useState(new Date());
+      // Month / Week / Day calendar of the farrier's appointments, plus the horses actually
+      // worked on each day. "Horses done" comes from that day's invoice lines (one per horse),
+      // topped up with horses on that day's completed/invoiced appointments that no invoice
+      // line already covers.
+      const [view, setView] = useState('month');
+      const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); });
       const [appointments, setAppointments] = useState([]);
+      const [invoices, setInvoices] = useState([]);
       const [loading, setLoading] = useState(true);
 
       useEffect(() => {
-        loadAppointments();
-      }, []);
-
-      const loadAppointments = async () => {
-        if (db) {
+        if (!db || !userId) { setLoading(false); return; }
+        (async () => {
           try {
-            const snapshot = await db.collection('appointments')
-              .where('farrierId', '==', userId)
-              .get();
-            
-            const appointmentData = snapshot.docs.map(doc => {
-              const data = doc.data();
-              
-              // Clean up time format: convert "HH:MM:SS" to "HH:MM"
-              if (data.requestedTime && data.requestedTime.includes(':')) {
-                const timeParts = data.requestedTime.split(':');
-                if (timeParts.length === 3) {
-                  data.requestedTime = `${timeParts[0]}:${timeParts[1]}`;
-                }
-              }
-          
-              return {
-                id: doc.id,
-                ...data
-              };
-            });
-            
-            setAppointments(appointmentData);
-            console.log('✅ Loaded appointments for calendar:', appointmentData.length);
+            const [aSnap, iSnap] = await Promise.all([
+              db.collection('appointments').where('farrierId', '==', userId).get(),
+              db.collection('invoices').where('farrierId', '==', userId).get(),
+            ]);
+            setAppointments(aSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setInvoices(iSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
           } catch (error) {
-            console.error('❌ Error loading appointments:', error);
+            console.error('❌ Error loading calendar:', error);
           }
+          setLoading(false);
+        })();
+      }, [userId]);
+
+      const pad = (n) => String(n).padStart(2, '0');
+      const keyOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+      const todayKey = keyOf(new Date());
+      const toDate = (v) => v?.toDate ? v.toDate() : (typeof v?.seconds === 'number' ? new Date(v.seconds * 1000) : (v ? new Date(v) : null));
+      const fmtTime = (t) => {
+        if (!t || !t.includes(':')) return '';
+        const [h, m] = t.split(':').map(Number);
+        return `${h % 12 || 12}:${pad(m || 0)} ${h >= 12 ? 'PM' : 'AM'}`;
+      };
+      const norm = (s) => String(s || '').trim().toLowerCase();
+
+      // Horses booked on an appointment: per-horse requests, else the plain horse names.
+      const horsesOf = (a) => {
+        if (Array.isArray(a.horseRequests) && a.horseRequests.length) {
+          return a.horseRequests.map(r => ({ name: r.horseName || 'Horse', services: r.services || [] }));
         }
-        setLoading(false);
+        return (a.horseNames || []).map(n => ({ name: n, services: a.services || [] }));
       };
 
-      // Count appointments by date
-      const getAppointmentCounts = () => {
-        const counts = {};
-        appointments.forEach(apt => {
-          if (apt.requestedDate) {
-            const date = apt.requestedDate; // Format: "2026-02-15"
-            if (!counts[date]) {
-              counts[date] = { confirmed: 0, pending: 0, total: 0 };
-            }
-            counts[date].total++;
-            // Handle status - if not set or 'pending', treat as pending
-            const status = apt.status || 'pending';
-            
-            if (status === 'confirmed') {
-              counts[date].confirmed++;
-            } else {
-              // Treat everything else (pending, undefined, null) as pending
-              counts[date].pending++;
-            }
-            
-            console.log(`📅 Date: ${date}, Status: ${status}, Counts:`, counts[date]);
-          }
+      const byDay = React.useMemo(() => {
+        const days = {};
+        const day = (k) => (days[k] = days[k] || { appts: [], done: [] });
+        appointments.forEach(a => {
+          if (!a.requestedDate) return;
+          day(a.requestedDate).appts.push(a);
         });
-        console.log('📊 Final appointment counts:', counts);
-        return counts;
+        Object.values(days).forEach(d => d.appts.sort((x, y) => String(x.requestedTime || '99').localeCompare(String(y.requestedTime || '99'))));
+
+        // Horses done: invoice lines on the invoice's date…
+        invoices.forEach(inv => {
+          if (inv.status === 'cancelled') return;
+          const d = toDate(inv.createdAt);
+          if (!d || isNaN(d)) return;
+          const k = keyOf(d);
+          const perHorse = {};
+          (inv.items || []).forEach(it => {
+            // "Multiple horses × 10" for a group line, so the day's recap shows how many.
+            const horse = FarriPricing.itemHorseLabel({ horseName: it.horseName, qty: it.qty });
+            if (!horse) return;
+            const id = norm(horse);
+            perHorse[id] = perHorse[id] || { horse, customer: inv.customerName || '', farm: inv.customerFarmName || '', services: [], invoiceNumber: inv.invoiceNumber || '' };
+            const svc = it.serviceNameSnapshot || it.description || it.serviceName;
+            if (svc) perHorse[id].services.push(svc);
+          });
+          Object.values(perHorse).forEach(h => day(k).done.push(h));
+        });
+        // …plus horses on completed/invoiced appointments that day not already listed.
+        Object.entries(days).forEach(([k, d]) => {
+          d.appts.forEach(a => {
+            if (!(a.status === 'completed' || a.status === 'invoiced' || a.invoiced)) return;
+            horsesOf(a).forEach(h => {
+              const dup = d.done.some(x => norm(x.horse) === norm(h.name) && norm(x.customer) === norm(a.customerName));
+              if (!dup) d.done.push({ horse: h.name, customer: a.customerName || '', farm: a.farmName || '', services: h.services, invoiceNumber: '' });
+            });
+          });
+        });
+        return days;
+      }, [appointments, invoices]);
+
+      const dayData = (k) => byDay[k] || { appts: [], done: [] };
+      const live = (a) => a.status !== 'cancelled';
+
+      // ── navigation ──
+      const step = (dir) => {
+        if (view === 'month') setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + dir, 1));
+        else setCursor(addDays(cursor, dir * (view === 'week' ? 7 : 1)));
+      };
+      const goToday = () => { const d = new Date(); setCursor(new Date(d.getFullYear(), d.getMonth(), d.getDate())); };
+      const openDay = (d) => { setCursor(d); setView('day'); };
+      const weekStart = addDays(cursor, -cursor.getDay());
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const title = view === 'month'
+        ? `${monthNames[cursor.getMonth()]} ${cursor.getFullYear()}`
+        : view === 'week'
+          ? `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${addDays(weekStart, 6).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+          : cursor.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+      const statusStyle = (s) => ({
+        confirmed: { bg: '#dcfce7', fg: '#166534', label: 'Confirmed' },
+        completed: { bg: '#dbeafe', fg: '#1e40af', label: 'Completed' },
+        invoiced: { bg: '#e0e7ff', fg: '#3730a3', label: 'Invoiced' },
+        cancelled: { bg: '#fee2e2', fg: '#991b1b', label: 'Cancelled' },
+      }[s] || { bg: '#fef3c7', fg: '#92400e', label: s ? s[0].toUpperCase() + s.slice(1) : 'Pending' });
+      const pill = (bg, fg, text) => <span style={{ background: bg, color: fg, borderRadius: 999, padding: '0.1rem 0.5rem', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>{text}</span>;
+      const horseCount = (k) => dayData(k).done.length;
+
+      // ── Month ──
+      const renderMonth = () => {
+        const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+        const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+        const cells = [];
+        for (let i = 0; i < first.getDay(); i++) cells.push(<div key={`e${i}`} className="calendar-day" style={{ aspectRatio: 'auto', minHeight: 96 }} />);
+        for (let i = 1; i <= daysInMonth; i++) {
+          const d = new Date(cursor.getFullYear(), cursor.getMonth(), i);
+          const k = keyOf(d);
+          const appts = dayData(k).appts.filter(live);
+          const confirmed = appts.filter(a => a.status === 'confirmed').length;
+          const other = appts.length - confirmed;
+          const horses = horseCount(k);
+          cells.push(
+            <div key={k} className="calendar-day" onClick={() => openDay(d)} title="Open this day"
+              style={{ aspectRatio: 'auto', minHeight: 96, flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', padding: '0.4rem', gap: '0.25rem' }}>
+              <div style={{ alignSelf: 'flex-end', fontWeight: 700, width: 26, height: 26, lineHeight: '26px', textAlign: 'center', borderRadius: '50%',
+                background: k === todayKey ? 'var(--primary)' : 'transparent', color: k === todayKey ? '#fff' : 'var(--text)' }}>{i}</div>
+              {confirmed > 0 && pill('#dcfce7', '#166534', `✓ ${confirmed} confirmed`)}
+              {other > 0 && pill('#fef3c7', '#92400e', `⏳ ${other} ${other === 1 ? 'appt' : 'appts'}`)}
+              {horses > 0 && pill('#dbeafe', '#1e40af', `🐴 ${horses} done`)}
+            </div>
+          );
+        }
+        return (
+          <div className="calendar-grid">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => <div key={day} className="calendar-day header" style={{ aspectRatio: 'auto', padding: '0.5rem' }}>{day}</div>)}
+            {cells}
+          </div>
+        );
       };
 
-      const appointmentCounts = getAppointmentCounts();
-      
-      const daysInMonth = new Date(
-        currentDate.getFullYear(),
-        currentDate.getMonth() + 1,
-        0
-      ).getDate();
-
-      const firstDay = new Date(
-        currentDate.getFullYear(),
-        currentDate.getMonth(),
-        1
-      ).getDay();
-
-      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December'];
-
-      const days = [];
-      for (let i = 0; i < firstDay; i++) {
-        days.push(<div key={`empty-${i}`} className="calendar-day"></div>);
-      }
-      for (let i = 1; i <= daysInMonth; i++) {
-        const isToday = i === new Date().getDate() && 
-                        currentDate.getMonth() === new Date().getMonth() &&
-                        currentDate.getFullYear() === new Date().getFullYear();
-        
-        // Format date to match appointment requestedDate format (YYYY-MM-DD)
-        const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-        const counts = appointmentCounts[dateStr];
-        
-        days.push(
-          <div 
-            key={i} 
-            className={`calendar-day ${isToday ? 'today' : ''}`}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'flex-start',
-              padding: '0.5rem',
-              minHeight: '80px',
-              position: 'relative'
-            }}
-          >
-            <div style={{fontWeight: '600', marginBottom: '0.25rem'}}>{i}</div>
-            {counts && counts.total > 0 && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.25rem',
-                fontSize: '0.75rem',
-                width: '100%',
-                alignItems: 'center'
-              }}>
-                {counts.confirmed > 0 && (
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.25rem',
-                    padding: '0.25rem 0.5rem',
-                    background: '#dcfce7',
-                    color: '#166534',
-                    borderRadius: '6px',
-                    fontWeight: '700',
-                    fontSize: '0.75rem'
-                  }}>
-                    ✓ {counts.confirmed}
-                  </div>
-                )}
-                {counts.pending > 0 && (
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.25rem',
-                    padding: '0.25rem 0.5rem',
-                    background: '#2a2010',
-                    color: '#92400e',
-                    borderRadius: '6px',
-                    fontWeight: '700',
-                    fontSize: '0.75rem'
-                  }}>
-                    ⏳ {counts.pending}
-                  </div>
-                )}
+      const apptCard = (a, compact) => {
+        const st = statusStyle(a.status);
+        const horses = horsesOf(a);
+        return (
+          <div key={a.id} style={{ border: '1px solid var(--border)', borderLeft: `4px solid ${st.fg}`, borderRadius: 8, padding: compact ? '0.4rem 0.5rem' : '0.75rem 1rem', background: 'var(--surface)', opacity: a.status === 'cancelled' ? 0.55 : 1 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+              <strong style={{ fontSize: compact ? '0.8rem' : '1rem', textDecoration: a.status === 'cancelled' ? 'line-through' : 'none' }}>
+                {fmtTime(a.requestedTime) && <span style={{ color: 'var(--primary)' }}>{fmtTime(a.requestedTime)} </span>}
+                {a.customerName || 'Customer'}
+              </strong>
+              {!compact && pill(st.bg, st.fg, st.label)}
+            </div>
+            {!compact && a.farmName && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{a.farmName}</div>}
+            {!compact && (a.address || a.city) && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>📍 {[a.address, a.city, a.state].filter(Boolean).join(', ')}</div>}
+            {horses.length > 0 ? (
+              <div style={{ fontSize: compact ? '0.75rem' : '0.88rem', marginTop: '0.2rem' }}>
+                {horses.map((h, i) => (
+                  <div key={i}>🐴 <strong>{h.name}</strong>{!compact && h.services.length ? <span style={{ color: 'var(--text-muted)' }}> — {h.services.join(', ')}</span> : null}</div>
+                ))}
               </div>
+            ) : (
+              (a.numberOfHorses || (a.services || []).length) ? (
+                <div style={{ fontSize: compact ? '0.75rem' : '0.88rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                  {a.numberOfHorses ? `🐴 ${a.numberOfHorses} horse${a.numberOfHorses == 1 ? '' : 's'}` : ''}{!compact && (a.services || []).length ? ` · ${a.services.join(', ')}` : ''}
+                </div>
+              ) : null
             )}
           </div>
         );
-      }
+      };
+
+      const doneList = (done, compact) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: compact ? '0.15rem' : '0.4rem' }}>
+          {done.map((h, i) => (
+            <div key={i} style={{ fontSize: compact ? '0.75rem' : '0.9rem', background: compact ? 'transparent' : '#f0f9ff', border: compact ? 'none' : '1px solid #dbeafe', borderRadius: 8, padding: compact ? 0 : '0.5rem 0.75rem' }}>
+              ✅ <strong>{h.horse}</strong>
+              <span style={{ color: 'var(--text-muted)' }}> · {h.customer}{!compact && h.farm ? ` (${h.farm})` : ''}</span>
+              {!compact && h.services.length > 0 && <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginTop: 2 }}>{h.services.join(', ')}{h.invoiceNumber ? ` · Invoice #${h.invoiceNumber}` : ''}</div>}
+            </div>
+          ))}
+        </div>
+      );
+
+      // ── Week ──
+      const renderWeek = () => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '0.5rem', overflowX: 'auto' }}>
+          {Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)).map(d => {
+            const k = keyOf(d);
+            const { appts, done } = dayData(k);
+            return (
+              <div key={k} style={{ minWidth: 130, border: '1px solid var(--border)', borderRadius: 10, background: k === todayKey ? '#eff6ff' : '#f8fafc', display: 'flex', flexDirection: 'column' }}>
+                <button onClick={() => openDay(d)} title="Open this day"
+                  style={{ background: 'none', border: 'none', borderBottom: '1px solid var(--border)', padding: '0.5rem', cursor: 'pointer', textAlign: 'center', fontFamily: 'inherit' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>{d.toLocaleDateString('en-US', { weekday: 'short' })}</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: k === todayKey ? 'var(--primary)' : 'var(--text)' }}>{d.getDate()}</div>
+                </button>
+                <div style={{ padding: '0.4rem', display: 'flex', flexDirection: 'column', gap: '0.35rem', flex: 1 }}>
+                  {appts.map(a => apptCard(a, true))}
+                  {!appts.length && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', padding: '0.5rem 0' }}>No appointments</div>}
+                </div>
+                {done.length > 0 && (
+                  <div style={{ borderTop: '1px solid var(--border)', padding: '0.4rem', background: '#f0f9ff', borderRadius: '0 0 10px 10px' }}>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', marginBottom: 2 }}>🐴 {done.length} done</div>
+                    {doneList(done, true)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+
+      // ── Day ──
+      const renderDay = () => {
+        const { appts, done } = dayData(keyOf(cursor));
+        const booked = appts.filter(live).reduce((n, a) => n + (horsesOf(a).length || Number(a.numberOfHorses) || 0), 0);
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)', gap: '1.25rem' }} className="ft-day-grid">
+            <div>
+              <h3 style={{ margin: '0 0 0.75rem' }}>📋 Appointments ({appts.filter(live).length}){booked ? <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: '0.9rem' }}> · {booked} horse{booked === 1 ? '' : 's'} booked</span> : null}</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {appts.map(a => apptCard(a, false))}
+                {!appts.length && <p style={{ color: 'var(--text-muted)' }}>No appointments this day.</p>}
+              </div>
+            </div>
+            <div>
+              <h3 style={{ margin: '0 0 0.75rem' }}>🐴 Horses done ({done.length})</h3>
+              {done.length ? doneList(done, false) : <p style={{ color: 'var(--text-muted)' }}>No horses recorded as done this day. They appear here once they're on an invoice, or the appointment is marked completed.</p>}
+            </div>
+          </div>
+        );
+      };
+
+      const viewBtn = (id, label) => (
+        <button className={`btn btn-sm ${view === id ? 'btn-primary' : 'btn-outline'}`} onClick={() => setView(id)}>{label}</button>
+      );
 
       return (
         <div>
-          <h1 style={{marginBottom: '1.5rem', fontSize: '2rem', color: 'var(--primary)'}}>Calendar</h1>
-          
+          <style>{`@media (max-width: 900px) { .ft-day-grid { grid-template-columns: 1fr !important; } }`}</style>
+          <h1 style={{ marginBottom: '1.5rem', fontSize: '2rem', color: 'var(--primary)' }}>Calendar</h1>
           <div className="calendar">
-            <div className="calendar-header">
-              <h2 className="calendar-title">
-                {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
-              </h2>
-              <div className="calendar-nav">
-                <button className="btn btn-sm btn-outline" onClick={() => {
-                  const newDate = new Date(currentDate);
-                  newDate.setMonth(newDate.getMonth() - 1);
-                  setCurrentDate(newDate);
-                }}>
-                  ←
-                </button>
-                <button className="btn btn-sm btn-outline" onClick={() => {
-                  const newDate = new Date(currentDate);
-                  newDate.setMonth(newDate.getMonth() + 1);
-                  setCurrentDate(newDate);
-                }}>
-                  →
-                </button>
+            <div className="calendar-header" style={{ flexWrap: 'wrap', gap: '0.75rem' }}>
+              <h2 className="calendar-title" style={{ margin: 0 }}>{title}</h2>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '0.25rem' }}>{viewBtn('month', 'Month')}{viewBtn('week', 'Week')}{viewBtn('day', 'Day')}</div>
+                <div className="calendar-nav">
+                  <button className="btn btn-sm btn-outline" onClick={() => step(-1)} aria-label="Previous">←</button>
+                  <button className="btn btn-sm btn-outline" onClick={goToday}>Today</button>
+                  <button className="btn btn-sm btn-outline" onClick={() => step(1)} aria-label="Next">→</button>
+                </div>
               </div>
             </div>
-
-            <div className="calendar-grid">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                <div key={day} className="calendar-day header">{day}</div>
-              ))}
-              {days}
-            </div>
+            {loading ? <p style={{ color: 'var(--text-muted)' }}>Loading…</p>
+              : view === 'month' ? renderMonth() : view === 'week' ? renderWeek() : renderDay()}
           </div>
-
-          {/* Legend */}
-          <div style={{
-            marginTop: '1rem',
-            padding: '1rem',
-            background: '#f9fafb',
-            borderRadius: '8px',
-            display: 'flex',
-            gap: '1.5rem',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexWrap: 'wrap'
-          }}>
-            <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-              <div style={{
-                padding: '0.25rem 0.5rem',
-                background: '#dcfce7',
-                color: '#166534',
-                borderRadius: '4px',
-                fontSize: '0.75rem',
-                fontWeight: '600'
-              }}>
-                ✓ {appointments.filter(a => (a.status || 'pending').toLowerCase() === 'confirmed').length}
-              </div>
-              <span style={{fontSize: '0.875rem', color: 'var(--text-muted)'}}>Confirmed</span>
+          {view === 'month' && (
+            <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+              <span>{pill('#dcfce7', '#166534', '✓')} Confirmed</span>
+              <span>{pill('#fef3c7', '#92400e', '⏳')} Other appointments</span>
+              <span>{pill('#dbeafe', '#1e40af', '🐴')} Horses done</span>
+              <span>Click a day to see it in detail.</span>
             </div>
-
-            <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-              <div style={{
-                padding: '0.25rem 0.5rem',
-                background: '#2a2010',
-                color: '#92400e',
-                borderRadius: '4px',
-                fontSize: '0.75rem',
-                fontWeight: '600'
-              }}>
-                ⏳ {appointments.filter(a => (a.status || 'pending').toLowerCase() !== 'confirmed').length}
-              </div>
-              <span style={{fontSize: '0.875rem', color: 'var(--text-muted)'}}>Pending</span>
-            </div>
-
-            <div style={{fontSize: '0.875rem', color: 'var(--text-muted)'}}>
-              {appointments.length} total appointment{appointments.length !== 1 ? 's' : ''}
-            </div>
-          </div>
+          )}
         </div>
       );
     }
@@ -11762,11 +12457,11 @@ function CalendarView({ userId }) {
               <div className="form-group" style={{ margin: 0 }}>
                 <label>Sex</label>
                 <select value={sex} onChange={e => setSex(e.target.value)}
-                  style={{ ...inputStyle, border: '2px solid rgba(38,131,251,0.45)', background: 'rgba(22,32,50,0.95)', color: 'var(--text)', colorScheme: 'dark' }}>
-                  <option value="" style={{background:'#1e2d45', color:'#e8f0fe'}}>—</option>
-                  <option value="Mare" style={{background:'#1e2d45', color:'#e8f0fe'}}>Mare</option>
-                  <option value="Gelding" style={{background:'#1e2d45', color:'#e8f0fe'}}>Gelding</option>
-                  <option value="Stallion" style={{background:'#1e2d45', color:'#e8f0fe'}}>Stallion</option>
+                  style={{ ...inputStyle, border: '1px solid #cbd5e1', background: '#fff', color: 'var(--text)', colorScheme: 'light' }}>
+                  <option value="">—</option>
+                  <option value="Mare">Mare</option>
+                  <option value="Gelding">Gelding</option>
+                  <option value="Stallion">Stallion</option>
                 </select>
               </div>
             </div>
@@ -12173,7 +12868,7 @@ function CalendarView({ userId }) {
 
             <div style={{padding: '1.5rem', maxHeight: '70vh', overflowY: 'auto'}}>
               <div style={{marginBottom: '1rem', padding: '1rem', background: '#f0f9ff', borderRadius: '8px'}}>
-                <div style={{fontWeight: '600', color: '#46C5FF'}}>Customer: {appointment.customerName}{appointment.farmName ? ` — ${appointment.farmName}` : ''}</div>
+                <div style={{fontWeight: '600', color: '#2563eb'}}>Customer: {appointment.customerName}{appointment.farmName ? ` — ${appointment.farmName}` : ''}</div>
                 <div style={{fontSize: '0.875rem', color: '#64748b'}}>Email: {appointment.email || 'Not provided'}</div>
               </div>
 
@@ -12922,7 +13617,7 @@ function CalendarView({ userId }) {
                               {invoice.customerPhone && item('📱 SMS', async () => {
                                 const bizName = userProfile?.businessName || 'Your Farrier';
                                 const payLink = invoice.paymentUrl || '';
-                                const msg = `Hi ${invoice.customerName}, you have invoice #${invoice.invoiceNumber} for ${FarriPricing.dualPriceText(invoice)} from ${bizName}.${payLink ? ` Pay here: ${payLink}` : ''}${payLink ? FarriPricing.altPaySms(userProfile, invoice) : ''} Reply STOP to opt out.`;
+                                const msg = `Hi ${invoice.customerName}, you have invoice #${invoice.invoiceNumber} for ${FarriPricing.dualPriceText(invoice)} from ${bizName}.${(FarriPricing.itemsSmsText?.(invoice) || '')}${payLink ? ` Pay here: ${payLink}` : ''}${payLink ? FarriPricing.altPaySms(userProfile, invoice) : ''} Reply STOP to opt out.`;
                                 try {
                                   const res = await fetch('/api/send-sms', {
                                     method: 'POST',
@@ -13555,9 +14250,9 @@ function CalendarView({ userId }) {
             ) : !hasStripe ? (
               <div style={{background: '#fff7ed', border: '1px solid #fdba74', borderRadius: '8px', padding: '1rem', textAlign: 'center'}}>
                 <div style={{fontSize: '1.5rem', marginBottom: '0.5rem'}}>⚠️</div>
-                <strong>Stripe not connected</strong>
+                <strong>No card processor connected</strong>
                 <p style={{fontSize: '0.875rem', color: '#666', marginTop: '0.5rem'}}>
-                  Go to <strong>Settings → Stripe Payments</strong> and add your Stripe keys to accept card payments.
+                  Go to <strong>Settings</strong> and connect Stripe or iPOSpays to accept card payments.
                 </p>
               </div>
             ) : (
@@ -13627,7 +14322,7 @@ function CalendarView({ userId }) {
 
 
     // Record a payment taken outside FarriTech. The amount starts at the price for the
-    // chosen method (card price for "Card (outside terminal)", cash price otherwise) and
+    // chosen method (card price for "External card", cash price otherwise) and
     // can be lowered for a partial payment. The server records it and closes any open
     // online checkout so the customer can't also pay by link.
     function ManualPaymentModal({ invoice, onClose, onPaymentRecorded }) {
@@ -13761,8 +14456,10 @@ function CalendarView({ userId }) {
       const [customerPhone, setCustomerPhone] = useState(editingInvoice?.customerPhone || prefillData?.customerPhone || '');
       const [items, setItems] = useState(
         editingInvoice?.items?.length
-          ? editingInvoice.items.map(i => ({ ...i, qty: i.qty || 1 }))
-          : [{ description: '', amount: 0, horseId: '', horseName: '' }]
+          // While editing, `amount` holds the per-horse price; the line total (price × qty)
+          // is worked out again on save.
+          ? editingInvoice.items.map(i => ({ ...i, qty: FarriPricing.itemQty(i), amount: FarriPricing.itemUnitPrice(i) }))
+          : [{ description: '', amount: 0, qty: 1, horseId: '', horseName: '' }]
       );
       const [milesDriven, setMilesDriven] = useState(editingInvoice?.milesDriven || 0);
       const [loading, setLoading] = useState(false);
@@ -13969,6 +14666,7 @@ useEffect(() => {
      // already uses elsewhere for linking records without a real doc id in hand).
      const [horseOptions, setHorseOptions] = useState([
        { id: "", name: "-- Select Horse --" },
+       { id: "__multiple__", name: "👥 " + FarriPricing.MULTIPLE_HORSES },
        { id: "__new__", name: "+ Add New Horse..." }
      ]);
 
@@ -13983,6 +14681,7 @@ useEffect(() => {
            .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
          setHorseOptions([
            { id: "", name: "-- Select Horse --" },
+           { id: "__multiple__", name: "👥 " + FarriPricing.MULTIPLE_HORSES },
            ...list,
            { id: "__new__", name: "+ Add New Horse..." }
          ]);
@@ -13991,7 +14690,7 @@ useEffect(() => {
      }, [userId, customerId, customerName]);
 
       const addItem = () => {
-        setItems([...items, { description: '', amount: 0, horseId: '', horseName: '' }]);
+        setItems([...items, { description: '', amount: 0, qty: 1, horseId: '', horseName: '' }]);
       };
 
       const updateItem = (index, field, value) => {
@@ -14027,7 +14726,13 @@ useEffect(() => {
 
      const selectHorse = (index, horseId) => {
        const newItems = [...items];
-       if (horseId === '__new__') {
+       // Anything but "Multiple horses" is a single horse, so the quantity goes back to 1.
+       if (horseId !== '__multiple__') { newItems[index].qty = 1; newItems[index].note = ''; }
+       if (horseId === '__multiple__') {
+         // Horses the farrier doesn't know individually: no horse record, just a name and a count.
+         newItems[index].horseId = '';
+         newItems[index].horseName = FarriPricing.MULTIPLE_HORSES;
+       } else if (horseId === '__new__') {
          newItems[index].horseId = '__new__';
          newItems[index].horseName = '';
        } else if (!horseId) {
@@ -14057,7 +14762,7 @@ useEffect(() => {
         setItems(items.filter((_, i) => i !== index));
       };
 
-      const total = items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+      const total = items.reduce((sum, item) => sum + FarriPricing.lineAmount(item.amount, item.qty), 0);
 
       const generatePaymentLink = async (sendVia = null) => {
         if (editLocked) {
@@ -14083,8 +14788,11 @@ useEffect(() => {
     description: String(i.description || "").trim(),
     horseId: (i.horseId && i.horseId !== '__new__') ? i.horseId : "",
     horseName: String(i.horseName || "").trim(),
-    qty: Number(i.qty || 1),
-    amount: Number(i.amount || 0),
+    // `amount` on the form is the per-horse price; saved, it's the line total (price × qty).
+    qty: FarriPricing.itemQty(i),
+    unitPrice: Number(i.amount || 0),
+    amount: FarriPricing.lineAmount(i.amount, i.qty),
+    ...(i.horseName === FarriPricing.MULTIPLE_HORSES && !i.horseId && String(i.note || '').trim() ? { note: String(i.note).trim() } : {}),
 
     // service linkage + immutable snapshots (so old invoices never change)
     serviceId: i.serviceId || "",
@@ -14172,7 +14880,7 @@ useEffect(() => {
               } else {
                 try {
                   const bizName = userProfile?.businessName || 'Your Farrier';
-                  const msg = `Hi ${customerName}, your invoice #${editingInvoice.invoiceNumber} for ${FarriPricing.dualPriceText(updatedInvoice)} from ${bizName} has been updated.${paymentUrl ? ` Pay here: ${paymentUrl}` : ''}${paymentUrl ? FarriPricing.altPaySms(userProfile, updatedInvoice) : ''} Reply STOP to opt out.`;
+                  const msg = `Hi ${customerName}, your invoice #${editingInvoice.invoiceNumber} for ${FarriPricing.dualPriceText(updatedInvoice)} from ${bizName} has been updated.${(FarriPricing.itemsSmsText?.(updatedInvoice) || '')}${paymentUrl ? ` Pay here: ${paymentUrl}` : ''}${paymentUrl ? FarriPricing.altPaySms(userProfile, updatedInvoice) : ''} Reply STOP to opt out.`;
                   await fetch('/api/send-sms', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -14299,7 +15007,7 @@ useEffect(() => {
                 db.collection('horses').doc(item.horseId).update({
                   lastServiceId: item.serviceId || '',
                   lastServiceName: item.description,
-                  lastServicePrice: item.amount,
+                  lastServicePrice: item.unitPrice,
                   lastServiceDate: firebase.firestore.FieldValue.serverTimestamp(),
                 }).catch(() => {});
               }
@@ -14412,7 +15120,7 @@ useEffect(() => {
               } else {
                 try {
                   const bizName = userProfile?.businessName || 'Your Farrier';
-                  const msg = `Hi ${customerName}, you have a new invoice #${invoiceNumber} for ${FarriPricing.dualPriceText(createdInvoice)} from ${bizName}.${paymentUrl ? ` Pay here: ${paymentUrl}` : ''}${paymentUrl ? FarriPricing.altPaySms(userProfile, createdInvoice) : ''} Reply STOP to opt out.`;
+                  const msg = `Hi ${customerName}, you have a new invoice #${invoiceNumber} for ${FarriPricing.dualPriceText(createdInvoice)} from ${bizName}.${(FarriPricing.itemsSmsText?.(createdInvoice) || '')}${paymentUrl ? ` Pay here: ${paymentUrl}` : ''}${paymentUrl ? FarriPricing.altPaySms(userProfile, createdInvoice) : ''} Reply STOP to opt out.`;
                   await fetch('/api/send-sms', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -14476,10 +15184,10 @@ useEffect(() => {
                 border: '2px solid #0ea5e9',
                 borderRadius: '8px'
               }}>
-                <div style={{fontSize: '0.875rem', fontWeight: '600', color: '#46C5FF', marginBottom: '0.5rem'}}>
+                <div style={{fontSize: '0.875rem', fontWeight: '600', color: '#2563eb', marginBottom: '0.5rem'}}>
                   📋 Invoice from Appointment
                 </div>
-                <div style={{fontSize: '0.875rem', color: '#46C5FF'}}>
+                <div style={{fontSize: '0.875rem', color: '#2563eb'}}>
                   Customer info pre-filled from appointment booking
                 </div>
               </div>
@@ -14533,7 +15241,7 @@ useEffect(() => {
                 <div style={{
                   fontSize: '0.9rem',
                   fontWeight: '600',
-                  color: '#46C5FF',
+                  color: '#2563eb',
                   marginBottom: '0.75rem',
                   display: 'flex',
                   alignItems: 'center',
@@ -14585,7 +15293,7 @@ useEffect(() => {
                     </div>
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                       <div>
-                        <div style={{fontSize: '0.85rem', fontWeight: '600', color: '#46C5FF'}}>
+                        <div style={{fontSize: '0.85rem', fontWeight: '600', color: '#2563eb'}}>
                           {selectedCustomerInfo.lastInvoice.invoiceNumber}
                         </div>
                         <div style={{fontSize: '0.75rem', color: '#64748b'}}>
@@ -14597,7 +15305,7 @@ useEffect(() => {
                         </div>
                       </div>
                       <div style={{textAlign: 'right'}}>
-                        <div style={{fontSize: '1rem', fontWeight: 'bold', color: '#46C5FF'}}>
+                        <div style={{fontSize: '1rem', fontWeight: 'bold', color: '#2563eb'}}>
                           ${selectedCustomerInfo.lastInvoice.total?.toFixed(2)}
                         </div>
                         <span style={{
@@ -14667,7 +15375,7 @@ useEffect(() => {
                       silently overwritten by a service chosen a moment earlier. */}
                   <div style={{display: 'flex', gap: '0.5rem', marginBottom: '0.5rem'}}>
                     <select
-                      value={item.horseId || ''}
+                      value={item.horseId || (item.horseName === FarriPricing.MULTIPLE_HORSES ? '__multiple__' : '')}
                       onChange={(e) => selectHorse(idx, e.target.value)}
                       style={{
                         flex: 2,
@@ -14775,7 +15483,45 @@ useEffect(() => {
                       step="0.01"
                       min="0"
                     />
+                    <label style={{marginBottom: 0, fontSize: '0.9rem', fontWeight: '500'}}>Qty:</label>
+                    <input
+                      type="number"
+                      aria-label="Quantity"
+                      value={item.qty ?? 1}
+                      onChange={(e) => updateItem(idx, 'qty', e.target.value === '' ? '' : Math.max(1, Math.floor(Number(e.target.value)) || 1))}
+                      onBlur={() => { if (!(Number(item.qty) >= 1)) updateItem(idx, 'qty', 1); }}
+                      style={{
+                        width: '80px',
+                        padding: '0.75rem',
+                        border: '2px solid var(--border)',
+                        borderRadius: '8px',
+                        fontSize: '1rem'
+                      }}
+                      step="1"
+                      min="1"
+                    />
                   </div>
+                  {FarriPricing.itemQty(item) > 1 && (
+                    <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.35rem'}}>
+                      {FarriPricing.money(Math.round((Number(item.amount) || 0) * 100))} each × {FarriPricing.itemQty(item)} = {FarriPricing.money(Math.round(FarriPricing.lineAmount(item.amount, item.qty) * 100))}
+                    </div>
+                  )}
+                  {item.horseName === FarriPricing.MULTIPLE_HORSES && !item.horseId && (
+                    <input
+                      type="text"
+                      placeholder="What are they? e.g. polo string, fronts only"
+                      value={item.note || ''}
+                      onChange={(e) => updateItem(idx, 'note', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem',
+                        border: '2px solid var(--border)',
+                        borderRadius: '8px',
+                        fontSize: '1rem',
+                        marginTop: '0.5rem'
+                      }}
+                    />
+                  )}
                 </div>
               ))}
               <button className="btn btn-sm btn-outline" onClick={addItem} type="button">
@@ -14853,7 +15599,6 @@ useEffect(() => {
       const [businessName, setBusinessName] = useState(userProfile?.businessName || '');
       const [firstName, setFirstName] = useState(userProfile?.firstName || '');
       const [lastName, setLastName] = useState(userProfile?.lastName || '');
-      const [logoUrl, setLogoUrl] = useState(userProfile?.logoUrl || '');
       const [aboutMe, setAboutMe] = useState(userProfile?.aboutMe || '');
       const [autoPrintPdf, setAutoPrintPdf] = useState(userProfile?.autoPrintPdf ?? true);
       const [allowManualPayments, setAllowManualPayments] = useState(userProfile?.allowManualPayments ?? true);
@@ -14943,7 +15688,7 @@ useEffect(() => {
               city: city,
               state: state,
               zip: zip,
-              logoUrl: logoUrl,
+              // logoUrl is set by FarriTech support (support.html), so saving here never touches it.
               aboutMe: aboutMe,
               autoPrintPdf: autoPrintPdf,
               allowManualPayments: allowManualPayments,
@@ -14968,7 +15713,6 @@ useEffect(() => {
               city,
               state,
               zip,
-              logoUrl,
               aboutMe,
               autoPrintPdf,
               allowManualPayments,
@@ -15356,7 +16100,7 @@ useEffect(() => {
           <div className="card" style={{marginTop: '1.5rem'}}>
             <h2>💳 Stripe Payments</h2>
             <p style={{color: 'var(--text-muted)', marginBottom: '1rem', fontSize: '0.9rem'}}>
-              Connect your Stripe account to accept credit card payments on invoices. Your keys are stored securely and never shared.
+              Connect your Stripe account to accept credit card payments on invoices. Your keys are stored securely and never shared. Connect Stripe or iPOSpays, not both.
             </p>
 
             {stripeStatus === 'connected' && (
@@ -15453,13 +16197,14 @@ useEffect(() => {
                 <button
                   className="btn btn-outline"
                   onClick={async () => {
-                    if (!confirm('Remove your Stripe connection?')) return;
+                    if (!confirm('Remove your Stripe connection? Stripe payment pages your customers haven\'t paid yet will be closed.')) return;
                     const res = await fetch('/api/stripe-payment', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ action: 'disconnect' })
                     });
-                    if (!(await res.json()).success) { alert('Could not disconnect Stripe — please try again.'); return; }
+                    const result = await res.json().catch(() => ({}));
+                    if (!result.success) { alert(result.error || 'Could not disconnect Stripe — please try again.'); return; }
                     await ensureFarriTechfile_(safeFarrierId, { stripePublishableKey: '', stripeAccountName: '' });
                     setUserProfile(prev => ({ ...prev, stripePublishableKey: '', stripeAccountName: '' }));
                     setStripePublishableKey('');
@@ -15483,7 +16228,7 @@ useEffect(() => {
           <div className="card" style={{marginTop: '1.5rem'}}>
             <h2>💳 iPOSpays Payments</h2>
             <p style={{color: 'var(--text-muted)', marginBottom: '1rem', fontSize: '0.9rem'}}>
-              Take payments through your iPOSpays (Dejavoo) merchant account instead of Stripe. While iPOSpays is connected, the Pay Now links you text and email, and cards you key in, open an iPOSpays payment page. The Refund button on an invoice paid through iPOSpays voids or refunds it in iPOSpays.
+              Take payments through your iPOSpays (Dejavoo) merchant account instead of Stripe. Connect one or the other, not both. While iPOSpays is connected, the Pay Now links you text and email, and cards you key in, open an iPOSpays payment page. The Refund button on an invoice paid through iPOSpays voids or refunds it in iPOSpays.
             </p>
 
             {userProfile?.ipospaysConnected ? (
@@ -15494,12 +16239,18 @@ useEffect(() => {
                     iPOSpays connected — TPN ending {userProfile.ipospaysTpnLast4 || '••••'}{userProfile.ipospaysMode === 'production' ? '' : ' (sandbox — test payments only)'}
                   </span>
                 </div>
+                {userProfile?.stripePublishableKey && (
+                  <div style={{background: '#fff7ed', border: '1px solid #fdba74', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.875rem'}}>
+                    ⚠️ Stripe is connected too. Card payments go through iPOSpays while it's connected. Disconnect one of them so customers are only ever charged through one.
+                  </div>
+                )}
                 <button
                   className="btn btn-outline"
                   onClick={async () => {
-                    if (!confirm('Disconnect iPOSpays? Pay Now links will go back to Stripe (if connected).')) return;
+                    if (!confirm('Disconnect iPOSpays? Payment pages your customers haven\'t paid yet will be closed, and Pay Now links will go back to Stripe (if connected).')) return;
                     const res = await fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'ipospays_disconnect' }) });
-                    if (!(await res.json()).success) { alert('Could not disconnect iPOSpays — please try again.'); return; }
+                    const result = await res.json().catch(() => ({}));
+                    if (!result.success) { alert(result.error || 'Could not disconnect iPOSpays — please try again.'); return; }
                     const cleared = { ipospaysConnected: false, ipospaysMode: '', ipospaysTpnLast4: '' };
                     await db.collection('farriers').doc(safeFarrierId).set({ ...cleared, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
                     setUserProfile(prev => ({ ...prev, ...cleared }));
@@ -15586,7 +16337,7 @@ useEffect(() => {
             </p>
             <div style={{marginBottom: '1rem'}}>
               <strong>Booking URL:</strong><br/>
-              <code style={{background: 'rgba(13,19,32,0.9)', color: '#46C5FF', padding: '0.5rem', borderRadius: '4px', display: 'inline-block', marginTop: '0.5rem', wordBreak: 'break-all', border: '1.5px solid rgba(38,131,251,0.45)'}}>
+              <code style={{background: '#f1f5f9', color: '#1d4ed8', padding: '0.5rem', borderRadius: '4px', display: 'inline-block', marginTop: '0.5rem', wordBreak: 'break-all', border: '1.5px solid rgba(38,131,251,0.45)'}}>
                 {`${window.location.origin}?farrier=${safeFarrierId}`}
               </code>
               <div style={{marginTop: '0.5rem'}}>

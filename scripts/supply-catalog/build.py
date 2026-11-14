@@ -74,9 +74,9 @@ for r in R:
     variants = []
     for v in r['variants']:
         size = clean_size(v['title'])
-        variants.append([size if size != 'Default' else '', v.get('code') or v.get('sku') or '', v.get('price')])
+        variants.append([size if size != 'Default' else '', v.get('code') or v.get('sku') or ''])
     if not variants:
-        variants = [['', '', r.get('price')]]
+        variants = [['', '']]
     title = re.sub(r',\s*pr\.?$', '', r['title'], flags=re.I).strip()
     # The supplier is not named anywhere in the app — drop its house-brand label too.
     brand = '' if re.search(r'farriers?.?\s*depot', r['brand'] or '', re.I) else r['brand']
@@ -89,7 +89,7 @@ out.sort(key=lambda x: (x['c'], x['t'].lower()))
 doc = {
     'source': 'supplier',
     'retrieved': datetime.date.today().isoformat(),
-    'note': 'Names, brands, categories, sizes, part numbers and public list prices only.',
+    'note': 'Names, brands, categories, sizes and part numbers only.',
     'products': out,
 }
 json.dump(doc, open(OUT, 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
