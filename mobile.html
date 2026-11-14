@@ -3521,10 +3521,7 @@ async function saveAndSendEmail() {
     state.currentInvoice = inv;
     state.editingInvoice = null;
     const bizName = state.userProfile?.businessName || 'Your Farrier';
-    const payBlock = inv.paymentUrl
-      ? `<p style="text-align:center;margin:24px 0;"><a href="${inv.paymentUrl}" style="background:#2563eb;color:#fff;padding:14px 32px;text-decoration:none;border-radius:8px;font-weight:700;display:inline-block;">Pay Invoice — $${inv.total.toFixed(2)}</a></p>`
-        + FarriPricing.altPayHtml(state.userProfile, inv)
-      : '';
+    const payBlock = FarriPricing.payOptionsHtml(state.userProfile, inv, inv.paymentUrl);
     const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:520px;margin:0 auto;padding:20px;color:#333;">
       <h2 style="color:#1a365d;">Invoice #${escapeHtml(inv.invoiceNumber)} from ${escapeHtml(bizName)}</h2>
       <p>Hi ${escapeHtml(inv.customerName)},</p>
@@ -4761,7 +4758,7 @@ function buildInvoiceEmail(inv, bizName, firstName, payUrl) {
   ).join('');
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333;">
-  <div style="text-align:center;padding:28px;background:linear-gradient(135deg,#1a365d,#2563eb);border-radius:8px 8px 0 0;">
+  <div style="text-align:center;padding:28px;background-color:#1e40af;background:linear-gradient(135deg,#1a365d,#2563eb);border-radius:8px 8px 0 0;">
     <h1 style="color:#fff;margin:0;font-size:24px;">🐴 ${bizName}</h1>
     <p style="color:#06b6d4;margin:6px 0 0;">Invoice from FarriTech</p>
   </div>
@@ -4777,12 +4774,7 @@ function buildInvoiceEmail(inv, bizName, firstName, payUrl) {
       </table>
       ${items ? `<table style="width:100%;border-collapse:collapse;border-top:1px solid #e2e8f0;margin-top:12px;"><tbody>${items}</tbody></table>` : ''}
     </div>
-    ${payUrl ? `<div style="text-align:center;margin:28px 0;">
-      <a href="${payUrl}" style="background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:14px 36px;text-decoration:none;border-radius:8px;font-weight:700;font-size:16px;display:inline-block;">
-        💳 Pay Invoice — ${prices.card !== null ? FarriPricing.money(prices.card) : FarriPricing.money(prices.cash)}
-      </a>
-      ${FarriPricing.altPayHtml(state.userProfile, inv)}
-    </div>` : ''}
+    ${FarriPricing.payOptionsHtml(state.userProfile, inv, payUrl)}
     <p style="color:#6b7280;font-size:13px;">Questions? Contact your farrier directly.</p>
   </div>
   <div style="background:#f9fafb;padding:16px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;text-align:center;">
