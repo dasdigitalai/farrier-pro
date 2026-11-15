@@ -124,7 +124,7 @@ match /sponsorBanners/{bannerId} {
       allow read, update: if isServer();
     }
 function isServer() {
-  return request.auth != null && request.auth.uid == '2kkfUU5dOvTRn1rWIaua38sgnNr1';
+  return request.auth != null && request.auth.uid == 'kw1LkZWo4gU8WglBaHXRGdHK4v83';
 }
 
 match /farrierSecrets/{farrierId} {
