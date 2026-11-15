@@ -96,12 +96,18 @@ function dec(v) {
   return undefined;
 }
 
+// Spells a uid so l/I/1/O/0 can be told apart in error messages shown in sans-serif fonts.
+function uidSpelled(uid) {
+  if (!uid) return String(uid);
+  return uid + ' [' + [...uid].map(c => c === 'l' ? 'l(lower-L)' : c === 'I' ? 'I(upper-i)' : c).join('') + ']';
+}
+
 // ── Firestore document helpers (run as the server user) ──
 export async function getDoc(path) {
   const { idToken } = await serverAuth();
   const r = await fetch(`${DOCS}/${path}`, { headers: { Authorization: `Bearer ${idToken}` } });
   if (r.status === 404) return null;
-  if (!r.ok) throw new Error(`Firestore read ${path} failed: ${r.status} (server uid ${cached?.uid}) ${await r.text()}`);
+  if (!r.ok) throw new Error(`Firestore read ${path} failed: ${r.status} (server uid ${uidSpelled(cached?.uid)}) ${await r.text()}`);
   const d = await r.json();
   return Object.fromEntries(Object.entries(d.fields || {}).map(([k, v]) => [k, dec(v)]));
 }
@@ -114,7 +120,7 @@ export async function listDocs(collection, fieldMask = []) {
   do {
     const qs = [`pageSize=300`, ...fieldMask.map(f => `mask.fieldPaths=${encodeURIComponent(f)}`), pageToken ? `pageToken=${pageToken}` : ''].filter(Boolean).join('&');
     const r = await fetch(`${DOCS}/${collection}?${qs}`, { headers: { Authorization: `Bearer ${idToken}` } });
-    if (!r.ok) throw new Error(`Firestore list ${collection} failed: ${r.status} (server uid ${cached?.uid}) ${await r.text()}`);
+    if (!r.ok) throw new Error(`Firestore list ${collection} failed: ${r.status} (server uid ${uidSpelled(cached?.uid)}) ${await r.text()}`);
     const d = await r.json();
     for (const doc of d.documents || []) {
       out.push({ id: doc.name.split('/').pop(), ...Object.fromEntries(Object.entries(doc.fields || {}).map(([k, v]) => [k, dec(v)])) });
@@ -136,7 +142,7 @@ export async function queryIn(collection, field, values) {
     method: 'POST', headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ structuredQuery }),
   });
-  if (!r.ok) throw new Error(`Firestore query ${collection} failed: ${r.status} (server uid ${cached?.uid}) ${await r.text()}`);
+  if (!r.ok) throw new Error(`Firestore query ${collection} failed: ${r.status} (server uid ${uidSpelled(cached?.uid)}) ${await r.text()}`);
   return (await r.json()).filter(x => x.document).map(({ document: doc }) =>
     ({ id: doc.name.split('/').pop(), ...Object.fromEntries(Object.entries(doc.fields || {}).map(([k, v]) => [k, dec(v)])) }));
 }
@@ -169,7 +175,7 @@ export async function patchDoc(path, fields = {}, deleteFields = []) {
     method: 'PATCH', headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(`Firestore write ${path} failed: ${r.status} (server uid ${cached?.uid}) ${await r.text()}`);
+  if (!r.ok) throw new Error(`Firestore write ${path} failed: ${r.status} (server uid ${uidSpelled(cached?.uid)}) ${await r.text()}`);
   return true;
 }
 
@@ -177,7 +183,7 @@ export async function patchDoc(path, fields = {}, deleteFields = []) {
 export async function deleteDoc(path) {
   const { idToken } = await serverAuth();
   const r = await fetch(`${DOCS}/${path}`, { method: 'DELETE', headers: { Authorization: `Bearer ${idToken}` } });
-  if (!r.ok && r.status !== 404) throw new Error(`Firestore delete ${path} failed: ${r.status} (server uid ${cached?.uid}) ${await r.text()}`);
+  if (!r.ok && r.status !== 404) throw new Error(`Firestore delete ${path} failed: ${r.status} (server uid ${uidSpelled(cached?.uid)}) ${await r.text()}`);
   return true;
 }
 
@@ -204,7 +210,7 @@ export async function runTransaction(fn, attempts = 4) {
       async get(path) {
         const r = await fetch(`${DOCS}/${path}`, { headers });
         if (r.status === 404) { seen[path] = null; return null; }
-        if (!r.ok) throw new Error(`Firestore read ${path} failed: ${r.status} (server uid ${cached?.uid}) ${await r.text()}`);
+        if (!r.ok) throw new Error(`Firestore read ${path} failed: ${r.status} (server uid ${uidSpelled(cached?.uid)}) ${await r.text()}`);
         const d = await r.json();
         seen[path] = d.updateTime;
         return Object.fromEntries(Object.entries(d.fields || {}).map(([k, v]) => [k, dec(v)]));
@@ -228,7 +234,7 @@ export async function runTransaction(fn, attempts = 4) {
     const text = await commit.text();
     // Something changed since we read it (FAILED_PRECONDITION / ALREADY_EXISTS / ABORTED): run again.
     if ([400, 409].includes(commit.status) && /FAILED_PRECONDITION|ALREADY_EXISTS|ABORTED/.test(text) && attempt < attempts) continue;
-    throw new Error(`Firestore commit failed: ${commit.status} (server uid ${cached?.uid}) ${text}`);
+    throw new Error(`Firestore commit failed: ${commit.status} (server uid ${uidSpelled(cached?.uid)}) ${text}`);
   }
 }
 

@@ -124,7 +124,11 @@ match /sponsorBanners/{bannerId} {
       allow read, update: if isServer();
     }
 function isServer() {
-  return request.auth != null && request.auth.uid == 'kw1LkZWo4gU8WglBaHXRGdHK4v83';
+  // The uid has an l/I that looks identical in sans-serif fonts ("WglBa" vs "WgIBa"), so a
+  // uid copied from a screenshot can be wrong. Both spellings are accepted until the exact
+  // one is confirmed in Firebase Console → Authentication → the server user's "User UID".
+  return request.auth != null
+    && request.auth.uid in ['kw1LkZWo4gU8WglBaHXRGdHK4v83', 'kw1LkZWo4gU8WgIBaHXRGdHK4v83'];
 }
 
 match /farrierSecrets/{farrierId} {
