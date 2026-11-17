@@ -34,6 +34,60 @@ function page(res, status, title, message, extra = '') {
 </style></head><body><div class="card"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p>${extra}<div class="foot">Powered by FarriTech</div></div></body></html>`);
 }
 
+const METHOD_LABELS = { credit_card: 'Card', ...P.MANUAL_METHODS };
+const viewReceiptBtn = (invoiceId) => `<a class="btn" href="/pay/${encodeURIComponent(invoiceId)}">View paid invoice</a>`;
+
+// The paid copy of an invoice, shown at the pay link once the invoice is paid in full — the
+// link texted and emailed in the "payment received" message. Same unguessable-id access as the
+// pay link itself; it deliberately leaves out the customer's phone, email and address.
+async function receiptPage(res, invoiceId, invoice) {
+  const farrier = await getDoc(`farriers/${invoice.farrierId}`).catch(() => null);
+  const biz = farrier?.businessName || 'Your Farrier';
+  const number = invoice.invoiceNumber || invoiceId;
+  const fmtDate = (d) => {
+    const dt = d?.toDate ? d.toDate() : new Date(d);
+    return isNaN(dt) ? '' : dt.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/New_York' });
+  };
+  const rows = (Array.isArray(invoice.items) ? invoice.items : []).map((item) => {
+    const svc = String(item?.serviceNameSnapshot || item?.description || 'Service').replace(/Custom Service \(enter manually\)/, 'Custom Service');
+    const label = P.itemHorseLabel(item);
+    return `<tr><td>${escapeHtml(svc)}${label ? `<div class="sub">${escapeHtml(label)}</div>` : ''}</td><td class="amt">${P.money(P.toCents(item?.amount))}</td></tr>`;
+  }).join('');
+  const payments = (Array.isArray(invoice.payments) ? invoice.payments : []).map((p) =>
+    `<tr><td>${escapeHtml(fmtDate(p.date))} · ${escapeHtml(METHOD_LABELS[p.method] || 'Payment')}${p.memo ? ` (${escapeHtml(p.memo)})` : ''}</td><td class="amt">${P.money(P.toCents(p.amount))}</td></tr>`
+  ).join('');
+  const paidCents = invoice.amountPaidCents ?? P.toCents(invoice.paidAmount ?? invoice.total);
+
+  res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.end(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Paid Invoice #${escapeHtml(number)}</title>
+<style>
+  :root { --bg:#f8fafc; --card:#fff; --text:#1e293b; --muted:#64748b; --accent:#059669; --line:#e2e8f0; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f172a; --card:#1e293b; --text:#e2e8f0; --muted:#94a3b8; --line:#334155; } }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; }
+  .card { max-width:560px; margin:4vh auto 0; background:var(--card); border-radius:12px; padding:28px 24px; box-shadow:0 4px 20px rgba(0,0,0,.08); position:relative; }
+  h1 { font-size:1.3rem; margin:0; } .muted { color:var(--muted); font-size:.9rem; }
+  .stamp { display:inline-block; margin:14px 0 6px; border:3px solid var(--accent); color:var(--accent); font-weight:800; letter-spacing:.12em; padding:4px 14px; border-radius:6px; transform:rotate(-4deg); }
+  table { width:100%; border-collapse:collapse; margin-top:14px; } td { padding:9px 0; border-bottom:1px solid var(--line); vertical-align:top; }
+  td.amt { text-align:right; white-space:nowrap; padding-left:12px; } .sub { color:var(--muted); font-size:.8rem; }
+  .total td { font-weight:800; border-bottom:0; font-size:1.05rem; } h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:22px 0 0; }
+  .btn { display:inline-block; margin-top:20px; background:var(--accent); color:#fff; padding:12px 28px; border-radius:8px; border:0; font-size:1rem; font-weight:700; cursor:pointer; }
+  .foot { margin-top:24px; font-size:.75rem; color:var(--muted); text-align:center; }
+  @media print { body { background:#fff; padding:0; } .card { box-shadow:none; margin:0; } .btn { display:none; } }
+</style></head><body><div class="card">
+  <h1>${escapeHtml(biz)}</h1>
+  <div class="muted">Invoice #${escapeHtml(number)}${invoice.customerName ? ` · ${escapeHtml(invoice.customerName)}` : ''}</div>
+  <div class="stamp">PAID IN FULL</div>
+  <div class="muted">${invoice.paidAt ? `Paid ${escapeHtml(fmtDate(invoice.paidAt))}` : ''}</div>
+  <table>${rows}<tr class="total"><td>Total</td><td class="amt">${P.money(P.toCents(invoice.total))}</td></tr></table>
+  <h2>Payments</h2>
+  <table>${payments}<tr class="total"><td>Amount paid</td><td class="amt">${P.money(paidCents)}</td></tr></table>
+  <button class="btn" onclick="window.print()">Print / Save as PDF</button>
+  <div class="foot">Powered by FarriTech</div>
+</div></body></html>`);
+}
+
 export async function payPage(req, res) {
   const invoiceId = String(req.query?.invoice || '');
   if (!/^[A-Za-z0-9_-]{6,128}$/.test(invoiceId)) return page(res, 404, 'Invoice not found', 'This payment link is not valid. Please contact your farrier.');
@@ -42,6 +96,7 @@ export async function payPage(req, res) {
     const invoice = await getDoc(`invoices/${invoiceId}`);
     if (!invoice) return page(res, 404, 'Invoice not found', 'This payment link is not valid. Please contact your farrier.');
     const number = invoice.invoiceNumber || '';
+    if (invoice.status === 'paid') return await receiptPage(res, invoiceId, invoice);
     const key = await getStripeSecretKey(invoice.farrierId);
 
     // Back from Stripe: a Checkout Session, or an old Stripe Payment Link (those redirected to
@@ -55,7 +110,7 @@ export async function payPage(req, res) {
       if (session?.payment_status === 'paid') {
         const result = await recordCheckoutSession(stripe, invoice.farrierId, session).catch(() => null);
         if (result?.invoiceId === invoiceId) {
-          return page(res, 200, 'Payment received', `Thank you! Your payment of ${P.money(session.amount_total)} for Invoice #${number} has been received.`);
+          return page(res, 200, 'Payment received', `Thank you! Your payment of ${P.money(session.amount_total)} for Invoice #${number} has been received.`, viewReceiptBtn(invoiceId));
         }
       }
     }
@@ -105,7 +160,7 @@ async function iposPayPage(req, res, invoiceId, invoice, creds) {
   const ref = (String(req.query?.ipos_ref || '').match(/^[A-Za-z0-9]{1,20}/) || [''])[0];
   if (ref) {
     const result = await syncIposPayment(creds, invoiceId, ref);
-    if (result.paid) return page(res, 200, 'Payment received', `Thank you! Your payment of ${P.money(result.amountCents)} for Invoice #${number} has been received.`);
+    if (result.paid) return page(res, 200, 'Payment received', `Thank you! Your payment of ${P.money(result.amountCents)} for Invoice #${number} has been received.`, viewReceiptBtn(invoiceId));
     const fresh = await getDoc(`invoices/${invoiceId}`);
     if (result.declined && fresh?.status !== 'paid') {
       return page(res, 200, 'Payment not completed', `Your card payment for Invoice #${number} didn't go through${result.message ? ` (${result.message})` : ''}. You can try again with another card.`, retry(P.getChargeCents(fresh, 'card_link')));
@@ -126,7 +181,7 @@ async function iposPayPage(req, res, invoiceId, invoice, creds) {
       .slice(0, 3).map(([r]) => r);
     for (const r of recent) {
       const result = await syncIposPayment(creds, invoiceId, r);
-      if (result.paid) return page(res, 200, 'Payment received', `Thank you! Your payment of ${P.money(result.amountCents)} for Invoice #${number} has been received.`);
+      if (result.paid) return page(res, 200, 'Payment received', `Thank you! Your payment of ${P.money(result.amountCents)} for Invoice #${number} has been received.`, viewReceiptBtn(invoiceId));
     }
     invoice = (await getDoc(`invoices/${invoiceId}`)) || invoice;
   }

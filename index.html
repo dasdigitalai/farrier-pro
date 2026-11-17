@@ -14358,8 +14358,10 @@ function CalendarView({ userId }) {
       const [amount, setAmount] = useState(priceFor('cash'));
       const [reference, setReference] = useState('');
       const [datePaid, setDatePaid] = useState(new Date().toISOString().split('T')[0]);
+      const [notifyCustomer, setNotifyCustomer] = useState(false);
       const [processing, setProcessing] = useState(false);
       const [error, setError] = useState('');
+      const canNotify = !!(invoice.customerPhone || invoice.customerEmail);
 
       const changeMethod = (m) => { setMethod(m); setAmount(priceFor(m)); };
 
@@ -14373,7 +14375,7 @@ function CalendarView({ userId }) {
           const res = await fetch('/api/stripe-payment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'record_payment', invoiceId: invoice.id, method, amount: amt, reference, datePaid }),
+            body: JSON.stringify({ action: 'record_payment', invoiceId: invoice.id, method, amount: amt, reference, datePaid, notifyCustomer: canNotify && notifyCustomer }),
           });
           const data = await res.json();
           if (data.success) {
@@ -14454,6 +14456,13 @@ function CalendarView({ userId }) {
                   onChange={(e) => setDatePaid(e.target.value)}
                 />
               </div>
+
+              {canNotify && (
+                <label style={{display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.9rem', cursor:'pointer'}}>
+                  <input type="checkbox" checked={notifyCustomer} onChange={(e) => setNotifyCustomer(e.target.checked)} style={{width:'auto'}} />
+                  Send {invoice.customerPhone && invoice.customerEmail ? 'text + email' : invoice.customerPhone ? 'text' : 'email'} receipt to {invoice.customerName || 'customer'}
+                </label>
+              )}
 
               <div style={{display:'flex', gap:'0.75rem', marginTop:'1.5rem'}}>
                 <button type="button" onClick={onClose} className="btn btn-outline" disabled={processing} style={{flex:1}}>

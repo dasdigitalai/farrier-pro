@@ -4,7 +4,7 @@ import '../lib/pricing.js';
 import { callerFromRequest, getDoc, patchDoc, listDocs, getStripeSecretKey, setStripeSecretKey, getGoogleRefreshToken } from './_lib/firebase-rest.js';
 import {
   applyPayment, cardDetails, closeOnlinePayment, closeStripeCheckouts, createCheckoutSession, recordCheckoutSession,
-  removeWebhook, sendUpdatedPayLink, setupWebhook, PaymentError,
+  removeWebhook, sendPaidReceipt, sendUpdatedPayLink, setupWebhook, PaymentError,
 } from './_lib/invoice-payments.js';
 import { payPage } from './_lib/pay-page.js';
 import { farrierWebhook, recordWebhookSession } from './_lib/farrier-webhook.js';
@@ -357,7 +357,7 @@ export default async function handler(req, res) {
     // Works without Stripe connected; if there is an open online checkout it gets closed so
     // the customer can't pay twice.
     if (action === 'record_payment') {
-      const { invoiceId, method, amount, reference = '', datePaid } = body;
+      const { invoiceId, method, amount, reference = '', datePaid, notifyCustomer = false } = body;
       if (!P.MANUAL_METHODS[method]) return res.status(400).json({ success: false, error: 'Pick a payment method.' });
       const invoice = await ownInvoice(invoiceId, farrierId);
       const amountCents = P.toCents(amount);
@@ -372,7 +372,9 @@ export default async function handler(req, res) {
       if (key) await closeOnlinePayment(new Stripe(key), invoice);
       const iposCreds = await getIposCreds(farrierId);
       if (iposCreds) await closeIposPages(iposCreds, invoiceId, invoice);
-      return res.status(200).json({ success: true, status: result.status, balance: (result.balanceCents || 0) / 100 });
+      // Only when the farrier asked for it (the "Send receipt" box on the Record Payment form).
+      const notified = notifyCustomer === true && !result.duplicate ? await sendPaidReceipt(invoiceId, amountCents) : [];
+      return res.status(200).json({ success: true, status: result.status, balance: (result.balanceCents || 0) / 100, notified });
     }
 
     // ── Manager password (Settings → Manager Password): guards refunds ──

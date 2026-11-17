@@ -24,7 +24,7 @@
 import crypto from 'crypto';
 import '../../lib/pricing.js';
 import { getDoc, patchDoc, queryIn, serverAuth } from './firebase-rest.js';
-import { applyPayment, payUrlFor, PaymentError, APP_URL } from './invoice-payments.js';
+import { applyPayment, payUrlFor, sendPaidReceipt, PaymentError, APP_URL } from './invoice-payments.js';
 
 const P = globalThis.FarriPricing;
 
@@ -370,7 +370,7 @@ export async function syncIposPayment(creds, invoiceId, ref) {
       iposTransactionId: String(resp.transactionId || ''),
       ...(invoice.iposOpenRef === ref ? { iposOpenRef: '' } : {}),
     });
-    if (!result.alreadyPaid) await sendPaidSms(invoice, amountCents);
+    if (!result.alreadyPaid) await sendPaidReceipt(invoiceId, amountCents);
   }
   return { paid: true, amountCents, invoice, ...result };
 }
@@ -522,17 +522,4 @@ export async function iposCallback(req, res, rawBody, invoiceId) {
 function safeEqual(a, b) {
   const x = Buffer.from(String(a)), y = Buffer.from(String(b));
   return x.length === y.length && crypto.timingSafeEqual(x, y);
-}
-
-async function sendPaidSms(invoice, amountCents) {
-  if (!invoice.customerPhone) return;
-  try {
-    const { idToken } = await serverAuth();
-    const name = String(invoice.customerName || '').split(' ')[0] || 'there';
-    await fetch(`${APP_URL}/api/send-sms`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ to: invoice.customerPhone, body: `Hi ${name}, your payment of ${P.money(amountCents)} for invoice #${invoice.invoiceNumber || ''} has been received. Thank you! Reply STOP to opt out.` }),
-    });
-  } catch (e) { console.warn('Confirmation SMS error:', e.message); }
 }

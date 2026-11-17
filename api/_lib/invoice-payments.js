@@ -330,6 +330,62 @@ export async function sendUpdatedPayLink(invoice, invoiceId, amountCents) {
   return sent;
 }
 
+// Texts and emails the customer that their payment arrived. The link goes to the same
+// /pay/{id} page as the pay link: once the invoice is paid in full, that page shows a paid
+// copy of the invoice (see receiptPage in pay-page.js) instead of a payment page. A partial
+// payment gets the same message without the link (the link would ask for the rest).
+//   fallback  { phone, email, name } used when the invoice itself has none (a Stripe
+//             Checkout customer may have typed their details in at checkout)
+// Never throws — a failed notification must not fail the payment.
+export async function sendPaidReceipt(invoiceId, amountCents, fallback = {}) {
+  try {
+    const invoice = await getDoc(`invoices/${invoiceId}`);
+    if (!invoice) return [];
+    const farrier = await getDoc(`farriers/${invoice.farrierId}`).catch(() => null);
+    const biz = farrier?.businessName || 'Your Farrier';
+    const name = String(invoice.customerName || fallback.name || '').split(' ')[0] || 'there';
+    const number = invoice.invoiceNumber || invoiceId;
+    const phone = invoice.customerPhone || fallback.phone;
+    const email = invoice.customerEmail || fallback.email;
+    const amount = P.money(amountCents);
+    const paidInFull = invoice.status === 'paid';
+    const url = paidInFull ? payUrlFor(invoiceId) : '';
+    const { idToken } = await serverAuth();
+    const sent = [];
+
+    if (phone) {
+      const body = `Hi ${name}, your payment of ${amount} for invoice #${number} has been received.${paidInFull ? ` View your paid invoice: ${url}` : ''} Thank you! Reply STOP to opt out.`;
+      const r = await fetch(`${APP_URL}/api/send-sms`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ to: phone, body }),
+      }).catch(() => null);
+      if (r?.ok) sent.push('text');
+    }
+    if (email) {
+      const left = P.balanceCents(invoice);
+      const html = `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#333;max-width:560px;margin:0 auto;padding:20px;">
+  <p>Hi ${escapeHtml(name)},</p>
+  <p>We received your payment of <strong>${amount}</strong> for Invoice #${escapeHtml(number)} from <strong>${escapeHtml(biz)}</strong>. Thank you!</p>
+  ${paidInFull
+    ? `<p>Invoice #${escapeHtml(number)} is now <strong style="color:#059669;">paid in full</strong>.</p>
+  <p><a href="${escapeHtml(url)}" style="display:inline-block;background:#059669;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;">View paid invoice</a></p>
+  <p style="color:#6b7280;font-size:13px;">You can print it or save it as a PDF from that page.</p>`
+    : `<p>Remaining balance: <strong>${P.money(left)}</strong>.</p>`}
+  <p style="color:#9ca3af;font-size:12px;">Powered by FarriTech</p>
+</body></html>`;
+      const r = await fetch(`${APP_URL}/api/send-email`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ to: email, subject: `Payment received — Invoice #${number}`, html }),
+      }).catch(() => null);
+      if (r?.ok) sent.push('email');
+    }
+    return sent;
+  } catch (e) {
+    console.warn('Paid receipt error:', e.message);
+    return [];
+  }
+}
+
 export function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
