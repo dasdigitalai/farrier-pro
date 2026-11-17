@@ -770,6 +770,16 @@
       <select id="pay-method-select" onchange="selectPayMethod(this.value)"></select>
     </div>
 
+    <!-- How much of the balance this payment covers (cash price), like desktop's
+         "Amount toward balance". Defaults to the whole balance; less makes it a partial payment. -->
+    <div id="pay-apply-fields" style="display:none;">
+      <div class="field">
+        <label>Amount toward balance</label>
+        <input type="number" id="pay-apply-amount" step="0.01" min="0.01" inputmode="decimal" oninput="updatePayButton()">
+        <div id="pay-apply-note" style="font-size:0.82rem; color:var(--text-muted); margin-top:6px;"></div>
+      </div>
+    </div>
+
     <!-- Check # / confirmation # / note for payments taken outside FarriTech -->
     <div id="check-fields" style="display:none;">
       <div class="field"><label id="check-number-label">Check #</label><input type="text" id="check-number" placeholder="e.g. 1042" inputmode="numeric" style="letter-spacing:2px;"></div>
@@ -953,16 +963,15 @@
     <div id="appt-cancelled-banner" style="display:none; background:var(--danger-bg); border:2px solid #fca5a5; color:var(--danger); border-radius:10px; padding:10px 14px; margin-bottom:12px; font-weight:700; font-size:0.85rem;">
       ⚠️ This appointment is cancelled
     </div>
-    <div class="field">
-      <label>Date *</label>
-      <div id="appt-date-chips" class="date-chip-row"></div>
-      <button class="btn-secondary" id="appt-more-dates-btn" onclick="showMoreApptDates()" style="margin-top:8px;">Show Next 5 Days</button>
-      <input type="hidden" id="appt-date">
-    </div>
-    <div class="field">
-      <label>Time *</label>
-      <div id="appt-time-slots" class="service-grid"></div>
-      <input type="hidden" id="appt-time">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div class="field">
+        <label>Date *</label>
+        <input type="date" id="appt-date" style="color-scheme:light;">
+      </div>
+      <div class="field">
+        <label>Time *</label>
+        <input type="time" id="appt-time" style="color-scheme:light;">
+      </div>
     </div>
     <div class="field" id="appt-horses-fallback-wrap"><label>Number of Horses</label><input type="number" id="appt-horses" value="1" min="1"></div>
     <div class="field" id="appt-horses-picker-wrap" style="display:none;">
@@ -2224,15 +2233,22 @@ function startAppointmentForHorse(h) {
 }
 
 // Home "Invoices" card: Open (customers who owe money) or Paid, both grouped by customer.
+// Amount shown on an open invoice row: the total, or for a part-paid one what's left of it.
+function openInvoiceAmount(inv) {
+  const total = `$${(inv.total || 0).toFixed(2)}`;
+  return inv.status === 'partial' ? `${FarriPricing.money(FarriPricing.balanceCents(inv))} <span style="font-size:0.75rem; font-weight:500; color:var(--text-muted);">of ${total}</span>` : total;
+}
+
 async function loadOpenInvoices(status = 'outstanding') {
   document.getElementById('inv-filter-open').classList.toggle('active', status === 'outstanding');
   document.getElementById('inv-filter-paid').classList.toggle('active', status === 'paid');
   const list = document.getElementById('open-invoices-list');
   list.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
   try {
+    // "Open" includes part-paid invoices, so the rest can still be collected.
     const snap = await db.collection('invoices')
       .where('farrierId', '==', bizId())
-      .where('status', '==', status)
+      .where('status', 'in', status === 'paid' ? ['paid'] : ['outstanding', 'partial'])
       .get();
     // Sorted here rather than with orderBy so the query needs no composite index
     // (same approach as the customer screen's invoice query).
@@ -2252,7 +2268,7 @@ async function loadOpenInvoices(status = 'outstanding') {
     invs.forEach(inv => {
       const key = inv.customerName || 'Unknown customer';
       (byCust[key] = byCust[key] || { name: key, farm: inv.customerFarmName || '', total: 0, invs: [] });
-      byCust[key].total += inv.total || 0;
+      byCust[key].total += paid ? (inv.total || 0) : FarriPricing.balanceCents(inv) / 100;
       byCust[key].invs.push(inv);
     });
     const custs = Object.values(byCust).sort((a,b) => b.total - a.total);
@@ -2270,9 +2286,9 @@ async function loadOpenInvoices(status = 'outstanding') {
           <div class="invoice-row outstanding" onclick="openInvoicePayment(${JSON.stringify(inv).replace(/"/g,'&quot;')})">
             <div class="invoice-row-top">
               <div class="invoice-row-num">#${inv.invoiceNumber}</div>
-              <div class="invoice-row-amount">$${(inv.total||0).toFixed(2)}</div>
+              <div class="invoice-row-amount">${openInvoiceAmount(inv)}</div>
             </div>
-            <div class="invoice-row-bottom">${fmtDate(inv.createdAt)} · Tap to view invoice</div>
+            <div class="invoice-row-bottom">${fmtDate(inv.createdAt)}${inv.status === 'partial' ? ' · <span class="badge badge-warning">part paid</span>' : ''} · Tap to view invoice</div>
           </div>`;
     list.innerHTML = `
       <div class="card" style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
@@ -2408,7 +2424,7 @@ async function loadCustomerDetail(c) {
       .get();
     const invs = iSnap.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a,b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-    const open = invs.filter(i => i.status === 'outstanding');
+    const open = invs.filter(i => i.status === 'outstanding' || i.status === 'partial');
     const all = invs;
 
     if (open.length) {
@@ -2417,9 +2433,9 @@ async function loadCustomerDetail(c) {
         <div class="invoice-row outstanding" onclick="openInvoicePayment(${JSON.stringify(inv).replace(/"/g,'&quot;')})">
           <div class="invoice-row-top">
             <div class="invoice-row-num">#${inv.invoiceNumber}</div>
-            <div class="invoice-row-amount">$${(inv.total||0).toFixed(2)}</div>
+            <div class="invoice-row-amount">${openInvoiceAmount(inv)}</div>
           </div>
-          <div class="invoice-row-bottom">${fmtDate(inv.createdAt)} · Tap to view invoice</div>
+          <div class="invoice-row-bottom">${fmtDate(inv.createdAt)}${inv.status === 'partial' ? ' · <span class="badge badge-warning">part paid</span>' : ''} · Tap to view invoice</div>
         </div>
       `).join('');
     }
@@ -3504,10 +3520,7 @@ async function saveAndSendEmail() {
     state.currentInvoice = inv;
     state.editingInvoice = null;
     const bizName = state.userProfile?.businessName || 'Your Farrier';
-    const payBlock = inv.paymentUrl
-      ? `<p style="text-align:center;margin:24px 0;"><a href="${inv.paymentUrl}" style="background:#2563eb;color:#fff;padding:14px 32px;text-decoration:none;border-radius:8px;font-weight:700;display:inline-block;">Pay Invoice — $${inv.total.toFixed(2)}</a></p>`
-        + FarriPricing.altPayHtml(state.userProfile, inv)
-      : '';
+    const payBlock = FarriPricing.payOptionsHtml(state.userProfile, inv, inv.paymentUrl);
     const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:520px;margin:0 auto;padding:20px;color:#333;">
       <h2 style="color:#1a365d;">Invoice #${escapeHtml(inv.invoiceNumber)} from ${escapeHtml(bizName)}</h2>
       <p>Hi ${escapeHtml(inv.customerName)},</p>
@@ -4744,7 +4757,7 @@ function buildInvoiceEmail(inv, bizName, firstName, payUrl) {
   ).join('');
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333;">
-  <div style="text-align:center;padding:28px;background:linear-gradient(135deg,#1a365d,#2563eb);border-radius:8px 8px 0 0;">
+  <div style="text-align:center;padding:28px;background-color:#1e40af;background:linear-gradient(135deg,#1a365d,#2563eb);border-radius:8px 8px 0 0;">
     <h1 style="color:#fff;margin:0;font-size:24px;">🐴 ${bizName}</h1>
     <p style="color:#06b6d4;margin:6px 0 0;">Invoice from FarriTech</p>
   </div>
@@ -4760,12 +4773,7 @@ function buildInvoiceEmail(inv, bizName, firstName, payUrl) {
       </table>
       ${items ? `<table style="width:100%;border-collapse:collapse;border-top:1px solid #e2e8f0;margin-top:12px;"><tbody>${items}</tbody></table>` : ''}
     </div>
-    ${payUrl ? `<div style="text-align:center;margin:28px 0;">
-      <a href="${payUrl}" style="background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:14px 36px;text-decoration:none;border-radius:8px;font-weight:700;font-size:16px;display:inline-block;">
-        💳 Pay Invoice — ${prices.card !== null ? FarriPricing.money(prices.card) : FarriPricing.money(prices.cash)}
-      </a>
-      ${FarriPricing.altPayHtml(state.userProfile, inv)}
-    </div>` : ''}
+    ${FarriPricing.payOptionsHtml(state.userProfile, inv, payUrl)}
     <p style="color:#6b7280;font-size:13px;">Questions? Contact your farrier directly.</p>
   </div>
   <div style="background:#f9fafb;padding:16px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;text-align:center;">
@@ -4992,6 +5000,8 @@ function openInvoicePayment(inv) {
   closeResend();
   document.getElementById('check-fields').style.display = 'none';
   document.getElementById('card-fields').style.display = 'none';
+  document.getElementById('pay-apply-fields').style.display = 'none';
+  document.getElementById('pay-apply-amount').value = (prices.cash / 100).toFixed(2);
   // Reset Stripe card element for fresh entry each time
   if (_stripeCard) { _stripeCard.destroy(); _stripeCard = null; }
   document.getElementById('confirm-pay-btn').disabled = true;
@@ -5135,24 +5145,49 @@ function selectPayMethod(method) {
       .then(() => setTimeout(initStripeElements, 50))
       .catch(() => showToast('Failed to load payment form', 'error'));
   }
-  const btn = document.getElementById('confirm-pay-btn');
-  btn.disabled = false;
+  document.getElementById('pay-apply-fields').style.display = 'block';
+  updatePayButton();
+}
+
+// Cash-price amount this payment pays down: what's typed, capped at the balance.
+function payApplyCents() {
   const inv = state.currentInvoice;
-  btn.textContent = method === 'card' ? `✓ Charge ${FarriPricing.money(FarriPricing.getChargeCents(inv, 'card_keyed'))}`
-    : `✓ Record ${FarriPricing.money(FarriPricing.getChargeCents(inv, method))} ${FarriPricing.MANUAL_METHODS[method]}`;
+  const typed = FarriPricing.toCents(document.getElementById('pay-apply-amount').value);
+  return Math.min(typed, FarriPricing.balanceCents(inv));
+}
+
+// The Charge / Record button and the note under the amount follow the amount typed.
+function updatePayButton() {
+  const method = state.selectedPayMethod;
+  const inv = state.currentInvoice;
+  if (!method || !inv) return;
+  const btn = document.getElementById('confirm-pay-btn');
+  const applyCents = payApplyCents();
+  const priceMethod = method === 'card' ? 'card_keyed' : method;
+  const chargeCents = FarriPricing.getChargeCents(inv, priceMethod, applyCents);
+  const left = FarriPricing.balanceCents(inv) - applyCents;
+  const notes = [];
+  if (applyCents > 0 && chargeCents !== applyCents) notes.push(`Card price ${FarriPricing.money(chargeCents)} (cash or check price ${FarriPricing.money(applyCents)})`);
+  if (applyCents > 0 && left > 0) notes.push(`Partial payment — ${FarriPricing.money(left)} will still be owed`);
+  document.getElementById('pay-apply-note').textContent = notes.join(' · ');
+  btn.disabled = applyCents <= 0;
+  btn.textContent = method === 'card' ? `✓ Charge ${FarriPricing.money(chargeCents)}`
+    : `✓ Record ${FarriPricing.money(chargeCents)} ${FarriPricing.MANUAL_METHODS[method]}`;
 }
 
 async function confirmPayment() {
   const method = state.selectedPayMethod;
   const inv = state.currentInvoice;
   if (!method || !inv) return;
+  const applyCents = payApplyCents();
+  if (applyCents <= 0) { showToast('Enter a valid amount', 'error'); return; }
 
   document.getElementById('confirm-pay-btn').disabled = true;
   document.getElementById('pay-saving').style.display = 'block';
 
   try {
     if (method === 'card') {
-      const charged = state.userProfile?.ipospaysConnected ? await chargeCardViaIpos(inv) : await chargeCardViaStripe(inv);
+      const charged = state.userProfile?.ipospaysConnected ? await chargeCardViaIpos(inv, applyCents) : await chargeCardViaStripe(inv, applyCents);
       if (!charged) {
         document.getElementById('confirm-pay-btn').disabled = false;
         document.getElementById('pay-saving').style.display = 'none';
@@ -5160,12 +5195,12 @@ async function confirmPayment() {
       }
       showSuccess('Payment Charged!', `$${Number(charged.amount).toFixed(2)} collected via card`);
     } else {
-      // Cash, check, ACH, Zelle, Venmo, an outside card terminal or other, for the balance (at the
-      // card price for an external card, the cash price otherwise). Online, the server records
+      // Cash, check, ACH, Zelle, Venmo, an outside card terminal or other, for the amount entered
+      // (at the card price for an external card, the cash price otherwise). Online, the server records
       // it and closes any open pay link so the customer can't also pay online. Offline, it's
       // written straight to the invoice and syncs later (the pay link can't be closed until then).
       const checkNumber = PAY_REFERENCE_FIELDS[method] ? (document.getElementById('check-number')?.value.trim() || '') : '';
-      const amountCents = FarriPricing.getChargeCents(inv, method);
+      const amountCents = FarriPricing.getChargeCents(inv, method, applyCents);
       const methodLabel = FarriPricing.MANUAL_METHODS[method];
       const isCard = FarriPricing.isCardMethod(method);
       if (netState.online) {
@@ -5182,19 +5217,20 @@ async function confirmPayment() {
         }
       } else {
         const payment = {
-          amount: amountCents / 100, creditAmount: FarriPricing.balanceCents(inv) / 100, method: isCard ? 'credit_card' : method,
+          amount: amountCents / 100, creditAmount: applyCents / 100, method: isCard ? 'credit_card' : method,
           memo: checkNumber || methodLabel, date: new Date().toISOString(),
         };
+        const creditedAfter = FarriPricing.creditedCents(inv) + applyCents;
+        const owedAfter = Math.max(0, FarriPricing.toCents(inv.total) - creditedAfter);
         const payments = [...(inv.payments || []), payment];
         const paidAmount = payments.reduce((t, p) => t + (p.amount || 0), 0);
         const updateData = {
-          status: 'paid',
-          paidAt: firebase.firestore.FieldValue.serverTimestamp(),
-          paymentMethod: isCard ? 'card' : method,
+          status: owedAfter > 0 ? 'partial' : 'paid',
+          ...(owedAfter > 0 ? {} : { paidAt: firebase.firestore.FieldValue.serverTimestamp(), paymentMethod: isCard ? 'card' : method }),
           payments,
           paidAmount,
           amountPaidCents: Math.round(paidAmount * 100),
-          balanceDue: 0,
+          balanceDue: owedAfter / 100,
           priceApplied: isCard && FarriPricing.invoiceRate(inv) > 0 && !inv.cardFeeWaived ? 'card' : 'cash',
         };
         if (method === 'check') updateData.checkNumber = checkNumber;
@@ -5571,12 +5607,12 @@ async function loadHorseHistory(h) {
         <div class="appt-row-bottom">${esc(a.horseServices.join(', ')) || '—'}</div>
       </div>`).join('');
     const invHtml = hist.invoices.map(inv => `
-      <div class="invoice-row ${esc(inv.status)}"${inv.status === 'outstanding' ? ` onclick="openHorseInvoice('${esc(inv.id)}')"` : ''}>
+      <div class="invoice-row ${esc(inv.status)}"${inv.status === 'outstanding' || inv.status === 'partial' ? ` onclick="openHorseInvoice('${esc(inv.id)}')"` : ''}>
         <div class="invoice-row-top">
           <div class="invoice-row-num">#${esc(inv.invoiceNumber || inv.id.slice(-6).toUpperCase())}</div>
           <div class="invoice-row-amount">$${inv.horseTotal.toFixed(2)}</div>
         </div>
-        <div class="invoice-row-bottom">${fmtDate(inv.date)} · ${esc(inv.horseLines.map(l => l.description).filter(Boolean).join(', ') || 'Service')} · <span class="badge badge-${inv.status === 'paid' ? 'success' : 'warning'}">${esc(inv.status || 'outstanding')}</span>${inv.status === 'outstanding' ? ' · Tap to view invoice' : ''}</div>
+        <div class="invoice-row-bottom">${fmtDate(inv.date)} · ${esc(inv.horseLines.map(l => l.description).filter(Boolean).join(', ') || 'Service')} · <span class="badge badge-${inv.status === 'paid' ? 'success' : 'warning'}">${esc(inv.status || 'outstanding')}</span>${inv.status === 'outstanding' || inv.status === 'partial' ? ' · Tap to view invoice' : ''}</div>
       </div>`).join('');
     el.innerHTML = rows.map(([label, v]) => `<div class="info-row"><div class="info-row-label">${label}</div><div class="info-row-value">${v}</div></div>`).join('')
       + `<div class="section-label" style="margin-top:12px;">📋 Appointments (${hist.appointments.length})</div>`
@@ -5914,8 +5950,7 @@ async function flushPhotoOutbox() {
 }
 
 // ── APPOINTMENT AVAILABILITY / TIME SLOTS ──
-// Mirrors the slot logic on the public customer booking page, so the farrier
-// can't accidentally book themselves outside their own working hours.
+// Default working hours, used by the Settings → Availability screen until the farrier saves their own.
 const DEFAULT_AVAILABILITY = {
   monday:    { enabled: true,  start: '09:00', end: '17:00' },
   tuesday:   { enabled: true,  start: '09:00', end: '17:00' },
@@ -5926,169 +5961,12 @@ const DEFAULT_AVAILABILITY = {
   sunday:    { enabled: false, start: '09:00', end: '17:00' },
 };
 
-// ── APPOINTMENT DATE PICKER ──
-// Only offers days the farrier is actually set up to work, 5 at a time,
-// instead of a native date picker that happily lets them pick a weekend
-// (or any day off) they never work.
-let apptDateWindowOffset = 0;
-let apptDateChips = [];
-
-function isDayAvailable(date) {
-  const dayName = date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-  const availability = state.userProfile?.availability || DEFAULT_AVAILABILITY;
-  const day = availability[dayName];
-  return !!(day && day.enabled);
-}
-
-function computeNextAvailableDates(startOffset, count) {
-  const dates = [];
-  let offset = startOffset;
-  let guard = 0;
-  while (dates.length < count && guard < 400) {
-    const d = new Date();
-    d.setHours(0,0,0,0);
-    d.setDate(d.getDate() + offset);
-    if (isDayAvailable(d)) {
-      dates.push({
-        dateStr: d.toISOString().split('T')[0],
-        dow: d.toLocaleDateString('en-US', { weekday: 'short' }),
-        num: d.getDate(),
-      });
-    }
-    offset++;
-    guard++;
-  }
-  return { dates, nextOffset: offset };
-}
-
-function renderApptDateChips(selectedDate) {
-  const container = document.getElementById('appt-date-chips');
-  if (!apptDateChips.length) {
-    container.innerHTML = `<div style="grid-column:1/-1;color:var(--text-muted);font-size:0.85rem;padding:8px 0;text-align:center;">
-      No working days found — check your Availability in Settings on the main app.
-    </div>`;
-    return;
-  }
-  container.innerHTML = apptDateChips.map(d => `
-    <div class="date-chip${d.dateStr === selectedDate ? ' selected' : ''}" onclick="selectApptDateChip('${d.dateStr}')">
-      <div class="date-chip-dow">${d.dow}</div>
-      <div class="date-chip-num">${d.num}</div>
-    </div>
-  `).join('');
-}
-
-function selectApptDateChip(dateStr) {
-  document.getElementById('appt-date').value = dateStr;
-  renderApptDateChips(dateStr);
-  onApptDateChange();
-}
-
-function showMoreApptDates() {
-  const { dates, nextOffset } = computeNextAvailableDates(apptDateWindowOffset, 5);
-  apptDateChips = dates;
-  apptDateWindowOffset = nextOffset;
-  const sel = dates[0] ? dates[0].dateStr : '';
-  document.getElementById('appt-date').value = sel;
-  renderApptDateChips(sel);
-  onApptDateChange();
-}
-
-// preselectDate: used when editing an appointment, so its saved date is shown
-// even if it falls outside the freshly-computed window (e.g. it's on a day
-// normally marked off, or further out than the first 5 available days).
-function initApptDatePicker(preselectDate) {
-  apptDateWindowOffset = 0;
-  const { dates, nextOffset } = computeNextAvailableDates(0, 5);
-  if (preselectDate && !dates.some(d => d.dateStr === preselectDate)) {
-    const [y, m, dd] = preselectDate.split('-').map(Number);
-    const pd = new Date(y, m - 1, dd);
-    dates.unshift({ dateStr: preselectDate, dow: pd.toLocaleDateString('en-US', { weekday: 'short' }), num: pd.getDate() });
-  }
-  apptDateChips = dates;
-  apptDateWindowOffset = nextOffset;
-  const initialSelection = preselectDate || (dates[0] ? dates[0].dateStr : '');
-  document.getElementById('appt-date').value = initialSelection;
-  renderApptDateChips(initialSelection);
-}
-
-function getAvailableApptSlots(dateStr) {
-  if (!dateStr) return [];
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const dayName = new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-  const availability = state.userProfile?.availability || DEFAULT_AVAILABILITY;
-  const day = availability[dayName];
-  if (!day || !day.enabled) return [];
-  const slots = [];
-  const [startHour, startMin] = (day.start || '09:00').split(':').map(Number);
-  const [endHour, endMin] = (day.end || '17:00').split(':').map(Number);
-  let h = startHour, mi = startMin;
-  while (h < endHour || (h === endHour && mi < endMin)) {
-    slots.push(`${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}`);
-    mi += 120; // 2-hour slots, matching the customer booking page
-    h += Math.floor(mi / 60);
-    mi = mi % 60;
-  }
-  return slots;
-}
-
-let _apptSlotsCache = [];
-let _apptBookedCache = [];
-
-function renderApptTimeSlots(selectedTime) {
-  const container = document.getElementById('appt-time-slots');
-  if (!_apptSlotsCache.length) {
-    container.innerHTML = `<div style="grid-column:1/-1;color:var(--text-muted);font-size:0.85rem;padding:12px 0;text-align:center;">
-      You're not set up to work this day. Change your Availability in Settings on the main app, or pick a different date.
-    </div>`;
-    return;
-  }
-  container.innerHTML = _apptSlotsCache.map(t => {
-    const booked = _apptBookedCache.includes(t);
-    const selected = t === selectedTime;
-    return `<div class="service-chip${selected ? ' selected' : ''}${booked ? ' disabled' : ''}"
-      ${booked ? '' : `onclick="selectApptTimeSlot('${t}')"`}>
-      <div>${fmtTime(t)}</div>
-      ${booked ? '<div class="service-chip-price">Booked</div>' : ''}
-    </div>`;
-  }).join('');
-}
-
-function selectApptTimeSlot(time) {
-  document.getElementById('appt-time').value = time;
-  renderApptTimeSlots(time);
-}
-
-async function onApptDateChange(preselectTime = null) {
-  const dateStr = document.getElementById('appt-date').value;
-  document.getElementById('appt-time').value = preselectTime || '';
-  _apptSlotsCache = [];
-  _apptBookedCache = [];
-  const container = document.getElementById('appt-time-slots');
-  if (!dateStr) { container.innerHTML = ''; return; }
-
-  container.innerHTML = '<div style="grid-column:1/-1;color:var(--text-muted);font-size:0.85rem;padding:8px 0;">Loading times…</div>';
-
-  let slots = getAvailableApptSlots(dateStr);
-  // If editing an appointment whose saved time doesn't line up with a generated
-  // slot (e.g. set from the desktop app, or from before this feature existed),
-  // still offer it so editing never silently discards the original time.
-  if (preselectTime && !slots.includes(preselectTime)) slots = [...slots, preselectTime].sort();
-
-  let bookedTimes = [];
-  try {
-    const snap = await db.collection('appointments')
-      .where('farrierId', '==', bizId())
-      .where('requestedDate', '==', dateStr)
-      .get();
-    bookedTimes = snap.docs
-      .filter(d => d.id !== state.editingApptId && d.data().status !== 'cancelled')
-      .map(d => d.data().requestedTime)
-      .filter(Boolean);
-  } catch(e) { console.warn('Could not check existing bookings:', e); }
-
-  _apptSlotsCache = slots;
-  _apptBookedCache = bookedTimes;
-  renderApptTimeSlots(preselectTime);
+// ── APPOINTMENT DATE / TIME ──
+// Plain date + time inputs, same as the desktop app's New Appointment form —
+// any date and any time can be entered (no availability-slot restriction).
+function setApptDateTime(date, time) {
+  document.getElementById('appt-date').value = date || '';
+  document.getElementById('appt-time').value = time || '';
 }
 
 // ── NEW / EDIT APPOINTMENT ──
@@ -6106,8 +5984,7 @@ function startNewAppointment() {
   const prefillAddr = [state.customer.address, state.customer.city, state.customer.state].filter(Boolean).join(', ');
   document.getElementById('appt-notes').value = '';
   renderServiceGrid('appt-service-grid');
-  initApptDatePicker(null);
-  onApptDateChange();
+  setApptDateTime('', '');
   goTo('screen-new-appt');
   // Initialize PAC widget (safe to call multiple times — it guards internally)
   _apptPac = null; // reset so it re-mounts fresh each time
@@ -6138,7 +6015,7 @@ function startEditAppointment(appt) {
   document.getElementById('appt-view-customer-btn').style.display = 'inline-block';
   document.getElementById('appt-customer-name').textContent = state.customer.name;
   document.getElementById('appt-customer-farm').textContent = state.customer.farmName || '';
-  initApptDatePicker(appt.requestedDate || null);
+  setApptDateTime(appt.requestedDate || '', appt.requestedTime || '');
   document.getElementById('appt-horses').value = appt.numberOfHorses || 1;
   document.getElementById('appt-notes').value = appt.comments || '';
   renderServiceGrid('appt-service-grid');
@@ -6169,7 +6046,6 @@ function startEditAppointment(appt) {
       .catch(e => console.error(e));
   }
 
-  onApptDateChange(appt.requestedTime || null);
   goTo('screen-new-appt');
   _apptPac = null;
   _apptPacTries = 0;
@@ -6183,7 +6059,7 @@ function startEditAppointment(appt) {
 async function saveNewAppointment() {
   const date = document.getElementById('appt-date').value;
   const time = document.getElementById('appt-time').value;
-  if (!date) { showToast('Date is required', 'error'); return; }
+  if (!date || !time) { showToast('Date and Time are required', 'error'); return; }
   const btn = document.getElementById('appt-save-btn');
   const editingId = state.editingApptId;
   btn.disabled = true; btn.textContent = 'Saving…';
@@ -6292,7 +6168,7 @@ function initStripeElements() {
   });
 }
 
-async function chargeCardViaStripe(inv) {
+async function chargeCardViaStripe(inv, applyCents) {
   // Defensive re-check — connectivity may have dropped between rendering the payment
   // grid and tapping Confirm. A card charge can never work offline (it's a live Stripe
   // API call), unlike Cash/Check.
@@ -6308,12 +6184,12 @@ async function chargeCardViaStripe(inv) {
     errEl.textContent = error.message; errEl.style.display = 'block';
     return false;
   }
-  // The server charges the card price for the balance and records the payment on the
-  // invoice in the same request, so there's nothing left for the phone to write.
+  // The server charges the card price for the amount entered and records the payment on
+  // the invoice in the same request, so there's nothing left for the phone to write.
   const res = await fetch('/api/stripe-payment', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'charge', paymentMethodId: paymentMethod.id, invoiceId: inv.id })
+    body: JSON.stringify({ action: 'charge', paymentMethodId: paymentMethod.id, invoiceId: inv.id, applyAmount: applyCents / 100 })
   });
   const result = await res.json();
   if (!result.success) {
@@ -6330,14 +6206,14 @@ async function chargeCardViaStripe(inv) {
 // or was declined. Resolves with { amount } when paid, false otherwise.
 let _iposWait = null;
 
-function chargeCardViaIpos(inv) {
+function chargeCardViaIpos(inv, applyCents) {
   if (!netState.online) { showToast('Card payments require an internet connection', 'error'); return Promise.resolve(false); }
   return new Promise(async (resolve) => {
     let res;
     try {
       res = await (await fetch('/api/stripe-payment', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'ipospays_keyed', invoiceId: inv.id }),
+        body: JSON.stringify({ action: 'ipospays_keyed', invoiceId: inv.id, applyAmount: applyCents / 100 }),
       })).json();
     } catch (e) { res = { success: false, error: 'Could not reach the server.' }; }
     if (!res.success) {

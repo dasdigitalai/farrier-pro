@@ -96,6 +96,8 @@ export async function applyPayment(invoiceId, {
       date: when.toISOString(),
       paymentId,
       ...(paymentIntentId ? { transactionId: paymentIntentId } : {}),
+      // The card network's approval (auth) code, printed on the invoice.
+      ...(processorDetails?.approvalCode ? { approvalCode: processorDetails.approvalCode } : {}),
     }];
     const paidCents = payments.reduce((s, p) => s + P.toCents(p.amount), 0);
 
@@ -316,8 +318,7 @@ export async function sendUpdatedPayLink(invoice, invoiceId, amountCents) {
     const html = `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#333;max-width:560px;margin:0 auto;padding:20px;">
   <p>Hi ${escapeHtml(name)},</p>
   <p>Here is your updated payment link for Invoice #${escapeHtml(number)} from <strong>${escapeHtml(biz)}</strong>: <strong>${amount}</strong>.</p>
-  <p style="text-align:center;margin:28px 0;"><a href="${url}" style="background:#059669;color:#fff;padding:14px 32px;text-decoration:none;border-radius:8px;font-weight:700;display:inline-block;">Pay ${amount}</a></p>
-  ${P.altPayHtml(farrier, invoice)}
+  ${P.payOptionsHtml(farrier, invoice, url)}
   <p style="color:#9ca3af;font-size:12px;">Powered by FarriTech</p>
 </body></html>`;
     const r = await fetch(`${APP_URL}/api/send-email`, {

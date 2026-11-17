@@ -1782,11 +1782,11 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
           try {
             doc.setFont("helvetica", "bold");
             doc.setFontSize(9);
-            doc.text("PAY ONLINE", pageW - 150, 192, { align: "center" });
+            doc.text("PAY BY CARD", pageW - 150, 192, { align: "center" });
             doc.addImage(qr, "PNG", pageW - 190, 200, 80, 80);
             doc.setFont("helvetica", "normal");
             doc.setFontSize(8);
-            doc.text("Scan to pay", pageW - 150, 290, { align: "center" });
+            doc.text("Scan to pay by card", pageW - 150, 290, { align: "center" });
           } catch (e) {}
         }
 
@@ -1870,46 +1870,77 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
           doc.text(`Card price ${FarriPricing.money(_prices.card)}  /  Cash or check ${FarriPricing.money(_prices.cash)}`, pageW - 48, y, { align: "right" });
         }
 
-        // Clickable "Pay Now" link — the QR code above only helps if the reader can
-        // scan it with a second device; this covers the common case of someone
-        // reading the emailed/attached PDF on the same screen they'd pay from.
-        // Shown whenever there's a real Stripe payment link and money still owed
-        // (this fires for a brand-new unpaid invoice too, since the "BALANCE DUE"
-        // line further below only renders once there's payment history).
-        if (payUrl && _balDue > 0) {
-          y += 24;
-          if (y > pageH - 110) { doc.addPage(); y = 72; }
-          const linkLabel = "CLICK HERE TO PAY NOW";
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(11);
-          doc.setTextColor(37, 99, 235);
-          doc.textWithLink(linkLabel, pageW - 48, y, { url: payUrl, align: "right" });
-          const linkWidth = doc.getTextWidth(linkLabel);
-          doc.setDrawColor(37, 99, 235);
-          doc.line(pageW - 48 - linkWidth, y + 3, pageW - 48, y + 3);
-          doc.setTextColor(0);
-          doc.setFont("helvetica", "normal");
-          const altPay = FarriPricing.altPayNote(farrierProfile);
-          if (altPay) {
-            doc.setFontSize(9);
-            doc.setTextColor(75);
-            for (const line of doc.splitTextToSize(altPay, 300)) {
-              y += 13;
-              doc.text(line, pageW - 48, y, { align: "right" });
-            }
-            doc.setTextColor(0);
-          }
-          const venmoUrl = FarriPricing.venmoPayUrl(farrierProfile, invoice);
-          if (venmoUrl) {
-            y += 16;
-            const venmoLabel = "PAY WITH VENMO";
+        // How to pay, in two clearly separate parts (same split as the invoice email):
+        //   PAY BY CREDIT CARD  — clickable link to the pay page, at the card price
+        //   PAY BY OTHER METHOD — cash price: cash or check, plus Zelle / Venmo when the
+        //                         farrier turned that note on (Venmo is a clickable link)
+        // The QR code above only helps someone with a second device; these links cover
+        // reading the emailed PDF on the same screen they'd pay from. Shown whenever
+        // money is still owed (the "BALANCE DUE" line below only renders once there's
+        // payment history).
+        if (_balDue > 0) {
+          const cashCents = Math.round(_balDue * 100);
+          const rate = FarriPricing.invoiceRate(invoice);
+          const cardCentsDue = rate > 0 && !invoice.cardFeeWaived ? FarriPricing.cardCents(cashCents, rate) : cashCents;
+          const link = (label, url, rgb) => {
             doc.setFont("helvetica", "bold");
             doc.setFontSize(10);
-            doc.setTextColor(0, 140, 255);
-            doc.textWithLink(venmoLabel, pageW - 48, y, { url: venmoUrl, align: "right" });
+            doc.setTextColor(...rgb);
+            doc.textWithLink(label, 60, y, { url });
+            doc.setDrawColor(...rgb);
+            doc.line(60, y + 2, 60 + doc.getTextWidth(label), y + 2);
             doc.setTextColor(0);
-            doc.setFont("helvetica", "normal");
+          };
+          y += 30;
+          if (y > pageH - 150) { doc.addPage(); y = 72; }
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(11);
+          doc.setTextColor(30);
+          doc.text("HOW TO PAY", 48, y);
+          y += 6;
+          doc.setDrawColor(180);
+          doc.line(48, y, pageW - 48, y);
+
+          if (payUrl) {
+            y += 18;
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10.5);
+            doc.setTextColor(6, 95, 70);
+            doc.text(`PAY BY CREDIT CARD - ${FarriPricing.money(cardCentsDue)}`, 48, y);
+            y += 15;
+            link("CLICK HERE TO PAY BY CARD", payUrl, [37, 99, 235]);
+            if (qr) {
+              const after = 60 + doc.getTextWidth("CLICK HERE TO PAY BY CARD") + 8;
+              doc.setFont("helvetica", "normal");
+              doc.setFontSize(8.5);
+              doc.setTextColor(110);
+              doc.text("(or scan the QR code above)", after, y);
+              doc.setTextColor(0);
+            }
           }
+
+          y += 20;
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(10.5);
+          doc.setTextColor(51, 65, 85);
+          doc.text(`PAY BY OTHER METHOD - ${FarriPricing.money(cashCents)}`, 48, y);
+          const zelleOn = Boolean(farrierProfile?.zelleVenmoNote);
+          const zelle = zelleOn ? FarriPricing.zelleContact(farrierProfile) : "";
+          const venmoUrl = FarriPricing.venmoPayUrl(farrierProfile, invoice);
+          const ways = ["Cash or check", zelleOn ? `Zelle${zelle ? ` to ${zelle}` : " (in your bank's app)"}` : "", zelleOn && !venmoUrl ? "Venmo" : ""].filter(Boolean);
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(9.5);
+          doc.setTextColor(60);
+          for (const line of doc.splitTextToSize(ways.join("  |  "), pageW - 120)) {
+            y += 14;
+            doc.text(line, 60, y);
+          }
+          doc.setTextColor(0);
+          if (venmoUrl) {
+            y += 15;
+            link("CLICK HERE TO PAY WITH VENMO", venmoUrl, [0, 140, 255]);
+          }
+          doc.setFont("helvetica", "normal");
         }
 
         // Payment History
@@ -1920,6 +1951,18 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         // Build effective payments list — prefer payments[] array,
         // but fall back to top-level paidAt/cardLast4 for Stripe online payments
         let effectivePayments = payments;
+        // iPOSpays payments recorded before the approval code was copied onto the invoice:
+        // read it from the payment's own record.
+        if (payments.some(p => String(p.paymentId || '').startsWith('ipos_') && !p.approvalCode) && invoice.id) {
+          effectivePayments = await Promise.all(payments.map(async (p) => {
+            if (!String(p.paymentId || '').startsWith('ipos_') || p.approvalCode) return p;
+            try {
+              const snap = await firebase.firestore().doc(`invoices/${invoice.id}/payments/${p.paymentId}`).get();
+              const code = snap.exists ? snap.data()?.processorDetails?.approvalCode : '';
+              return code ? { ...p, approvalCode: code } : p;
+            } catch (e) { return p; }
+          }));
+        }
         if (payments.length === 0 && invoice.paidAt && (invStatus === 'paid' || invStatus === 'partial')) {
           const paidDate = invoice.paidAt?.toDate ? invoice.paidAt.toDate() : new Date(invoice.paidAt);
           const cardDetail = invoice.cardLast4
@@ -1954,16 +1997,17 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
             const detailStr = p.memo && p.memo !== 'Credit card' && p.memo !== 'Credit Card' ? p.memo : methodStr;
             doc.setTextColor(60);
             doc.text(`${dateStr}  ${detailStr}`, 48, y);
-            // Show transaction ID in small text if available
-            if (p.stripePaymentIntentId) {
-              doc.setFontSize(7);
-              doc.setTextColor(140);
-              doc.text(`Txn: ${p.stripePaymentIntentId}`, 48, y + 8);
-              doc.setFontSize(9);
-              y += 8;
-            }
             doc.setTextColor(0);
             doc.text(money_(p.amount || 0), pageW - 48, y, { align: 'right' });
+            // Show the approval code and transaction ID in small text if available
+            const refLine = [p.approvalCode ? `Auth code: ${p.approvalCode}` : '', p.stripePaymentIntentId ? `Txn: ${p.stripePaymentIntentId}` : ''].filter(Boolean).join('   ');
+            if (refLine) {
+              doc.setFontSize(7);
+              doc.setTextColor(140);
+              doc.text(refLine, 48, y + 9);
+              doc.setFontSize(9);
+              y += 9;
+            }
             y += 16;
           }
           y += 4;
@@ -2066,7 +2110,7 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;">
-  <div style="text-align:center;padding:28px 30px;background:linear-gradient(135deg,#1a365d 0%,#2563eb 100%);border-radius:8px 8px 0 0;">
+  <div style="text-align:center;padding:28px 30px;background-color:#1e40af;background:linear-gradient(135deg,#1a365d 0%,#2563eb 100%);border-radius:8px 8px 0 0;">
     <h1 style="color:#fff;margin:0;font-size:26px;font-weight:700;">🐴 FarriTech</h1>
     <p style="color:#06b6d4;margin:6px 0 0;font-size:14px;">Invoice from ${safeText_(_userProfile?.businessName || "Your Farrier")}</p>
   </div>
@@ -2097,16 +2141,10 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
       </table>` : ""}
     </div>
 
-    ${!isPaid && payUrl ? `
-    <div style="text-align:center;margin:28px 0;">
-      <a href="${payUrl}" style="background:linear-gradient(135deg,#10b981 0%,#059669 100%);color:#fff;padding:14px 36px;text-decoration:none;border-radius:8px;font-weight:700;display:inline-block;font-size:16px;letter-spacing:0.3px;">
-        💳 Pay Invoice — ${prices.card !== null ? FarriPricing.money(prices.card) : "$" + balanceDue}
-      </a>
-      ${FarriPricing.altPayHtml(_userProfile, invoice)}
-    </div>` : isPaid ? `
+    ${isPaid ? `
     <div style="background:#f0fdf4;border:1px solid #10b981;border-radius:8px;padding:16px;text-align:center;margin:24px 0;">
       <p style="color:#065f46;font-weight:600;margin:0;">✅ This invoice has been paid in full. Thank you!</p>
-    </div>` : FarriPricing.altPayHtml(_userProfile, invoice)}
+    </div>` : FarriPricing.payOptionsHtml(_userProfile, invoice, payUrl)}
 
     <p style="color:#6b7280;font-size:13px;">Questions? Reply to this email or contact us directly.</p>
   </div>
