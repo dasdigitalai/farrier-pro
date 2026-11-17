@@ -453,3 +453,31 @@ test('webhook: the signature is also accepted upper-case or base64-encoded', asy
   assert.equal((await deliver(evt, { 'webhook-signature': Buffer.from(hex, 'hex').toString('base64') })).statusCode, 200);
   assert.equal(get('invoices/inv035').status, 'paid');
 });
+
+test('a double charge logged for review earlier (before auto-refunds) is refunded on the next check', async () => {
+  const inv = newInvoice('inv036');
+  const { ref } = await K.createKadimaPage(CREDS, 'inv036', inv);
+  const first = kadimaPayment(ref, { amount: 100 });
+  await K.syncKadimaInvoice(CREDS, 'inv036');
+  // The old code logged the second charge as "unapplied" for review and stopped there:
+  const dup = kadimaPayment(ref, { amount: 100 });
+  store.set(`invoices/inv036/payments/kadima_${dup.id}`, { source: 'kadima', amountCents: 10000, creditCents: 0, unapplied: true });
+  patch('invoices/inv036', { paymentNeedsReview: true });
+  const r = await K.syncKadimaInvoice(CREDS, 'inv036');
+  assert.equal(r.reversed, 1);
+  assert.equal(kadima.refunds.length, 1);
+  assert.equal(kadima.refunds[0].id, String(dup.id));
+  assert.equal(get(`invoices/inv036/payments/kadima_${dup.id}`).reversed, true);
+  assert.equal(get('invoices/inv036').payments[0].paymentId, `kadima_${first.id}`);
+  await K.syncKadimaInvoice(CREDS, 'inv036');
+  assert.equal(kadima.refunds.length, 1); // never twice
+});
+
+test('webhook: Settings can show when the last notification came and whether it was signed right', async () => {
+  patch(`farrierSecrets/${FARRIER}`, { kadimaWebhookSecret: 'whsec_test_123' });
+  const evt = { id: 7, module: 'ping', action: 'test', date: 'x' };
+  await deliver(evt, { 'webhook-signature': 'nope' });
+  assert.equal(get(`farrierSecrets/${FARRIER}`).kadimaWebhookLast.result, 'bad signature');
+  await deliver(evt, { 'webhook-signature': K.kadimaSignature('whsec_test_123', evt) });
+  assert.equal(get(`farrierSecrets/${FARRIER}`).kadimaWebhookLast.result, 'ok');
+});

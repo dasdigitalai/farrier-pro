@@ -15686,7 +15686,7 @@ useEffect(() => {
       React.useEffect(() => {
         if (!userProfile?.kadimaConnected) { setKadimaHook(null); return; }
         fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'kadima_status' }) })
-          .then(r => r.json()).then(d => { if (d.success) setKadimaHook({ webhookUrl: d.webhookUrl, webhookSigned: d.webhookSigned }); })
+          .then(r => r.json()).then(d => { if (d.success) setKadimaHook({ webhookUrl: d.webhookUrl, webhookSigned: d.webhookSigned, webhookLast: d.webhookLast }); })
           .catch(() => {});
       }, [userProfile?.kadimaConnected]);
       useEffect(() => {
@@ -16421,6 +16421,11 @@ useEffect(() => {
                       }}>Save</button>
                     </div>
                     {kadimaHookMsg && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.35rem'}}>{kadimaHookMsg}</div>}
+                    <div style={{fontSize: '0.8rem', marginTop: '0.5rem', color: kadimaHook.webhookLast?.result === 'bad signature' ? '#dc2626' : 'var(--text-muted)'}}>
+                      {kadimaHook.webhookLast
+                        ? <>Last notification from Kadima: {new Date(kadimaHook.webhookLast.at).toLocaleString()} — {kadimaHook.webhookLast.result === 'bad signature' ? "signature didn't match (re-copy the Signature from Kadima and Save)" : 'received OK'}{kadimaHook.webhookLast.reversed ? ` · ${kadimaHook.webhookLast.reversed} double charge refunded` : ''}</>
+                        : 'No notification from Kadima yet.'}
+                    </div>
                   </div>
                 )}
                 {(userProfile?.stripePublishableKey || userProfile?.ipospaysConnected) && (

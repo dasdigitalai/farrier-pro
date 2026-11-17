@@ -1363,6 +1363,7 @@
         <button class="btn-secondary" onclick="copyKadimaWebhookUrl()" style="margin-bottom:8px;">Copy URL</button>
         <div class="field"><input type="password" id="kadima-webhook-secret" autocomplete="off" placeholder="Webhook Signature from Kadima" style="font-family:monospace; font-size:0.78rem;"></div>
         <button class="btn-primary" onclick="saveKadimaWebhookSecret()">Save signature</button>
+        <div id="kadima-webhook-last" style="font-size:0.78rem; color:var(--text-muted); margin-top:8px;"></div>
       </div>
       <button class="btn-secondary" id="kadima-disconnect-btn" onclick="disconnectKadima()" style="display:none;">Disconnect Kadima</button>
     </div>
@@ -4688,6 +4689,14 @@ function renderKadimaWebhook(d) {
   st.textContent = d.webhookSigned ? '— signature saved ✓' : '— recommended';
   st.style.color = d.webhookSigned ? '#16a34a' : '#b45309';
   document.getElementById('kadima-webhook-secret').placeholder = d.webhookSigned ? '•••••••• saved — paste a new signature to replace it' : 'Webhook Signature from Kadima';
+  if ('webhookLast' in d) {
+    const last = document.getElementById('kadima-webhook-last');
+    const bad = d.webhookLast?.result === 'bad signature';
+    last.style.color = bad ? '#dc2626' : 'var(--text-muted)';
+    last.textContent = d.webhookLast
+      ? `Last notification from Kadima: ${new Date(d.webhookLast.at).toLocaleString()} — ${bad ? "signature didn't match (re-copy the Signature from Kadima and Save)" : 'received OK'}${d.webhookLast.reversed ? ` · ${d.webhookLast.reversed} double charge refunded` : ''}`
+      : 'No notification from Kadima yet.';
+  }
 }
 
 function copyKadimaWebhookUrl() {

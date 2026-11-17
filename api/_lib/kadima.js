@@ -39,7 +39,7 @@ const hosts = (mode) => KADIMA_HOSTS[mode === 'production' ? 'production' : 'san
 const TIMEOUT_MS = 20_000;
 const REUSE_DAYS = 6;      // a form older than this isn't reused (Kadima forms don't expire)
 const KEEP_LINKS = 10;     // forms remembered per invoice, so an older one can still be confirmed
-const SECRET_FIELDS = ['kadimaToken', 'kadimaTerminalId', 'kadimaDbaId', 'kadimaMode', 'kadimaConnectedAt', 'kadimaWebhookSecret'];
+const SECRET_FIELDS = ['kadimaToken', 'kadimaTerminalId', 'kadimaDbaId', 'kadimaMode', 'kadimaConnectedAt', 'kadimaWebhookSecret', 'kadimaWebhookLast'];
 
 // 'FT' + 18 random letters/digits: our externalId for one form.
 export function newKadimaRef() {
@@ -323,9 +323,14 @@ export async function syncKadimaInvoice(creds, invoiceId) {
       },
     });
     if (r.duplicate) {
-      // Seen before: count it the way it was handled then.
+      // Seen before: count it the way it was handled then. A double charge logged for review
+      // earlier (before automatic refunds, or when Kadima refused the refund) is refunded now.
       const doc = await getDoc(`invoices/${invoiceId}/payments/kadima_${t.id}`);
-      if (doc?.reversed) s.reversedCents += amountCents; else if (!doc?.unapplied) s.paidCents += amountCents;
+      if (doc?.reversed) { s.reversedCents += amountCents; continue; }
+      if (!doc?.unapplied) { s.paidCents += amountCents; continue; }
+      if (kadimaAlreadyPaid && !t.refunded && await reverseDuplicate(creds, invoiceId, t, amountCents)) {
+        s.reversedCents += amountCents; out.reversed++;
+      }
       continue;
     }
     if (r.alreadyPaid) {
@@ -469,12 +474,14 @@ export async function kadimaWebhook(req, res, rawBody, farrierId) {
       // Kadima documents a SHA-512 sum; accept it as hex (any case) or base64.
       const ok = got && (safeEqual(got.toLowerCase(), hex) || safeEqual(got, Buffer.from(hex, 'hex').toString('base64')));
       if (!ok) {
+        await noteWebhook(farrierId, evt, 'bad signature');
         console.warn('Kadima webhook: bad signature for', farrierId, JSON.stringify({ id: evt?.id, module: evt?.module, action: evt?.action, date: evt?.date, header: got ? `${got.slice(0, 12)}… (${got.length} chars)` : 'missing' }));
         return res.status(401).json({ error: 'Bad signature' });
       }
     }
     // Only new payments matter here; acknowledge everything else so Kadima doesn't retry.
     if (evt.module !== 'transaction' || !['create', 'reccuring', 'recurring'].includes(evt.action)) {
+      await noteWebhook(farrierId, evt, secret ? 'ok' : 'ok (no signature saved)');
       return res.status(200).json({ received: true, ignored: `${evt.module}/${evt.action}` });
     }
 
@@ -490,12 +497,27 @@ export async function kadimaWebhook(req, res, rawBody, farrierId) {
       const r = await syncKadimaInvoice(creds, inv.id);
       recorded += r.recorded; reversed += r.reversed;
     }
+    await noteWebhook(farrierId, evt, secret ? 'ok' : 'ok (no signature saved)', { recorded, reversed });
     console.log(`📥 Kadima webhook ${evt.id} ${evt.module}/${evt.action} for ${farrierId}:`, JSON.stringify({ ref, invoices: invoices.length, recorded, reversed }));
     return res.status(200).json({ received: true });
   } catch (err) {
     console.error('❌ Kadima webhook error:', farrierId, err);
     return res.status(500).json({ error: 'Webhook failed' });
   }
+}
+
+// The last event received, shown in Settings so the farrier can see the webhook works
+// ("last notification 5:48 PM — OK" / "signature didn't match"). Never stores payment data.
+async function noteWebhook(farrierId, evt, result, counts = {}) {
+  try {
+    await patchDoc(`farrierSecrets/${farrierId}`, {
+      kadimaWebhookLast: {
+        at: new Date().toISOString(), result,
+        event: `${String(evt?.module || '').slice(0, 30)}/${String(evt?.action || '').slice(0, 40)}`,
+        recorded: counts.recorded || 0, reversed: counts.reversed || 0,
+      },
+    });
+  } catch (e) { console.warn('Kadima webhook: could not note receipt', e.message); }
 }
 
 // Settings → Kadima: save (or clear) the webhook's Signature from the Kadima dashboard.

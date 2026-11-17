@@ -324,6 +324,7 @@ export default async function handler(req, res) {
       return res.status(200).json({
         success: true, connected: !!kadima, mode: kadima?.mode || '', terminalId: kadima?.terminalId || null, dbaId: kadima?.dbaId || null,
         webhookUrl: kadima ? `${APP_BASE(req)}/api/kadima/webhook/${farrierId}` : '', webhookSigned: !!secrets?.kadimaWebhookSecret,
+        webhookLast: secrets?.kadimaWebhookLast || null,
       });
     }
     if (action === 'kadima_webhook_secret') {
