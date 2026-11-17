@@ -37,7 +37,7 @@ export const KADIMA_HOSTS = {
 const hosts = (mode) => KADIMA_HOSTS[mode === 'production' ? 'production' : 'sandbox'];
 
 const TIMEOUT_MS = 20_000;
-const REUSE_DAYS = 6;      // /pay/{id} makes a fresh form after this (Kadima forms don't expire)
+const REUSE_DAYS = 6;      // a form older than this isn't reused (Kadima forms don't expire)
 const KEEP_LINKS = 10;     // forms remembered per invoice, so an older one can still be confirmed
 const SECRET_FIELDS = ['kadimaToken', 'kadimaTerminalId', 'kadimaDbaId', 'kadimaMode', 'kadimaConnectedAt'];
 
@@ -139,19 +139,19 @@ export async function connectKadima(farrierId, { token, terminalId, dbaId, mode 
   return { mode, terminalId: creds.terminalId, dbaId: creds.dbaId };
 }
 
-// Kadima forms can't be cancelled, so before the token is dropped, record any open form the
-// customer already paid (afterwards such payments couldn't be confirmed here — they'd still
-// be in the farrier's Kadima account).
+// Kadima forms can't be cancelled, so before the token is dropped, record anything already
+// paid on any of the farrier's forms (afterwards such payments couldn't be confirmed here —
+// they'd still be in the farrier's Kadima account).
 export async function disconnectKadima(farrierId) {
   const creds = await getKadimaCreds(farrierId);
   let paid = 0;
   if (creds) {
-    const open = (await queryIn('invoices', 'farrierId', [farrierId])).filter(i => i.kadimaOpenRef);
-    for (const inv of open) {
+    const withForms = (await queryIn('invoices', 'farrierId', [farrierId])).filter(i => Object.keys(i.kadimaLinks || {}).length);
+    for (const inv of withForms) {
       try {
-        const r = await syncKadimaPayment(creds, inv.id, inv.kadimaOpenRef);
-        if (r.paid) paid++;
-        else await patchDoc(`invoices/${inv.id}`, { kadimaOpenRef: '' });
+        const r = await syncKadimaInvoice(creds, inv.id);
+        if (r.recorded) paid++;
+        await patchDoc(`invoices/${inv.id}`, { kadimaOpenRef: '' });
       } catch (e) { console.warn('Kadima disconnect: check failed', inv.id, e.message); }
     }
   }
@@ -160,17 +160,41 @@ export async function disconnectKadima(farrierId) {
 }
 
 // ── Payment forms ──
-// Makes a Kadima hosted payment form for what's owed (card price unless waived). `card_keyed`
-// is the same form shown on the farrier's own screen; `applyCents` pays off part of the balance.
-// The card number goes straight to Kadima and never passes through FarriTech.
+// A Kadima form stays payable for as long as someone has it open — Kadima has no way to
+// cancel one. So an invoice gets ONE form per amount: the customer's pay link and a keyed
+// card for the same amount share it, and a new form is only made when the amount changes
+// (part payment, card price waived) or the old one is a week old. Every form ever made for
+// the invoice stays on file (kadimaLinks) and is checked with Kadima on every sync, so a
+// payment on an old tab is still found — and a second card payment on an invoice a Kadima
+// card already paid is refunded straight back (see syncKadimaInvoice).
+
+// Makes (or reuses) a Kadima hosted payment form for what's owed (card price unless waived).
+// `card_keyed` is the same form shown on the farrier's own screen; `applyCents` pays off part of
+// the balance. The card number goes straight to Kadima and never passes through FarriTech.
 export async function createKadimaPage(creds, invoiceId, invoice, { method = 'card_link', applyCents = 0 } = {}) {
-  const balance = P.balanceCents(invoice);
+  // Record anything already paid on this invoice's forms first, then work from the fresh invoice.
+  const synced = await syncKadimaInvoice(creds, invoiceId);
+  const fresh = (await getDoc(`invoices/${invoiceId}`)) || invoice;
+  // Callers may pass changes not saved yet (e.g. the card price being waived); keep those.
+  const current = { ...fresh, ...pick(invoice, ['cardFeeWaived']) };
+  if (current.status === 'paid') throw new PaymentError('Customer already paid by card.', 409);
+
+  const balance = P.balanceCents(current);
   const cashCents = applyCents > 0 ? Math.min(applyCents, balance) : balance;
   if (cashCents <= 0) throw new PaymentError('Nothing is owed on this invoice.');
-  const chargeCents = P.getChargeCents(invoice, method, cashCents);
+  const chargeCents = P.getChargeCents(current, method, cashCents);
+  const paymentUrl = payUrlFor(invoiceId);
 
-  const closed = await closeKadimaPages(creds, invoiceId, invoice);
-  if (closed.paid) throw new PaymentError('Customer already paid by card.', 409);
+  // Reuse a recent form for exactly this amount that nobody has paid or tried yet.
+  const reuse = Object.entries(current.kadimaLinks || {})
+    .filter(([ref, l]) => l?.v === 2 && l.url && l.chargeCents === chargeCents && l.creditCents === cashCents
+      && !synced.touchedRefs.has(ref) && Date.now() - new Date(l.createdAt).getTime() < REUSE_DAYS * 86400e3)
+    .sort((a, b) => new Date(b[1].createdAt) - new Date(a[1].createdAt))[0];
+  if (reuse) {
+    const [ref, link] = reuse;
+    await patchDoc(`invoices/${invoiceId}`, { kadimaOpenRef: ref, paymentUrl, paymentLinkUrl: paymentUrl, updatedAt: new Date() });
+    return { url: link.url, ref, chargeCents, cashCents, paymentUrl, reused: true };
+  }
 
   const ref = newKadimaRef();
   const r = await kadimaFetch(creds, 'api', 'POST', '/api/gateway/hosted-form', {
@@ -182,9 +206,10 @@ export async function createKadimaPage(creds, invoiceId, invoice, { method = 'ca
       externalId: ref,
       origin: 'FarriTech',
       // Kadima appends "?id=…&externalId=…&status=…" itself, so no query string of our own.
-      returnUrl: payUrlFor(invoiceId),
-      // Keyed cards run in a frame inside FarriTech: stay in it. Customers: whole window.
-      returnUrlNavigation: method === 'card_keyed' ? 'self' : 'top',
+      returnUrl: paymentUrl,
+      // 'self': in the app's keyed-card frame it stays in the frame; opened by a customer it's
+      // the whole window anyway — so one form serves both.
+      returnUrlNavigation: 'self',
       sendReceipt: 'No',               // FarriTech texts its own "payment received"
     },
   });
@@ -193,10 +218,9 @@ export async function createKadimaPage(creds, invoiceId, invoice, { method = 'ca
     throw new PaymentError(`Kadima couldn’t make the payment page: ${errorText(r.data, r.status ? `HTTP ${r.status}` : 'no response')}`, 400);
   }
 
-  const links = Object.fromEntries(Object.entries(invoice.kadimaLinks || {})
+  const links = Object.fromEntries(Object.entries(current.kadimaLinks || {})
     .sort((a, b) => new Date(b[1]?.createdAt) - new Date(a[1]?.createdAt)).slice(0, KEEP_LINKS - 1));
-  links[ref] = { url: r.data.url, chargeCents, creditCents: cashCents, method, createdAt: new Date() };
-  const paymentUrl = payUrlFor(invoiceId);
+  links[ref] = { v: 2, url: r.data.url, chargeCents, creditCents: cashCents, method, createdAt: new Date() };
   await patchDoc(`invoices/${invoiceId}`, {
     kadimaOpenRef: ref,
     kadimaLinks: links,
@@ -208,31 +232,29 @@ export async function createKadimaPage(creds, invoiceId, invoice, { method = 'ca
   return { url: r.data.url, ref, chargeCents, cashCents, paymentUrl };
 }
 
-// The form on offer, if it's still good for `chargeCents` (so /pay/{id} can reuse it).
-export function reusableKadimaPage(invoice, chargeCents) {
-  const link = invoice.kadimaOpenRef && invoice.kadimaLinks?.[invoice.kadimaOpenRef];
-  if (!link?.url || link.chargeCents !== chargeCents || link.method === 'card_keyed') return null;
-  const age = Date.now() - new Date(link.createdAt).getTime();
-  return age < REUSE_DAYS * 86400e3 ? link.url : null;
-}
+const pick = (o, keys) => Object.fromEntries(keys.filter(k => o && k in o).map(k => [k, o[k]]));
 
-// Stops offering the open form (Kadima has no cancel). If the customer already paid it, that
-// payment is recorded and { paid: true } comes back.
+// Stops offering the open form (it can't be cancelled at Kadima; any payment on it is still
+// found by later syncs). If something was already paid, it's recorded and { paid: true } comes back.
 export async function closeKadimaPages(creds, invoiceId, invoice) {
-  const ref = invoice.kadimaOpenRef;
-  if (!ref || !invoice.kadimaLinks?.[ref]) return { paid: false };
-  const synced = await syncKadimaPayment(creds, invoiceId, ref);
-  if (synced.paid) return { paid: true };
-  await patchDoc(`invoices/${invoiceId}`, { kadimaOpenRef: '' });
-  return { paid: false, closed: true };
+  if (!Object.keys(invoice.kadimaLinks || {}).length) return { paid: false };
+  const synced = await syncKadimaInvoice(creds, invoiceId);
+  if (invoice.kadimaOpenRef) await patchDoc(`invoices/${invoiceId}`, { kadimaOpenRef: '' });
+  return { paid: !!synced.recorded, closed: true };
 }
 
 // ── Payment status ──
-// Kadima's own record of payments made with our reference id, or null if it couldn't be asked.
-export async function findKadimaPayments(creds, ref) {
-  const r = await kadimaFetch(creds, 'gateway', 'GET', '/payments', { query: { 'filter[externalId][eq]': ref } });
+// Kadima's own record of payments made with any of these reference ids, or null if it
+// couldn't be asked. One request: filter[externalId][in][]=… (checked in the sandbox).
+export async function findKadimaPayments(creds, refs) {
+  const list = (Array.isArray(refs) ? refs : [refs]).filter(isKadimaRef);
+  if (!list.length) return [];
+  const url = new URL(hosts(creds.mode).gateway + '/payments');
+  list.forEach(ref => url.searchParams.append('filter[externalId][in][]', ref));
+  url.searchParams.set('per-page', '50');
+  const r = await kadimaFetch(creds, 'gateway', 'GET', '/payments' + url.search);
   if (!r.ok) {
-    console.warn('Kadima payment lookup failed:', ref, r.status, JSON.stringify(r.data).slice(0, 300));
+    console.warn('Kadima payment lookup failed:', list.join(','), r.status, JSON.stringify(r.data).slice(0, 300));
     return null;
   }
   return Array.isArray(r.data?.items) ? r.data.items : [];
@@ -240,38 +262,45 @@ export async function findKadimaPayments(creds, ref) {
 
 const approved = (t) => t?.status?.status === 'Approved' && t.captured === true;
 
-// Checks one reference id with Kadima and records every approved payment made with it.
-// Returns { paid, declined?, message?, amountCents?, ...applyPayment result }.
-export async function syncKadimaPayment(creds, invoiceId, ref) {
-  if (!isKadimaRef(ref)) return { paid: false, ignored: 'bad reference' };
+// Asks Kadima about every form this invoice has had and records each approved payment (oldest
+// first) — exactly once, keyed by Kadima's payment id. A payment that lands on an invoice a
+// Kadima card already paid is a double charge: it is refunded straight back through Kadima
+// (a void if it hasn't settled) and noted on the invoice. One landing on an invoice paid some
+// other way (cash, check…) is kept and flagged for the farrier to review, as applyPayment does.
+//
+// Returns { recorded, reversed, touchedRefs, byRef } where byRef[ref] = { paidCents, reversedCents,
+// declined, message } for each of the invoice's forms that has any Kadima transaction.
+export async function syncKadimaInvoice(creds, invoiceId) {
+  const out = { recorded: 0, reversed: 0, touchedRefs: new Set(), byRef: {} };
   const invoice = await getDoc(`invoices/${invoiceId}`);
-  const link = invoice?.kadimaLinks?.[ref];
-  if (!invoice || invoice.farrierId !== creds.farrierId || !link) return { paid: false, ignored: 'unknown reference' };
+  if (!invoice || invoice.farrierId !== creds.farrierId) return out;
+  const links = invoice.kadimaLinks || {};
+  const refs = Object.keys(links).filter(isKadimaRef);
+  if (!refs.length) return out;
 
-  const found = await findKadimaPayments(creds, ref);
-  if (!found) return { paid: false };
-  // Only payments on this farrier's own terminal, with exactly our reference.
-  const mine = found.filter(t => t.externalId === ref && Number(t.terminal?.id) === creds.terminalId);
-  const ok = mine.filter(approved);
-  if (!ok.length) {
-    const declined = mine.find(t => t?.status?.status && t.status.status !== 'Approved');
-    if (declined) {
-      if (invoice.kadimaOpenRef === ref) await patchDoc(`invoices/${invoiceId}`, { kadimaOpenRef: '' });
-      return { paid: false, declined: true, message: declined.status.reason || declined.status.status || '' };
+  const found = await findKadimaPayments(creds, refs);
+  if (!found) return out;
+  // Only payments on this farrier's own terminal, with one of this invoice's references.
+  const mine = found.filter(t => refs.includes(t.externalId) && Number(t.terminal?.id) === creds.terminalId);
+  for (const t of mine) {
+    out.touchedRefs.add(t.externalId);
+    const s = (out.byRef[t.externalId] ||= { paidCents: 0, reversedCents: 0, declined: false, message: '' });
+    if (!approved(t) && t?.status?.status && t.status.status !== 'Approved') {
+      s.declined = true;
+      s.message = t.status.reason || t.status.status || '';
     }
-    return { paid: false };
   }
 
-  // Normally one; if the same form was paid twice, the second is logged for review by applyPayment.
-  let result = null;
-  let totalCents = 0;
-  for (const t of ok) {
+  for (const t of mine.filter(approved).sort((a, b) => Number(a.id) - Number(b.id))) {
+    const link = links[t.externalId];
+    const s = out.byRef[t.externalId];
     const amountCents = toCentsSafe(t.amount);
     if (!(amountCents > 0)) continue;
-    totalCents += amountCents;
-    if (amountCents !== link.chargeCents) console.warn('Kadima amount differs from the form:', invoiceId, ref, amountCents, link.chargeCents);
+    if (amountCents !== link.chargeCents) console.warn('Kadima amount differs from the form:', invoiceId, t.externalId, amountCents, link.chargeCents);
+    const before = await getDoc(`invoices/${invoiceId}`);
+    const kadimaAlreadyPaid = before?.status === 'paid'
+      && (before.payments || []).some(p => String(p.paymentId || '').startsWith('kadima_') && p.paymentId !== `kadima_${t.id}`);
     const last4 = String(t.card?.number ?? '').replace(/\D/g, '').padStart(4, '0').slice(-4);
-    const brand = brandFromBin(t.card?.bin);
     const keyed = link.method === 'card_keyed';
     const r = await applyPayment(invoiceId, {
       paymentId: `kadima_${t.id}`,
@@ -282,39 +311,79 @@ export async function syncKadimaPayment(creds, invoiceId, ref) {
       ...(amountCents === link.chargeCents ? { creditCents: link.creditCents } : {}),
       source: 'kadima',
       reference: `Kadima ${t.id}`,
-      last4: t.card?.number ? last4 : '', brand: t.card?.number ? brand : '',
+      last4: t.card?.number ? last4 : '', brand: t.card?.number ? brandFromBin(t.card?.bin) : '',
       paidVia: keyed ? 'kadima_keyed' : 'kadima_link',
       processorDetails: {
         processor: 'kadima',
-        referenceId: ref,
+        referenceId: t.externalId,
         transactionId: String(t.id),
         terminalId: String(creds.terminalId),
         approvalCode: String(t.authCode || '').trim(),
         bin: String(t.card?.bin || ''),
       },
     });
-    if (!r.duplicate) {
-      await patchDoc(`invoices/${invoiceId}`, { kadimaTransactionId: String(t.id) });
-      if (!r.alreadyPaid) await sendPaidSms(invoice, amountCents);
+    if (r.duplicate) {
+      // Seen before: count it the way it was handled then.
+      const doc = await getDoc(`invoices/${invoiceId}/payments/kadima_${t.id}`);
+      if (doc?.reversed) s.reversedCents += amountCents; else if (!doc?.unapplied) s.paidCents += amountCents;
+      continue;
     }
-    result = result || r;
+    if (r.alreadyPaid) {
+      if (kadimaAlreadyPaid && !t.refunded) {
+        const reversal = await reverseDuplicate(creds, invoiceId, t, amountCents);
+        if (reversal) { s.reversedCents += amountCents; out.reversed++; continue; }
+      }
+      continue; // kept for review (paymentNeedsReview set by applyPayment)
+    }
+    s.paidCents += amountCents;
+    out.recorded++;
+    await patchDoc(`invoices/${invoiceId}`, { kadimaTransactionId: String(t.id) });
+    await sendPaidSms(invoice, amountCents);
   }
-  if (invoice.kadimaOpenRef === ref) await patchDoc(`invoices/${invoiceId}`, { kadimaOpenRef: '' });
-  if (!result) return { paid: false };
-  return { paid: true, amountCents: totalCents, invoice, ...result };
+  if (out.recorded && invoice.kadimaOpenRef) {
+    const after = await getDoc(`invoices/${invoiceId}`);
+    if (after?.status === 'paid') await patchDoc(`invoices/${invoiceId}`, { kadimaOpenRef: '' });
+  }
+  return out;
 }
 
-// Asks Kadima about the open form and the most recent others, newest first.
-// Returns the first sync result that was paid, or null.
-export async function syncRecentKadima(creds, invoiceId, invoice, max = 3) {
-  const recent = Object.entries(invoice.kadimaLinks || {})
-    .sort((a, b) => (b[0] === invoice.kadimaOpenRef) - (a[0] === invoice.kadimaOpenRef) || new Date(b[1]?.createdAt) - new Date(a[1]?.createdAt))
-    .slice(0, max).map(([r]) => r);
-  for (const r of recent) {
-    const result = await syncKadimaPayment(creds, invoiceId, r);
-    if (result.paid) return result;
+// Refunds a double charge straight back through Kadima and notes it on the invoice and on the
+// payment record. Returns the refund id, or '' if Kadima wouldn't take it (then the payment
+// stays flagged for review).
+async function reverseDuplicate(creds, invoiceId, t, amountCents) {
+  const r = await kadimaFetch(creds, 'gateway', 'POST', `/payment/${t.id}/refund`, {
+    body: { terminal: { id: creds.terminalId }, amount: toAmount(amountCents) },
+  });
+  console.warn('Kadima duplicate payment reversed:', invoiceId, t.id, r.status, JSON.stringify(r.data).slice(0, 300));
+  if (!r.ok || r.data?.status?.status !== 'Approved') return '';
+  const refundId = String(r.data.id || '');
+  const kind = /void/i.test(String(r.data.type || '')) ? 'void' : 'refund';
+  await patchDoc(`invoices/${invoiceId}/payments/kadima_${t.id}`, { reversed: true, reversedAt: new Date(), reversalId: refundId, reversalKind: kind });
+  const fresh = await getDoc(`invoices/${invoiceId}`);
+  const others = (fresh?.kadimaDuplicates || []).filter(d => d.transactionId !== String(t.id));
+  // (paymentNeedsReview, set by applyPayment, is left as it is: the farrier still sees it, and
+  // kadimaDuplicates says this one was already refunded.)
+  await patchDoc(`invoices/${invoiceId}`, {
+    kadimaDuplicates: [...others, { transactionId: String(t.id), amount: amountCents / 100, refundId, kind, date: new Date().toISOString() }],
+    updatedAt: new Date(),
+  });
+  return refundId;
+}
+
+// What happened to one form, for the keyed-card check and the customer's return.
+// { paid, amountCents, declined, message }
+export async function syncKadimaPayment(creds, invoiceId, ref) {
+  if (!isKadimaRef(ref)) return { paid: false, ignored: 'bad reference' };
+  const invoice = await getDoc(`invoices/${invoiceId}`);
+  if (!invoice || invoice.farrierId !== creds.farrierId || !invoice.kadimaLinks?.[ref]) return { paid: false, ignored: 'unknown reference' };
+  const synced = await syncKadimaInvoice(creds, invoiceId);
+  const s = synced.byRef[ref];
+  if (s?.paidCents) return { paid: true, amountCents: s.paidCents };
+  if (s?.reversedCents) {
+    return { paid: false, declined: true, reversed: true, message: 'this invoice was already paid by card, so this second charge was refunded automatically' };
   }
-  return null;
+  if (s?.declined) return { paid: false, declined: true, message: s.message };
+  return { paid: false };
 }
 
 // ── Refunds ──

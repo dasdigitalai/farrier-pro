@@ -17,7 +17,7 @@ import '../../lib/pricing.js';
 import { getDoc, getStripeSecretKey } from './firebase-rest.js';
 import { createCheckoutSession, recordCheckoutSession, escapeHtml, PaymentError } from './invoice-payments.js';
 import { getIposCreds, syncIposPayment, createIposPage, reusableIposPage } from './ipospays.js';
-import { getKadimaCreds, isKadimaRef, syncKadimaPayment, syncRecentKadima, createKadimaPage, reusableKadimaPage } from './kadima.js';
+import { getKadimaCreds, isKadimaRef, syncKadimaPayment, syncKadimaInvoice, createKadimaPage } from './kadima.js';
 
 const P = globalThis.FarriPricing;
 
@@ -179,12 +179,12 @@ async function kadimaPayPage(req, res, invoiceId, invoice, creds) {
     return page(res, 200, 'Confirming your payment', `We haven't heard back from the card processor about your payment for Invoice #${number} yet. Please don't pay again. Check back in a minute.`, `<a class="btn" href="/pay/${encodeURIComponent(invoiceId)}?externalId=${ref}">Check again</a>`);
   }
 
-  // Before offering a form, ask Kadima about the recent ones: a customer may have paid
-  // without the return ever reaching us.
+  // Before offering a form, ask Kadima about every form this invoice has had: a customer may
+  // have paid without the return ever reaching us (createKadimaPage checks again, too).
   if (invoice.status !== 'paid' && invoice.kadimaLinks) {
-    const result = await syncRecentKadima(creds, invoiceId, invoice);
-    if (result?.paid) return paidPage(result.amountCents);
+    const synced = await syncKadimaInvoice(creds, invoiceId);
     invoice = (await getDoc(`invoices/${invoiceId}`)) || invoice;
+    if (synced.recorded && invoice.status === 'paid') return page(res, 200, 'Payment received', `Thank you! Your payment for Invoice #${number} has been received.`);
   }
 
   if (invoice.status === 'paid') return page(res, 200, 'Invoice paid', `Invoice #${number} has already been paid. Thank you!`);
@@ -194,9 +194,8 @@ async function kadimaPayPage(req, res, invoiceId, invoice, creds) {
   if (req.query?.canceled) return page(res, 200, 'Payment not completed', `Your payment for Invoice #${number} wasn't completed.`, retry(expected));
 
   res.setHeader('Cache-Control', 'no-store');
-  const open = reusableKadimaPage(invoice, expected);
-  if (open) return res.redirect(303, open);
   try {
+    // Reuses the invoice's open form for this amount if there is one (never a second form).
     const { url } = await createKadimaPage(creds, invoiceId, invoice);
     return res.redirect(303, url);
   } catch (err) {

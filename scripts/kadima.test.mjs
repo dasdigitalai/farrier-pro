@@ -48,8 +48,10 @@ globalThis.fetch = async (input, init = {}) => {
   }
   if (!kadima.tokenOk) return json(401, { name: 'Unauthorized', message: 'Your request was made with invalid credentials.', status: 401 });
   if (url.pathname === '/payments') {
-    const ext = url.searchParams.get('filter[externalId][eq]');
-    const items = ext ? kadima.payments.filter(p => p.externalId === ext) : kadima.payments.slice(0, 1);
+    const many = url.searchParams.getAll('filter[externalId][in][]');
+    const one = url.searchParams.get('filter[externalId][eq]');
+    const items = many.length ? kadima.payments.filter(p => many.includes(p.externalId))
+      : one ? kadima.payments.filter(p => p.externalId === one) : kadima.payments.slice(0, 1);
     return json(200, { items, _meta: { totalCount: items.length } });
   }
   if (url.pathname === '/api/gateway/hosted-form' && init.method === 'POST') {
@@ -59,6 +61,8 @@ globalThis.fetch = async (input, init = {}) => {
   const refund = url.pathname.match(/^\/payment\/(\d+)\/refund$/);
   if (refund && init.method === 'POST') {
     kadima.refunds.push({ id: refund[1], ...body });
+    const orig = kadima.payments.find(p => String(p.id) === refund[1]);
+    if (orig) orig.refunded = true;
     return json(200, { id: kadima.nextId++, type: 'Return', amount: String(body.amount), parent: { id: Number(refund[1]) }, status: { status: 'Approved', reason: null } });
   }
   return json(404, { name: 'Not Found', message: 'Page not found.' });
@@ -139,19 +143,24 @@ test('a payment form asks for the card price, uses a fresh reference, and return
   assert.equal(form.externalId, ref);
   assert.deepEqual([form.dba, form.terminal], [{ id: 980 }, { id: 865 }]);
   assert.match(form.returnUrl, /\/pay\/inv001$/);
-  assert.equal(form.returnUrlNavigation, 'top');
+  assert.equal(form.returnUrlNavigation, 'self'); // stays in the app frame for keyed cards; whole window for customers
   const saved = get('invoices/inv001');
   assert.equal(saved.kadimaOpenRef, ref);
   assert.equal(saved.kadimaLinks[ref].chargeCents, 10300);
   assert.equal(saved.kadimaLinks[ref].creditCents, 10000);
 });
 
-test('keyed card forms stay inside the app frame and are never reused for the customer link', async () => {
-  const inv = newInvoice('inv002');
-  const { chargeCents } = await K.createKadimaPage(CREDS, 'inv002', inv, { method: 'card_keyed', applyCents: 4000 });
-  assert.equal(chargeCents, 4000);
-  assert.equal(kadima.forms[0].returnUrlNavigation, 'self');
-  assert.equal(K.reusableKadimaPage(get('invoices/inv002'), 4000), null);
+test('pay link and keyed card for the same amount share ONE form; a new amount gets a new one', async () => {
+  const inv = newInvoice('inv002', { cardPriceRate: 0.03 });
+  const link = await K.createKadimaPage(CREDS, 'inv002', inv);
+  const keyed = await K.createKadimaPage(CREDS, 'inv002', get('invoices/inv002'), { method: 'card_keyed' });
+  assert.equal(keyed.ref, link.ref);
+  assert.equal(keyed.reused, true);
+  assert.equal(kadima.forms.length, 1);
+  const part = await K.createKadimaPage(CREDS, 'inv002', get('invoices/inv002'), { method: 'card_keyed', applyCents: 4000 });
+  assert.notEqual(part.ref, link.ref);
+  assert.equal(part.chargeCents, 4120);
+  assert.equal(kadima.forms.length, 2);
 });
 
 // ── Confirming payments ──
@@ -174,7 +183,7 @@ test('an approved payment marks the invoice paid once, with card details, even i
   assert.equal(first.paid, true);
   assert.equal(first.amountCents, 10300);
   const second = await K.syncKadimaPayment(CREDS, 'inv004', ref);
-  assert.equal(second.duplicate, true);
+  assert.deepEqual([second.paid, second.amountCents], [true, 10300]); // same answer, nothing recorded twice
   const saved = get('invoices/inv004');
   assert.equal(saved.status, 'paid');
   assert.equal(saved.payments.length, 1);
@@ -205,7 +214,10 @@ test('a decline is reported and the form stops being offered', async () => {
   kadimaPayment(ref, { amount: 100, status: 'Decline', captured: false, reason: 'AVS Zip Mismatch' });
   const r = await K.syncKadimaPayment(CREDS, 'inv006', ref);
   assert.deepEqual([r.paid, r.declined, r.message], [false, true, 'AVS Zip Mismatch']);
-  assert.equal(get('invoices/inv006').kadimaOpenRef, '');
+  // A declined form is never offered again: the retry gets a fresh one.
+  const retry = await K.createKadimaPage(CREDS, 'inv006', get('invoices/inv006'));
+  assert.notEqual(retry.ref, ref);
+  assert.equal(kadima.forms.length, 2);
 });
 
 test('a Kadima payment that lands on an already-paid invoice is kept for review, not lost', async () => {
@@ -214,7 +226,8 @@ test('a Kadima payment that lands on an already-paid invoice is kept for review,
   patch('invoices/inv007', { status: 'paid' }); // farrier recorded cash meanwhile
   const p = kadimaPayment(ref, { amount: 100 });
   const r = await K.syncKadimaPayment(CREDS, 'inv007', ref);
-  assert.equal(r.alreadyPaid, true);
+  assert.equal(r.paid, false);
+  assert.equal(kadima.refunds.length, 0); // paid some other way: the farrier decides
   assert.equal(get('invoices/inv007').paymentNeedsReview, true);
   assert.equal(get(`invoices/inv007/payments/kadima_${p.id}`).unapplied, true);
 });
@@ -289,4 +302,64 @@ test('a payment whose return never arrived is found before a second form is offe
 test('no request ever left for a host other than the Kadima sandbox', () => {
   // (the fetch stub throws for any other host; this documents it)
   assert.ok(kadima.requests.every(r => r.host.endsWith('kadimadashboard.com')));
+});
+
+// ── Double charges (what happened in the sandbox on 2026-11-17: two forms, both paid) ──
+test('two forms both paid: the first pays the invoice, the second is refunded automatically', async () => {
+  const inv = newInvoice('inv020', { cardPriceRate: 0.03 });
+  const a = await K.createKadimaPage(CREDS, 'inv020', inv);
+  // Card price waived → a new amount → a second form, while the first is still open in a tab.
+  const b = await K.createKadimaPage(CREDS, 'inv020', { ...get('invoices/inv020'), cardFeeWaived: true });
+  patch('invoices/inv020', { cardFeeWaived: true });
+  assert.notEqual(a.ref, b.ref);
+  const first = kadimaPayment(a.ref, { amount: 103 });   // customer pays the old tab…
+  const second = kadimaPayment(b.ref, { amount: 100 });  // …and the new one
+  const r = await K.syncKadimaPayment(CREDS, 'inv020', b.ref);
+  assert.equal(r.paid, false);
+  assert.equal(r.reversed, true);
+  const saved = get('invoices/inv020');
+  assert.equal(saved.status, 'paid');
+  assert.equal(saved.payments.length, 1);
+  assert.equal(saved.payments[0].paymentId, `kadima_${first.id}`);
+  assert.equal(kadima.refunds.length, 1);
+  assert.deepEqual(kadima.refunds[0], { id: String(second.id), terminal: { id: 865 }, amount: 100 });
+  assert.equal(saved.kadimaDuplicates[0].transactionId, String(second.id));
+  assert.equal(get(`invoices/inv020/payments/kadima_${second.id}`).reversed, true);
+  // Checking again changes nothing and refunds nothing more.
+  await K.syncKadimaInvoice(CREDS, 'inv020');
+  assert.equal(kadima.refunds.length, 1);
+  assert.equal(get('invoices/inv020').payments.length, 1);
+});
+
+test('the same form paid twice: the second charge is refunded automatically', async () => {
+  const inv = newInvoice('inv021');
+  const { ref } = await K.createKadimaPage(CREDS, 'inv021', inv);
+  kadimaPayment(ref, { amount: 100 });
+  const dup = kadimaPayment(ref, { amount: 100 });
+  const r = await K.syncKadimaPayment(CREDS, 'inv021', ref);
+  assert.equal(r.paid, true);
+  assert.equal(r.amountCents, 10000);
+  assert.equal(kadima.refunds[0].id, String(dup.id));
+  assert.equal(get('invoices/inv021').payments.length, 1);
+});
+
+test('a payment on an OLD form is still found after a newer form was made', async () => {
+  const inv = newInvoice('inv022', { cardPriceRate: 0.03 });
+  const a = await K.createKadimaPage(CREDS, 'inv022', inv);
+  await K.createKadimaPage(CREDS, 'inv022', get('invoices/inv022'), { method: 'card_keyed', applyCents: 5000 });
+  kadimaPayment(a.ref, { amount: 103 });
+  const res = fakeRes();
+  await payPage({ query: { invoice: 'inv022' } }, res);
+  assert.match(res.body, /Payment received/);
+  assert.equal(get('invoices/inv022').status, 'paid');
+});
+
+test('a card payment on an invoice already paid in cash is kept for review, not auto-refunded', async () => {
+  const inv = newInvoice('inv023');
+  const { ref } = await K.createKadimaPage(CREDS, 'inv023', inv);
+  patch('invoices/inv023', { status: 'paid', payments: [{ amount: 100, method: 'cash', paymentId: 'cash1' }] });
+  kadimaPayment(ref, { amount: 100 });
+  await K.syncKadimaInvoice(CREDS, 'inv023');
+  assert.equal(kadima.refunds.length, 0);
+  assert.equal(get('invoices/inv023').paymentNeedsReview, true);
 });
