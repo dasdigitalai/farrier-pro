@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import crypto from 'crypto';
 import '../lib/pricing.js';
-import { callerFromRequest, getDoc, patchDoc, listDocs, getStripeSecretKey, setStripeSecretKey, getGoogleRefreshToken } from './_lib/firebase-rest.js';
+import { callerFromRequest, getDoc, patchDoc, listDocs, getStripeSecretKey, setStripeSecretKey, getGoogleRefreshToken, isSupportAdmin } from './_lib/firebase-rest.js';
 import {
   applyPayment, cardDetails, closeOnlinePayment, closeStripeCheckouts, createCheckoutSession, recordCheckoutSession,
   removeWebhook, sendUpdatedPayLink, setupWebhook, PaymentError,
@@ -213,11 +213,13 @@ export default async function handler(req, res) {
       });
     }
 
-    // ── Admin: clear a farrier's forgotten manager password so they can set a new one ──
+    // ── Admin / support staff: clear a farrier's forgotten manager password so they can set a
+    // new one (Support → farrier → Reset manager password). Only clears it; never sets one. ──
     if (action === 'reset_manager_password') {
-      if (!ADMIN_EMAILS.includes(caller.email)) return res.status(403).json({ success: false, error: 'Admins only.' });
-      if (!body.farrierId) return res.status(400).json({ success: false, error: 'Missing farrierId.' });
+      if (!ADMIN_EMAILS.includes(caller.email) && !(await isSupportAdmin(caller.uid))) return res.status(403).json({ success: false, error: 'Admins and FarriTech support only.' });
+      if (!/^[A-Za-z0-9_-]{6,128}$/.test(String(body.farrierId || ''))) return res.status(400).json({ success: false, error: 'Missing farrierId.' });
       await patchDoc(`farrierSecrets/${body.farrierId}`, {}, ['managerPasswordHash']);
+      console.log(`🔑 Manager password cleared for ${body.farrierId} by ${caller.email || caller.uid}`);
       return res.status(200).json({ success: true });
     }
 

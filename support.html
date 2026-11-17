@@ -827,6 +827,20 @@
         } catch (e) { alert(e.message); }
       };
 
+      // Clears the farrier's manager password (it guards refunds) when they've forgotten it;
+      // they set a new one in Settings → Manager Password. Server checks we're support staff.
+      const resetManagerPassword = async () => {
+        if (!confirm(`Reset the manager password for ${farrier.businessName || farrier.email || 'this farrier'}?\n\nThe current one stops working. They set a new one in Settings → Manager Password (refunds are blocked until they do).`)) return;
+        try {
+          const res = await fetch('/api/stripe-payment', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'reset_manager_password', farrierId: farrier.key }),
+          });
+          const r = await res.json().catch(() => ({}));
+          alert(r.success ? '✅ Manager password cleared. Ask the farrier to set a new one in Settings → Manager Password.' : (r.error || 'Could not reset the manager password.'));
+        } catch (e) { alert('Could not reach the server.'); }
+      };
+
       return (
         <div>
           <button className="btn btn-sm back" onClick={onBack}>← Farriers</button>
@@ -843,6 +857,7 @@
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <button className="btn btn-primary btn-sm" onClick={onNewTicket}>+ New ticket</button>
               {farrier.hasAccount && <button className="btn btn-sm" onClick={loginAs}>Log in as farrier ↗</button>}
+              {farrier.hasAccount && <button className="btn btn-sm" onClick={resetManagerPassword}>Reset manager password</button>}
             </div>
           </div>
 
