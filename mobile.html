@@ -350,7 +350,7 @@
       <div style="font-size:1.4rem;">⚠️</div>
       <div style="flex:1;">
         <div style="font-weight:700; color:#92400e; font-size:0.9rem;">Online Payments Not Connected</div>
-        <div style="font-size:0.8rem; color:#b45309; margin-top:2px;">Payment links won't be generated. Connect Stripe or iPOSpays in Settings.</div>
+        <div style="font-size:0.8rem; color:#b45309; margin-top:2px;">Payment links won't be generated. Connect Stripe, iPOSpays or Kadima in Settings.</div>
       </div>
     </div>
 
@@ -1317,7 +1317,7 @@
 
     <div class="card" style="margin-top:14px;">
       <div class="card-title">💳 Stripe Payments</div>
-      <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Connect Stripe to accept card payments on invoices. Your keys are stored securely. Connect Stripe or iPOSpays, not both.</div>
+      <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Connect Stripe to accept card payments on invoices. Your keys are stored securely. Connect only one card processor: Stripe, iPOSpays or Kadima.</div>
       <div id="stripe-status-banner" style="display:none;"></div>
       <div class="field"><label>Publishable Key <span style="font-weight:400; color:var(--text-muted);">(starts with pk_)</span></label><input type="text" id="set-stripe-pk" placeholder="pk_live_…" style="font-family:monospace; font-size:0.82rem;"></div>
       <div class="field"><label>Secret Key <span style="font-weight:400; color:var(--text-muted);">(starts with rk_ or sk_)</span></label><input type="password" id="set-stripe-sk" placeholder="rk_live_…" style="font-family:monospace; font-size:0.82rem;"></div>
@@ -1341,6 +1341,22 @@
         <button class="btn-primary" id="ipos-validate-btn" onclick="validateAndSaveIpos()">✓ Validate & Save</button>
       </div>
       <button class="btn-secondary" id="ipos-disconnect-btn" onclick="disconnectIpos()" style="display:none;">Disconnect iPOSpays</button>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="card-title">💳 Kadima Payments</div>
+      <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Take payments through your Kadima Payments merchant account instead of Stripe or iPOSpays. Connect only one of them. While connected, Pay Now links and Card payments open a secure Kadima payment page. Refund them from the customer's Invoice History.</div>
+      <div id="kadima-status-banner" style="display:none;"></div>
+      <div id="kadima-form">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:0.85rem;">Don't have a Kadima account yet? <a href="https://kadimapayments.com/apply?agent=dspatz" target="_blank" rel="noopener noreferrer" style="color:var(--primary); font-weight:600;">Apply for a Kadima merchant account →</a></div>
+        <div class="field"><label>Environment</label><select id="set-kadima-mode"><option value="sandbox">Sandbox (testing)</option><option value="production">Live (real payments)</option></select></div>
+        <div class="field"><label>API Token</label><input type="password" id="set-kadima-token" autocomplete="off" style="font-family:monospace; font-size:0.82rem;"></div>
+        <div class="field"><label>Terminal ID</label><input type="text" id="set-kadima-terminal" inputmode="numeric" placeholder="e.g. 865 (not the TID)" autocomplete="off" style="font-family:monospace; font-size:0.82rem;"></div>
+        <div class="field"><label>DBA ID</label><input type="text" id="set-kadima-dba" inputmode="numeric" placeholder="e.g. 980" autocomplete="off" style="font-family:monospace; font-size:0.82rem;"></div>
+        <div style="font-size:0.75rem; color:var(--text-muted); margin:-6px 0 12px;">In your Kadima dashboard: API token under Developers → Tokens → View Token (needs Credit/Debit Card Payments Read and Write); Terminal ID is the Terminal ID column under Gateway; DBA ID is the #number on your merchant profile. Stored on FarriTech's server only.</div>
+        <button class="btn-primary" id="kadima-validate-btn" onclick="validateAndSaveKadima()">✓ Validate & Save</button>
+      </div>
+      <button class="btn-secondary" id="kadima-disconnect-btn" onclick="disconnectKadima()" style="display:none;">Disconnect Kadima</button>
     </div>
 
     <div class="card" style="margin-top:14px; margin-bottom:24px;">
@@ -3438,7 +3454,7 @@ async function createInvoice() {
     }
   } else if (!stripeConnected) {
     console.warn('⚠️ No online payments connected');
-    showToast('Stripe or iPOSpays not connected — no payment link', 'error');
+    showToast('No card processor connected (Stripe, iPOSpays or Kadima) — no payment link', 'error');
   }
 
   return { id: docRef.id, invoiceNumber, total, paymentUrl, status: 'outstanding', cardPriceRate: FarriPricing.farrierCardPriceRate(state.userProfile), items: allItems, customerName: c.name, customerFarmName: c.farmName||'', customerPhone: phone, customerEmail: email, milesDriven: miles, notes: document.getElementById('svc-notes')?.value.trim() || '' };
@@ -4474,6 +4490,7 @@ function loadSettingsScreen() {
   document.getElementById('set-stripe-sk').placeholder = p.stripePublishableKey ? '•••••••• saved securely — paste a new key to replace' : 'rk_live_...';
   renderStripeStatus(p.stripePublishableKey ? 'connected' : 'none', p.stripeAccountName || '');
   renderIposStatus(p);
+  renderKadimaStatus(p);
   // Connected before webhooks were set up automatically? Ask for one more save.
   if (p.stripePublishableKey && netState.online) {
     fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'status' }) })
@@ -4620,9 +4637,72 @@ function renderStripeStatus(status, accountName, message) {
   }
 }
 
-// Stripe or iPOSpays connected — either one can make pay links.
+// Stripe, iPOSpays or Kadima connected — any one of them can make pay links.
 function onlinePayConnected() {
-  return Boolean(state.userProfile?.stripePublishableKey || state.userProfile?.ipospaysConnected);
+  return Boolean(state.userProfile?.stripePublishableKey || state.userProfile?.ipospaysConnected || state.userProfile?.kadimaConnected);
+}
+
+// iPOSpays and Kadima both take keyed cards on a hosted form shown in a frame ('' = neither).
+function hostedCardProcessor() {
+  return state.userProfile?.ipospaysConnected ? 'ipospays' : state.userProfile?.kadimaConnected ? 'kadima' : '';
+}
+const hostedCardName = () => (hostedCardProcessor() === 'kadima' ? 'Kadima' : 'iPOSpays');
+
+function renderKadimaStatus(p, message) {
+  const el = document.getElementById('kadima-status-banner');
+  const connected = Boolean(p?.kadimaConnected);
+  document.getElementById('kadima-form').style.display = connected ? 'none' : 'block';
+  document.getElementById('kadima-disconnect-btn').style.display = connected ? 'block' : 'none';
+  if (connected) {
+    const other = p.ipospaysConnected ? 'iPOSpays' : p.stripePublishableKey ? 'Stripe' : '';
+    el.style.cssText = 'display:block; background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:10px 12px; margin-bottom:12px; color:#16a34a; font-weight:600; font-size:0.88rem;';
+    el.textContent = `✅ Kadima connected — terminal ${p.kadimaTerminalId || '•••'}${p.kadimaMode === 'production' ? '' : ' (sandbox — test payments only)'}`
+      + (other ? `. ${other} is connected too. Disconnect one of them.` : '');
+  } else if (message) {
+    el.style.cssText = 'display:block; background:#fef2f2; border:1px solid #fca5a5; border-radius:8px; padding:10px 12px; margin-bottom:12px; color:#dc2626; font-weight:600; font-size:0.88rem;';
+    el.textContent = '❌ ' + message;
+  } else {
+    el.style.display = 'none';
+  }
+  document.getElementById('set-kadima-mode').value = p?.kadimaMode || 'sandbox';
+}
+
+async function validateAndSaveKadima() {
+  const val = (id) => document.getElementById(id).value.trim();
+  const payload = { action: 'kadima_connect', mode: val('set-kadima-mode'), token: val('set-kadima-token'), terminalId: val('set-kadima-terminal'), dbaId: val('set-kadima-dba') };
+  if (!payload.token || !payload.terminalId || !payload.dbaId) { showToast('Enter the API token, Terminal ID and DBA ID', 'error'); return; }
+  if (!netState.online) { showToast('Connecting Kadima requires an internet connection', 'error'); return; }
+  const btn = document.getElementById('kadima-validate-btn');
+  btn.disabled = true; btn.textContent = 'Validating…';
+  try {
+    const res = await fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (data.success) {
+      await saveIposProfile({ kadimaConnected: true, kadimaMode: data.mode, kadimaTerminalId: String(data.terminalId) });
+      ['set-kadima-token', 'set-kadima-terminal', 'set-kadima-dba'].forEach(id => { document.getElementById(id).value = ''; });
+      renderKadimaStatus(state.userProfile);
+      showToast('Kadima connected!', 'success');
+    } else {
+      renderKadimaStatus(state.userProfile, data.error || 'Could not connect Kadima.');
+    }
+  } catch (e) {
+    renderKadimaStatus(state.userProfile, 'Could not reach FarriTech — try again.');
+  }
+  btn.disabled = false; btn.textContent = '✓ Validate & Save';
+}
+
+async function disconnectKadima() {
+  if (!confirm('Disconnect Kadima? Pay Now links will stop opening Kadima payment pages. Payments already made stay in your Kadima account.')) return;
+  if (!netState.online) { showToast('Disconnecting Kadima requires an internet connection', 'error'); return; }
+  let result = {};
+  try {
+    const res = await fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'kadima_disconnect' }) });
+    result = await res.json().catch(() => ({}));
+  } catch (e) { /* offline or server unreachable */ }
+  if (!result.success) { showToast(result.error || 'Could not disconnect Kadima — try again', 'error'); return; }
+  await saveIposProfile({ kadimaConnected: false, kadimaMode: '', kadimaTerminalId: '' });
+  renderKadimaStatus(state.userProfile);
+  showToast('Kadima disconnected', 'success');
 }
 
 function renderIposStatus(p, message) {
@@ -4909,13 +4989,23 @@ function invoiceStripePaymentId(inv) {
 function invoiceIposPaid(inv) {
   return (inv.payments || []).some(p => String(p.paymentId || '').startsWith('ipos_'));
 }
+// Kadima payments (kadima_ ids) are refunded in Kadima and recorded by the server, like iPOSpays.
+function invoiceKadimaPaid(inv) {
+  return (inv.payments || []).some(p => String(p.paymentId || '').startsWith('kadima_'));
+}
+function invoiceRefundProcessor(inv) {
+  if (invoiceStripePaymentId(inv)) return 'Stripe';
+  if (invoiceIposPaid(inv)) return 'iPOSpays';
+  if (invoiceKadimaPaid(inv)) return 'Kadima';
+  return '';
+}
 function invoiceRefundable(inv) {
   const paid = inv.paidAmount || (inv.payments || []).reduce((s, p) => s + (p.amount || 0), 0) || inv.total || 0;
   return Math.max(0, paid - (inv.refundedAmount || 0));
 }
 function canRefundInvoice(inv) {
   return state.teamRole !== 'farrier' && (inv.status === 'paid' || inv.status === 'partial')
-    && Boolean(invoiceStripePaymentId(inv) || invoiceIposPaid(inv)) && invoiceRefundable(inv) > 0;
+    && Boolean(invoiceRefundProcessor(inv)) && invoiceRefundable(inv) > 0;
 }
 
 function openRefund(invoiceId) {
@@ -4924,15 +5014,15 @@ function openRefund(invoiceId) {
   if (!netState.online) { showToast('Refunds need an internet connection', 'error'); return; }
   state.refundInvoice = inv;
   const refundable = invoiceRefundable(inv);
-  const ipos = !invoiceStripePaymentId(inv) && invoiceIposPaid(inv);
+  const processor = invoiceRefundProcessor(inv);
   document.getElementById('refund-invoice-num').textContent = '#' + (inv.invoiceNumber || '');
   document.getElementById('refund-customer-name').textContent = inv.customerName || '';
   document.getElementById('refund-paid-text').textContent = `Refundable: ${FarriPricing.money(Math.round(refundable * 100))}`;
   document.getElementById('refund-amount').value = refundable.toFixed(2);
   document.getElementById('refund-password').value = '';
-  document.getElementById('refund-note').textContent = ipos
-    ? "The money goes back to the customer's card through iPOSpays (voided if it hasn't settled yet). This can't be undone."
-    : "The money goes back to the customer's card through Stripe. This can't be undone.";
+  document.getElementById('refund-note').textContent = processor === 'Stripe' || !processor
+    ? "The money goes back to the customer's card through Stripe. This can't be undone."
+    : `The money goes back to the customer's card through ${processor} (voided if it hasn't settled yet). This can't be undone.`;
   document.getElementById('refund-error').style.display = 'none';
   const btn = document.getElementById('refund-btn');
   btn.disabled = false; btn.textContent = 'Refund';
@@ -4956,11 +5046,13 @@ async function confirmRefund() {
   btn.disabled = true; btn.textContent = 'Refunding…';
   try {
     const stripeId = invoiceStripePaymentId(inv);
-    const ipos = !stripeId && invoiceIposPaid(inv);
+    const processor = invoiceRefundProcessor(inv);
     const res = await fetch('/api/stripe-payment', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(ipos
+      body: JSON.stringify(processor === 'iPOSpays'
         ? { action: 'ipospays_refund', invoiceId: inv.id, amount: amt, refundPassword: password }
+        : processor === 'Kadima'
+        ? { action: 'kadima_refund', invoiceId: inv.id, amount: amt, refundPassword: password }
         : { action: 'refund', transactionId: stripeId, amount: amt, refundPassword: password }),
     });
     const result = await res.json();
@@ -5137,7 +5229,7 @@ function selectPayMethod(method) {
     input.style.letterSpacing = ref.numeric ? '2px' : '';
   }
   document.getElementById('card-fields').style.display  = method === 'card'  ? 'block' : 'none';
-  const iposCard = method === 'card' && Boolean(state.userProfile?.ipospaysConnected);
+  const iposCard = method === 'card' && Boolean(hostedCardProcessor());
   document.getElementById('ipos-card-fields').style.display = iposCard ? 'block' : 'none';
   document.getElementById('stripe-card-fields').style.display = iposCard ? 'none' : 'block';
   if (method === 'card' && !iposCard) {
@@ -5187,7 +5279,7 @@ async function confirmPayment() {
 
   try {
     if (method === 'card') {
-      const charged = state.userProfile?.ipospaysConnected ? await chargeCardViaIpos(inv, applyCents) : await chargeCardViaStripe(inv, applyCents);
+      const charged = hostedCardProcessor() ? await chargeCardViaIpos(inv, applyCents) : await chargeCardViaStripe(inv, applyCents);
       if (!charged) {
         document.getElementById('confirm-pay-btn').disabled = false;
         document.getElementById('pay-saving').style.display = 'none';
@@ -6198,7 +6290,8 @@ async function chargeCardViaStripe(inv, applyCents) {
   return result;
 }
 
-// ── iPOSPAYS KEYED CARD ──
+// ── iPOSPAYS / KADIMA KEYED CARD ──
+// (Kadima works the same way: its hosted form can be framed too, checked 2026-11-17.)
 // With iPOSpays connected the farrier types the card into an iPOSpays payment page shown in
 // a frame on the payment screen (the card number never touches FarriTech; iPOSpays lets its
 // page be framed — no X-Frame-Options / frame-ancestors, 2026-10-13). We then ask the server every few
@@ -6207,17 +6300,18 @@ async function chargeCardViaStripe(inv, applyCents) {
 let _iposWait = null;
 
 function chargeCardViaIpos(inv, applyCents) {
+  const processor = hostedCardProcessor();
   if (!netState.online) { showToast('Card payments require an internet connection', 'error'); return Promise.resolve(false); }
   return new Promise(async (resolve) => {
     let res;
     try {
       res = await (await fetch('/api/stripe-payment', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'ipospays_keyed', invoiceId: inv.id, applyAmount: applyCents / 100 }),
+        body: JSON.stringify({ action: `${hostedCardProcessor()}_keyed`, invoiceId: inv.id, applyAmount: applyCents / 100 }),
       })).json();
     } catch (e) { res = { success: false, error: 'Could not reach the server.' }; }
     if (!res.success) {
-      showToast(res.error || 'Could not open the iPOSpays card form', 'error');
+      showToast(res.error || `Could not open the ${hostedCardName()} card form`, 'error');
       return resolve(false);
     }
     const msg = document.getElementById('ipos-card-msg');
@@ -6225,6 +6319,7 @@ function chargeCardViaIpos(inv, applyCents) {
     const frame = document.getElementById('ipos-card-frame');
     msg.textContent = `Type the card into the form below and press Pay Now ($${Number(res.amount).toFixed(2)}). This updates by itself when it goes through.`;
     document.getElementById('ipos-card-link').href = res.url;
+    frame.title = `${hostedCardName()} card form`;
     frame.src = res.url;
     frame.style.display = 'block';
     wait.style.display = 'flex';
@@ -6245,7 +6340,7 @@ function chargeCardViaIpos(inv, applyCents) {
       try {
         const r = await (await fetch('/api/stripe-payment', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'ipospays_check', invoiceId: inv.id, ref: res.ref }),
+          body: JSON.stringify({ action: `${processor}_check`, invoiceId: inv.id, ref: res.ref }),
         })).json();
         if (!_iposWait) return;
         if (r.success && r.paid) return finish({ amount: r.amount });
@@ -6253,7 +6348,7 @@ function chargeCardViaIpos(inv, applyCents) {
           showToast(`The card didn't go through${r.message ? ` (${r.message})` : ''}`, 'error');
           return finish(false);
         }
-        if (manual) showToast(r.success ? "iPOSpays hasn't confirmed it yet — check again in a moment" : (r.error || 'Could not check the payment'), 'error');
+        if (manual) showToast(r.success ? `${hostedCardName()} hasn't confirmed it yet — check again in a moment` : (r.error || 'Could not check the payment'), 'error');
       } catch (e) { if (manual) showToast('Could not reach the server', 'error'); }
     };
     const timer = setInterval(() => { if (Date.now() - started < 15 * 60e3) check(false); }, 4000);

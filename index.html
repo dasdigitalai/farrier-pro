@@ -2085,7 +2085,7 @@ src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoYUHgYEFkS2nfnBqDcBk-9hk
         // The invoice's own pay link (/pay/{id}). Without a saved one, /pay/{id} still works when
         // the farrier takes online payments: it opens a fresh Stripe or iPOSpays page. Never the
         // customer portal (that needs a sign-in). No online payments → no Pay button.
-        const takesOnline = !!(_userProfile?.stripePublishableKey || _userProfile?.ipospaysConnected);
+        const takesOnline = !!(_userProfile?.stripePublishableKey || _userProfile?.ipospaysConnected || _userProfile?.kadimaConnected);
         const payUrl = buildInvoicePayUrl_(invoice) || (takesOnline && invoice.id ? `${window.location.origin}/pay/${invoice.id}` : "");
 
         // Build services list from the invoice's lines (items[]), one row per line with its horse.
@@ -13592,7 +13592,7 @@ function CalendarView({ userId }) {
                       >
                         🖨️ Print / PDF
                       </button>
-                      {window.FarriTeam?.role !== 'farrier' && (invoice.status === 'paid' || invoice.status === 'partial') && (invoiceStripePaymentId(invoice) || invoiceIposPaid(invoice)) && invoiceRefundable(invoice) > 0 && (
+                      {window.FarriTeam?.role !== 'farrier' && (invoice.status === 'paid' || invoice.status === 'partial') && invoiceRefundProcessor(invoice) && invoiceRefundable(invoice) > 0 && (
                         <button
                           className="btn btn-sm btn-outline"
                           onClick={() => { setSelectedInvoice(invoice); setShowRefundModal(true); }}
@@ -13636,8 +13636,8 @@ function CalendarView({ userId }) {
                               overflow: 'hidden'
                             }}>
                               {isOpen && item('✏️ Edit', () => setEditingInvoice(invoice))}
-                              {isOpen && window.FarriTeam?.role !== 'farrier' && FarriPricing.invoiceRate(invoice) > 0 && (userProfile?.stripePublishableKey || userProfile?.ipospaysConnected) && !invoice.cardFeeWaived && item('🏷️ Waive card price & resend', () => waiveCardPrice(invoice, true))}
-                              {isOpen && window.FarriTeam?.role !== 'farrier' && (userProfile?.stripePublishableKey || userProfile?.ipospaysConnected) && invoice.cardFeeWaived && item('↩️ Undo card price waiver', () => waiveCardPrice(invoice, false))}
+                              {isOpen && window.FarriTeam?.role !== 'farrier' && FarriPricing.invoiceRate(invoice) > 0 && (userProfile?.stripePublishableKey || userProfile?.ipospaysConnected || userProfile?.kadimaConnected) && !invoice.cardFeeWaived && item('🏷️ Waive card price & resend', () => waiveCardPrice(invoice, true))}
+                              {isOpen && window.FarriTeam?.role !== 'farrier' && (userProfile?.stripePublishableKey || userProfile?.ipospaysConnected || userProfile?.kadimaConnected) && invoice.cardFeeWaived && item('↩️ Undo card price waiver', () => waiveCardPrice(invoice, false))}
                               {item('✉️ Email', () => emailInvoiceLink(invoice, userProfile))}
                               {invoice.customerPhone && item('📱 SMS', async () => {
                                 const bizName = userProfile?.businessName || 'Your Farrier';
@@ -13817,6 +13817,17 @@ function CalendarView({ userId }) {
     function invoiceIposPaid(invoice) {
       return (invoice.payments || []).some(p => String(p.paymentId || '').startsWith('ipos_'));
     }
+    // Paid through a Kadima payment page — refunded through Kadima (it voids or returns it).
+    function invoiceKadimaPaid(invoice) {
+      return (invoice.payments || []).some(p => String(p.paymentId || '').startsWith('kadima_'));
+    }
+    // Which processor a refund of this invoice goes through.
+    function invoiceRefundProcessor(invoice) {
+      if (invoiceStripePaymentId(invoice)) return 'Stripe';
+      if (invoiceIposPaid(invoice)) return 'iPOSpays';
+      if (invoiceKadimaPaid(invoice)) return 'Kadima';
+      return '';
+    }
     function invoiceRefundable(invoice) {
       const paid = invoice.paidAmount || (invoice.payments || []).reduce((s,p) => s + (p.amount||0), 0) || invoice.total || 0;
       return Math.max(0, paid - (invoice.refundedAmount || 0));
@@ -13982,18 +13993,21 @@ function CalendarView({ userId }) {
         try {
           // Server checks the manager password and uses this farrier's Stripe key, or for an
           // iPOSpays payment voids/refunds it in iPOSpays and records it on the invoice itself.
-          const ipos = !invoiceStripePaymentId(invoice) && invoiceIposPaid(invoice);
+          // A Kadima payment is refunded in Kadima the same way.
+          const processor = invoiceRefundProcessor(invoice);
           const res = await fetch('/api/stripe-payment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(ipos
+            body: JSON.stringify(processor === 'iPOSpays'
               ? { action: 'ipospays_refund', invoiceId: invoice.id, amount: amt, refundPassword: password }
+              : processor === 'Kadima'
+              ? { action: 'kadima_refund', invoiceId: invoice.id, amount: amt, refundPassword: password }
               : { action: 'refund', transactionId: invoiceStripePaymentId(invoice), amount: amt, refundPassword: password })
           });
           const result = await res.json();
           if (!result.success) { setError(result.error || 'Refund failed.'); setProcessing(false); return; }
           if (result.recorded) {
-            alert(`✅ ${result.kind === 'void' ? 'Voided' : 'Refunded'} $${amt.toFixed(2)} in iPOSpays`);
+            alert(`✅ ${result.kind === 'void' ? 'Voided' : 'Refunded'} $${amt.toFixed(2)} in ${processor}`);
             onRefunded();
             return;
           }
@@ -14039,7 +14053,7 @@ function CalendarView({ userId }) {
                 <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus
                   onKeyDown={(e) => { if (e.key === 'Enter' && !processing) handleRefund(); }} />
               </div>
-              <div style={{fontSize: '0.85rem', color: 'var(--text-muted)'}}>The money goes back to the customer's card through {!invoiceStripePaymentId(invoice) && invoiceIposPaid(invoice) ? 'iPOSpays' : 'Stripe'}. This can't be undone.</div>
+              <div style={{fontSize: '0.85rem', color: 'var(--text-muted)'}}>The money goes back to the customer's card through {invoiceRefundProcessor(invoice) || 'Stripe'}. This can't be undone.</div>
               {error && <div style={{marginTop: '1rem', padding: '0.75rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#991b1b'}}>{error}</div>}
               <div style={{display: 'flex', gap: '0.75rem', marginTop: '1.5rem'}}>
                 <button className="btn btn-outline" onClick={onClose} style={{flex: 1}} disabled={processing}>Nevermind</button>
@@ -14072,12 +14086,16 @@ function CalendarView({ userId }) {
       const hasCardPrice = chargeCents !== applyCents;
 
       // The secret key lives only on the server; a publishable key means Stripe is connected.
-      // iPOSpays, when connected, takes keyed cards instead (same as pay links).
-      const useIpos = !!userProfile?.ipospaysConnected;
+      // iPOSpays or Kadima, when connected, takes keyed cards instead (same as pay links): both
+      // use a hosted card form shown in this box, then we ask the server until it's confirmed.
+      const hostedProcessor = userProfile?.ipospaysConnected ? 'ipospays' : userProfile?.kadimaConnected ? 'kadima' : '';
+      const hostedName = hostedProcessor === 'kadima' ? 'Kadima' : 'iPOSpays';
+      const useIpos = !!hostedProcessor;
       const publishableKey = useIpos ? '' : (userProfile?.stripePublishableKey || '');
       const hasStripe = !!publishableKey;
       // iPOSpays keyed card: { ref, url } of the card form shown in this box, while we wait.
-      // (iPOSpays lets its payment page be framed: no X-Frame-Options / frame-ancestors, 2026-10-13.)
+      // (iPOSpays lets its payment page be framed: no X-Frame-Options / frame-ancestors, 2026-10-13;
+      // so does Kadima's hosted form, 2026-11-17.)
       const [iposPage, setIposPage] = useState(null);
       const [iposChecking, setIposChecking] = useState(false);
       const iposDoneRef = React.useRef(false);
@@ -14088,7 +14106,7 @@ function CalendarView({ userId }) {
         try {
           const res = await fetch('/api/stripe-payment', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'ipospays_check', invoiceId: invoice.id, ref }),
+            body: JSON.stringify({ action: `${hostedProcessor}_check`, invoiceId: invoice.id, ref }),
           });
           const result = await res.json();
           if (iposDoneRef.current) return;
@@ -14100,13 +14118,13 @@ function CalendarView({ userId }) {
             setIposPage(null);
             setError(`The card didn't go through${result.message ? ` (${result.message})` : ''}. Try again with another card.`);
           } else if (manual) {
-            setError(result.success ? "iPOSpays hasn't confirmed this payment yet. If the card form said it was approved, check again in a moment." : (result.error || 'Could not check the payment.'));
+            setError(result.success ? `${hostedName} hasn't confirmed this payment yet. If the card form said it was approved, check again in a moment.` : (result.error || 'Could not check the payment.'));
           }
         } catch (e) {
           if (manual) setError('Could not reach the server to check the payment.');
         }
         if (manual) setIposChecking(false);
-      }, [invoice.id]);
+      }, [invoice.id, hostedProcessor]);
 
       // While the card form is open, ask every few seconds (and whenever this tab comes back
       // into view, in case it was opened in its own tab) whether iPOSpays has the payment. Stops after 15 minutes; "Check now" still works.
@@ -14126,16 +14144,16 @@ function CalendarView({ userId }) {
         try {
           const res = await fetch('/api/stripe-payment', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'ipospays_keyed', invoiceId: invoice.id, applyAmount: applyCents / 100 }),
+            body: JSON.stringify({ action: `${hostedProcessor}_keyed`, invoiceId: invoice.id, applyAmount: applyCents / 100 }),
           });
           const result = await res.json();
           if (!result.success) {
-            setError(result.error || 'Could not open the iPOSpays card form.');
+            setError(result.error || `Could not open the ${hostedName} card form.`);
           } else {
             setIposPage({ ref: result.ref, url: result.url, amount: result.amount });
           }
         } catch (err) {
-          setError('Could not open the iPOSpays card form. Please try again.');
+          setError(`Could not open the ${hostedName} card form. Please try again.`);
         }
         setProcessing(false);
       };
@@ -14230,7 +14248,7 @@ function CalendarView({ userId }) {
                 <>
                   <iframe
                     src={iposPage.url}
-                    title="iPOSpays card form"
+                    title={`${hostedName} card form`}
                     allow="payment"
                     style={{width: '100%', height: '640px', maxHeight: '65vh', border: '1px solid var(--border)', borderRadius: '8px', background: '#fff'}}
                   />
@@ -14268,7 +14286,7 @@ function CalendarView({ userId }) {
                     </button>
                   </div>
                   <div style={{marginTop: '1.5rem', padding: '0.75rem 1rem', background: '#f0f9ff', borderRadius: '8px', fontSize: '0.8rem', color: '#1e293b'}}>
-                    🔒 <strong>Secured by iPOSpays</strong> — card details never touch our servers
+                    🔒 <strong>Secured by {hostedName}</strong> — card details never touch our servers
                   </div>
                 </>
               )
@@ -14277,7 +14295,7 @@ function CalendarView({ userId }) {
                 <div style={{fontSize: '1.5rem', marginBottom: '0.5rem'}}>⚠️</div>
                 <strong>No card processor connected</strong>
                 <p style={{fontSize: '0.875rem', color: '#666', marginTop: '0.5rem'}}>
-                  Go to <strong>Settings</strong> and connect Stripe or iPOSpays to accept card payments.
+                  Go to <strong>Settings</strong> and connect Stripe, iPOSpays or Kadima to accept card payments.
                 </p>
               </div>
             ) : (
@@ -14874,7 +14892,7 @@ useEffect(() => {
             await db.collection('invoices').doc(editingInvoice.id).update(updates);
             if (editingInvoice.paymentUrl && totalChanged) {
               try {
-                if ((userProfile?.stripePublishableKey || userProfile?.ipospaysConnected) && total > 0) {
+                if ((userProfile?.stripePublishableKey || userProfile?.ipospaysConnected || userProfile?.kadimaConnected) && total > 0) {
                   // Server re-prices from the invoice we just saved and closes the old checkout.
                   const plRes = await fetch('/api/stripe-payment', {
                     method: 'POST',
@@ -15098,7 +15116,7 @@ useEffect(() => {
             // Generate the pay link if the farrier has Stripe or iPOSpays connected (the
             // server holds the keys; the profile only says which is connected)
             let paymentUrl = '';
-            if ((userProfile?.stripePublishableKey || userProfile?.ipospaysConnected) && total > 0) {
+            if ((userProfile?.stripePublishableKey || userProfile?.ipospaysConnected || userProfile?.kadimaConnected) && total > 0) {
               try {
                 const plRes = await fetch('/api/stripe-payment', {
                   method: 'POST',
@@ -15658,6 +15676,9 @@ useEffect(() => {
       const [ipos, setIpos] = useState({ tpn: '', apiKey: '', secretKey: '', ecomToken: '', mode: userProfile?.ipospaysMode || 'sandbox' });
       const [iposSaving, setIposSaving] = useState(false);
       const [iposError, setIposError] = useState('');
+      const [kadima, setKadima] = useState({ token: '', terminalId: '', dbaId: '', mode: userProfile?.kadimaMode || 'sandbox' });
+      const [kadimaSaving, setKadimaSaving] = useState(false);
+      const [kadimaError, setKadimaError] = useState('');
       useEffect(() => {
         if (!userProfile?.stripePublishableKey) return;
         fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'status' }) })
@@ -16125,7 +16146,7 @@ useEffect(() => {
           <div className="card" style={{marginTop: '1.5rem'}}>
             <h2>💳 Stripe Payments</h2>
             <p style={{color: 'var(--text-muted)', marginBottom: '1rem', fontSize: '0.9rem'}}>
-              Connect your Stripe account to accept credit card payments on invoices. Your keys are stored securely and never shared. Connect Stripe or iPOSpays, not both.
+              Connect your Stripe account to accept credit card payments on invoices. Your keys are stored securely and never shared. Connect only one card processor: Stripe, iPOSpays or Kadima.
             </p>
 
             {stripeStatus === 'connected' && (
@@ -16347,6 +16368,113 @@ useEffect(() => {
                   }}
                 >
                   {iposSaving ? <span className="spinner"></span> : '✓ Validate & Save'}
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Kadima Payments Settings */}
+          <div className="card" style={{marginTop: '1.5rem'}}>
+            <h2>💳 Kadima Payments</h2>
+            <p style={{color: 'var(--text-muted)', marginBottom: '1rem', fontSize: '0.9rem'}}>
+              Take payments through your Kadima Payments merchant account instead of Stripe or iPOSpays. Connect only one of them. While Kadima is connected, the Pay Now links you text and email, and cards you key in, open a secure Kadima payment page. The Refund button on an invoice paid through Kadima refunds it in Kadima.
+            </p>
+
+            {userProfile?.kadimaConnected ? (
+              <>
+                <div style={{background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                  <span style={{fontSize: '1.1rem'}}>✅</span>
+                  <span style={{color: '#16a34a', fontWeight: 600}}>
+                    Kadima connected — terminal {userProfile.kadimaTerminalId || '•••'}{userProfile.kadimaMode === 'production' ? '' : ' (sandbox — test payments only)'}
+                  </span>
+                </div>
+                {(userProfile?.stripePublishableKey || userProfile?.ipospaysConnected) && (
+                  <div style={{background: '#fff7ed', border: '1px solid #fdba74', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.875rem'}}>
+                    ⚠️ {userProfile?.ipospaysConnected ? 'iPOSpays' : 'Stripe'} is connected too. Disconnect one of them so customers are only ever charged through one.
+                  </div>
+                )}
+                <button
+                  className="btn btn-outline"
+                  onClick={async () => {
+                    if (!confirm('Disconnect Kadima? Pay Now links will stop opening Kadima payment pages. Payments already made stay in your Kadima account.')) return;
+                    const res = await fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'kadima_disconnect' }) });
+                    const result = await res.json().catch(() => ({}));
+                    if (!result.success) { alert(result.error || 'Could not disconnect Kadima — please try again.'); return; }
+                    const cleared = { kadimaConnected: false, kadimaMode: '', kadimaTerminalId: '' };
+                    await db.collection('farriers').doc(safeFarrierId).set({ ...cleared, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                    setUserProfile(prev => ({ ...prev, ...cleared }));
+                  }}
+                >
+                  Disconnect
+                </button>
+              </>
+            ) : (
+              <>
+                <div style={{background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.875rem'}}>
+                  Don't have a Kadima account yet?{' '}
+                  <a href="https://kadimapayments.com/apply?agent=dspatz" target="_blank" rel="noopener noreferrer" style={{color: 'var(--primary)', fontWeight: 600}}>Apply for a Kadima merchant account →</a>
+                </div>
+                {kadimaError && (
+                  <div style={{background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem'}}>
+                    <span style={{color: '#dc2626'}}>❌ {kadimaError}</span>
+                  </div>
+                )}
+                <div className="form-group">
+                  <label>Environment</label>
+                  <select value={kadima.mode} onChange={(e) => setKadima({ ...kadima, mode: e.target.value })}>
+                    <option value="sandbox">Sandbox (testing)</option>
+                    <option value="production">Live (real payments)</option>
+                  </select>
+                </div>
+                {[
+                  ['token', 'API Token', 'password', ''],
+                  ['terminalId', 'Terminal ID', 'text', 'e.g. 865 (not the TID)'],
+                  ['dbaId', 'DBA ID', 'text', 'e.g. 980'],
+                ].map(([field, label, type, placeholder]) => (
+                  <div className="form-group" key={field}>
+                    <label>{label}</label>
+                    <input
+                      type={type}
+                      inputMode={field === 'token' ? undefined : 'numeric'}
+                      value={kadima[field]}
+                      onChange={(e) => { setKadima({ ...kadima, [field]: e.target.value }); setKadimaError(''); }}
+                      placeholder={placeholder}
+                      autoComplete="off"
+                      style={{fontFamily: 'monospace', fontSize: '0.85rem'}}
+                    />
+                  </div>
+                ))}
+                <div style={{fontSize: '0.75rem', color: 'var(--text-muted)', margin: '-0.25rem 0 1rem'}}>
+                  In your Kadima dashboard: the API token is under <strong>Developers → Tokens → View Token</strong> (it needs <strong>Credit/Debit Card Payments Read and Write</strong>); the Terminal ID is the <strong>Terminal ID</strong> column under <strong>Gateway</strong>; the DBA ID is the <strong>#number</strong> on your merchant profile. The token is stored on FarriTech's server only and never shown again.
+                </div>
+                <button
+                  className="btn btn-primary"
+                  disabled={kadimaSaving || !kadima.token || !kadima.terminalId || !kadima.dbaId}
+                  onClick={async () => {
+                    setKadimaSaving(true);
+                    setKadimaError('');
+                    try {
+                      const res = await fetch('/api/stripe-payment', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'kadima_connect', ...kadima }),
+                      });
+                      const data = await res.json();
+                      if (data.success) {
+                        const saved = { kadimaConnected: true, kadimaMode: data.mode, kadimaTerminalId: String(data.terminalId) };
+                        await db.collection('farriers').doc(safeFarrierId).set({ ...saved, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                        setUserProfile(prev => ({ ...prev, ...saved }));
+                        setKadima({ token: '', terminalId: '', dbaId: '', mode: data.mode });
+                      } else {
+                        setKadimaError(data.error || 'Could not connect Kadima.');
+                      }
+                    } catch (e) {
+                      setKadimaError('Could not reach FarriTech — check your connection and try again.');
+                    }
+                    setKadimaSaving(false);
+                  }}
+                >
+                  {kadimaSaving ? <span className="spinner"></span> : '✓ Validate & Save'}
                 </button>
               </>
             )}
