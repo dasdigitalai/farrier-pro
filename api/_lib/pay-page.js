@@ -10,11 +10,14 @@
 //
 // Farriers who connected iPOSpays get an iPOSpays payment page instead (see ipospays.js);
 // iPOSpays sends the customer back here with ?ipos_ref=… and we check that payment.
+// Farriers who connected Kadima get a Kadima hosted payment form (see kadima.js); Kadima sends
+// the customer back with ?id=…&externalId={our ref}&status=… and we check that payment with Kadima.
 import Stripe from 'stripe';
 import '../../lib/pricing.js';
 import { getDoc, getStripeSecretKey } from './firebase-rest.js';
 import { createCheckoutSession, recordCheckoutSession, escapeHtml, PaymentError } from './invoice-payments.js';
 import { getIposCreds, syncIposPayment, createIposPage, reusableIposPage } from './ipospays.js';
+import { getKadimaCreds, isKadimaRef, syncKadimaPayment, syncRecentKadima, createKadimaPage, reusableKadimaPage } from './kadima.js';
 
 const P = globalThis.FarriPricing;
 
@@ -62,6 +65,8 @@ export async function payPage(req, res) {
 
     const ipos = await getIposCreds(invoice.farrierId);
     if (ipos) return await iposPayPage(req, res, invoiceId, invoice, ipos);
+    const kadima = await getKadimaCreds(invoice.farrierId);
+    if (kadima) return await kadimaPayPage(req, res, invoiceId, invoice, kadima);
 
     if (invoice.status === 'paid') return page(res, 200, 'Invoice paid', `Invoice #${number} has already been paid. Thank you!`);
     if (invoice.status === 'cancelled') return page(res, 200, 'Invoice cancelled', `Invoice #${number} was cancelled. Please contact your farrier with any questions.`);
@@ -142,6 +147,57 @@ async function iposPayPage(req, res, invoiceId, invoice, creds) {
   if (open) return res.redirect(303, open);
   try {
     const { url } = await createIposPage(creds, invoiceId, invoice);
+    return res.redirect(303, url);
+  } catch (err) {
+    if (err instanceof PaymentError && err.status === 409) return page(res, 200, 'Invoice paid', `Invoice #${number} has already been paid. Thank you!`);
+    throw err;
+  }
+}
+
+// Kadima: the return parameters (status, amount, id) are unsigned, so they only decide which
+// reference to look up — whether it was paid is always Kadima's own answer (syncKadimaPayment).
+async function kadimaPayPage(req, res, invoiceId, invoice, creds) {
+  const number = invoice.invoiceNumber || '';
+  const retry = (cents) => `<a class="btn" href="/pay/${encodeURIComponent(invoiceId)}">Pay ${P.money(cents)}</a>`;
+  const paidPage = (cents) => page(res, 200, 'Payment received', `Thank you! Your payment of ${P.money(cents)} for Invoice #${number} has been received.`);
+
+  // Back from Kadima
+  const ref = String(req.query?.externalId || '');
+  if (isKadimaRef(ref)) {
+    const result = await syncKadimaPayment(creds, invoiceId, ref);
+    if (result.paid) return paidPage(result.amountCents);
+    const fresh = (await getDoc(`invoices/${invoiceId}`)) || invoice;
+    if (fresh.status === 'paid') return page(res, 200, 'Invoice paid', `Invoice #${number} has already been paid. Thank you!`);
+    if (result.declined) {
+      return page(res, 200, 'Payment not completed', `Your card payment for Invoice #${number} didn't go through${result.message ? ` (${result.message})` : ''}. You can try again with another card.`, retry(P.getChargeCents(fresh, 'card_link')));
+    }
+    // Kadima says it was cancelled (the button on its form), and has no payment for it.
+    if (/^cancel/i.test(String(req.query?.status || ''))) {
+      return page(res, 200, 'Payment not completed', `Your payment for Invoice #${number} wasn't completed.`, retry(P.getChargeCents(fresh, 'card_link')));
+    }
+    // Not confirmed yet: never send them straight back to a form they may have just paid.
+    return page(res, 200, 'Confirming your payment', `We haven't heard back from the card processor about your payment for Invoice #${number} yet. Please don't pay again. Check back in a minute.`, `<a class="btn" href="/pay/${encodeURIComponent(invoiceId)}?externalId=${ref}">Check again</a>`);
+  }
+
+  // Before offering a form, ask Kadima about the recent ones: a customer may have paid
+  // without the return ever reaching us.
+  if (invoice.status !== 'paid' && invoice.kadimaLinks) {
+    const result = await syncRecentKadima(creds, invoiceId, invoice);
+    if (result?.paid) return paidPage(result.amountCents);
+    invoice = (await getDoc(`invoices/${invoiceId}`)) || invoice;
+  }
+
+  if (invoice.status === 'paid') return page(res, 200, 'Invoice paid', `Invoice #${number} has already been paid. Thank you!`);
+  if (invoice.status === 'cancelled') return page(res, 200, 'Invoice cancelled', `Invoice #${number} was cancelled. Please contact your farrier with any questions.`);
+  const expected = P.getChargeCents(invoice, 'card_link');
+  if (expected <= 0) return page(res, 200, 'Nothing owed', `There's no balance due on Invoice #${number}.`);
+  if (req.query?.canceled) return page(res, 200, 'Payment not completed', `Your payment for Invoice #${number} wasn't completed.`, retry(expected));
+
+  res.setHeader('Cache-Control', 'no-store');
+  const open = reusableKadimaPage(invoice, expected);
+  if (open) return res.redirect(303, open);
+  try {
+    const { url } = await createKadimaPage(creds, invoiceId, invoice);
     return res.redirect(303, url);
   } catch (err) {
     if (err instanceof PaymentError && err.status === 409) return page(res, 200, 'Invoice paid', `Invoice #${number} has already been paid. Thank you!`);
