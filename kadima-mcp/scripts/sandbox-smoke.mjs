@@ -21,7 +21,7 @@ const TEST_CARD = {
 };
 
 const client = new Client({ name: 'kadima-smoke', version: '0.1.0' });
-await client.connect(new StdioClientTransport({ command: process.execPath, args: [server], stderr: 'inherit' }));
+await client.connect(new StdioClientTransport({ command: process.execPath, args: [server], stderr: 'inherit', env: { ...process.env } }));
 
 async function call(name, args) {
   const res = await client.callTool({ name, arguments: args });

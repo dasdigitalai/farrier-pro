@@ -74,7 +74,7 @@ export function createClient(cfg, fetchImpl = globalThis.fetch) {
         signal: AbortSignal.timeout(cfg.timeoutMs),
       });
     } catch (err) {
-      throw new KadimaError(`Network error calling ${method} ${new URL(url).origin}${path}: ${err.message}`);
+      throw new KadimaError(`Network error calling ${method} ${new URL(url).origin}${path}: ${err.message}${err.cause ? ` (${err.cause.code || err.cause.message})` : ''}`);
     }
 
     if (binary && res.ok) {
