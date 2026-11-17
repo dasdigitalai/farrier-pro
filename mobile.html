@@ -1356,6 +1356,14 @@
         <div style="font-size:0.75rem; color:var(--text-muted); margin:-6px 0 12px;">In your Kadima dashboard: API token under Developers → Tokens → View Token (needs Credit/Debit Card Payments Read and Write); Terminal ID is the Terminal ID column under Gateway; DBA ID is the #number on your merchant profile. Stored on FarriTech's server only.</div>
         <button class="btn-primary" id="kadima-validate-btn" onclick="validateAndSaveKadima()">✓ Validate & Save</button>
       </div>
+      <div id="kadima-webhook" style="display:none; border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:0.85rem;">
+        <div style="font-weight:600; margin-bottom:4px;">Payment notifications (webhook) <span id="kadima-webhook-state"></span></div>
+        <div style="color:var(--text-muted); margin-bottom:8px;">Lets Kadima tell FarriTech the moment a customer pays, so invoices update right away and a customer who accidentally pays twice is refunded automatically. In Kadima: Developers → Webhooks → Add Webhook, paste this URL, pick your DBA, subscribe to Payment Transaction Created, then copy the Signature into the box below.</div>
+        <div class="field"><input type="text" id="kadima-webhook-url" readonly onfocus="this.select()" style="font-family:monospace; font-size:0.78rem;"></div>
+        <button class="btn-secondary" onclick="copyKadimaWebhookUrl()" style="margin-bottom:8px;">Copy URL</button>
+        <div class="field"><input type="password" id="kadima-webhook-secret" autocomplete="off" placeholder="Webhook Signature from Kadima" style="font-family:monospace; font-size:0.78rem;"></div>
+        <button class="btn-primary" onclick="saveKadimaWebhookSecret()">Save signature</button>
+      </div>
       <button class="btn-secondary" id="kadima-disconnect-btn" onclick="disconnectKadima()" style="display:none;">Disconnect Kadima</button>
     </div>
 
@@ -4665,6 +4673,39 @@ function renderKadimaStatus(p, message) {
     el.style.display = 'none';
   }
   document.getElementById('set-kadima-mode').value = p?.kadimaMode || 'sandbox';
+  const hook = document.getElementById('kadima-webhook');
+  hook.style.display = 'none';
+  if (connected && netState.online) {
+    fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'kadima_status' }) })
+      .then(r => r.json()).then(d => { if (d.success && d.webhookUrl) renderKadimaWebhook(d); }).catch(() => {});
+  }
+}
+
+function renderKadimaWebhook(d) {
+  document.getElementById('kadima-webhook').style.display = 'block';
+  document.getElementById('kadima-webhook-url').value = d.webhookUrl;
+  const st = document.getElementById('kadima-webhook-state');
+  st.textContent = d.webhookSigned ? '— signature saved ✓' : '— recommended';
+  st.style.color = d.webhookSigned ? '#16a34a' : '#b45309';
+  document.getElementById('kadima-webhook-secret').placeholder = d.webhookSigned ? '•••••••• saved — paste a new signature to replace it' : 'Webhook Signature from Kadima';
+}
+
+function copyKadimaWebhookUrl() {
+  const url = document.getElementById('kadima-webhook-url').value;
+  if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => showToast('Webhook URL copied', 'success'));
+}
+
+async function saveKadimaWebhookSecret() {
+  const input = document.getElementById('kadima-webhook-secret');
+  const secret = input.value.trim();
+  if (!secret) { showToast('Paste the Signature from the Kadima Add Webhook screen', 'error'); return; }
+  try {
+    const r = await (await fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'kadima_webhook_secret', secret }) })).json();
+    if (!r.success) { showToast(r.error || 'Could not save the signature', 'error'); return; }
+    input.value = '';
+    renderKadimaWebhook({ webhookUrl: document.getElementById('kadima-webhook-url').value, webhookSigned: true });
+    showToast('Webhook signature saved', 'success');
+  } catch (e) { showToast('Could not reach FarriTech — try again', 'error'); }
 }
 
 async function validateAndSaveKadima() {

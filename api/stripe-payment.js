@@ -11,9 +11,11 @@ import { farrierWebhook, recordWebhookSession } from './_lib/farrier-webhook.js'
 import { businessFor, requireRole, teamAccept, teamInvite, teamRemove, teamSetRole, teamStatus } from './_lib/team.js';
 import { askAI } from './_lib/ask-ai.js';
 import { closeIposPages, connectIpospays, createIposPage, disconnectIpospays, getIposCreds, iposCallback, refundIposPayment, syncIposPayment } from './_lib/ipospays.js';
-import { closeKadimaPages, connectKadima, createKadimaPage, disconnectKadima, getKadimaCreds, isKadimaRef, refundKadimaPayment, syncKadimaPayment } from './_lib/kadima.js';
+import { closeKadimaPages, connectKadima, createKadimaPage, disconnectKadima, getKadimaCreds, isKadimaRef, kadimaWebhook, refundKadimaPayment, setKadimaWebhookSecret, syncKadimaPayment } from './_lib/kadima.js';
 
 const P = globalThis.FarriPricing;
+// Where this deployment is reached (the live app, or a branch preview while testing).
+const APP_BASE = (req) => `https://${String(req.headers?.['x-forwarded-host'] || req.headers?.host || 'app.farritech.com').split(',')[0].trim()}`;
 const SECRET_KEY_RE = /^(sk|rk)_(live|test)_/;
 // A farrier takes card payments through one processor at a time, so a payment can't be
 // split across two or left on one they've stopped watching.
@@ -128,6 +130,8 @@ export default async function handler(req, res) {
   if (req.query?.webhookFarrier) return farrierWebhook(req, res, rawBody, String(req.query.webhookFarrier));
   // iPOSpays payment callback (/api/ipospays/callback/:invoiceId, see vercel.json)
   if (req.query?.iposCallback) return iposCallback(req, res, rawBody, String(req.query.iposCallback));
+  // Kadima payment webhook (/api/kadima/webhook/:farrierId, see vercel.json)
+  if (req.query?.kadimaWebhook) return kadimaWebhook(req, res, rawBody, String(req.query.kadimaWebhook));
   if (req.headers['stripe-signature']) return handleWebhook(req, res, rawBody);
 
   try {
@@ -243,7 +247,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, ...await askAI({ caller, biz, body }) });
     }
 
-    const OWNER_ONLY =['ipospays_connect', 'ipospays_disconnect', 'kadima_connect', 'kadima_disconnect', 'connect', 'validate', 'disconnect', 'set_manager_password', 'deactivate_link'];
+    const OWNER_ONLY =['ipospays_connect', 'ipospays_disconnect', 'kadima_connect', 'kadima_disconnect', 'kadima_webhook_secret', 'connect', 'validate', 'disconnect', 'set_manager_password', 'deactivate_link'];
     const MANAGERS = ['ipospays_refund', 'kadima_refund', 'refund', 'waive_card_price'];
     if (OWNER_ONLY.includes(action)) requireRole(biz, ['owner'], 'change payment settings');
     if (MANAGERS.includes(action)) requireRole(biz, ['owner', 'manager'], action === 'waive_card_price' ? 'waive the card price' : 'issue refunds');
@@ -315,8 +319,16 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, ...result });
     }
     if (action === 'kadima_status') {
-      const kadima = await getKadimaCreds(farrierId);
-      return res.status(200).json({ success: true, connected: !!kadima, mode: kadima?.mode || '', terminalId: kadima?.terminalId || null, dbaId: kadima?.dbaId || null });
+      const secrets = await getDoc(`farrierSecrets/${farrierId}`);
+      const kadima = await getKadimaCreds(farrierId, secrets);
+      return res.status(200).json({
+        success: true, connected: !!kadima, mode: kadima?.mode || '', terminalId: kadima?.terminalId || null, dbaId: kadima?.dbaId || null,
+        webhookUrl: kadima ? `${APP_BASE(req)}/api/kadima/webhook/${farrierId}` : '', webhookSigned: !!secrets?.kadimaWebhookSecret,
+      });
+    }
+    if (action === 'kadima_webhook_secret') {
+      const result = await setKadimaWebhookSecret(farrierId, body.secret);
+      return res.status(200).json({ success: true, ...result });
     }
     if (action === 'kadima_refund') {
       const { invoiceId, amount, refundPassword } = body;

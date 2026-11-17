@@ -5,6 +5,10 @@
 import test, { mock, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
+// The code under test logs (e.g. "duplicate payment reversed"). Printing from inside a test file
+// can corrupt node:test's own message stream ("Unable to deserialize cloned data"), so keep quiet.
+for (const k of ['log', 'warn', 'error', 'info']) console[k] = () => {};
+
 // ── In-memory Firestore ──
 const store = new Map();
 const clone = (v) => (v === undefined ? undefined : structuredClone(v));
@@ -362,4 +366,90 @@ test('a card payment on an invoice already paid in cash is kept for review, not 
   await K.syncKadimaInvoice(CREDS, 'inv023');
   assert.equal(kadima.refunds.length, 0);
   assert.equal(get('invoices/inv023').paymentNeedsReview, true);
+});
+
+// ── Webhook (/api/kadima/webhook/{farrierId}) ──
+const hookRes = () => { const r = fakeRes(); r.json = (b) => { r.body = b; return r; }; return r; };
+const hookEvent = (ref, extra = {}) => ({ id: 9001, module: 'transaction', action: 'create', date: '2026-11-17 22:40:00', data: { externalId: ref }, ...extra });
+const deliver = async (evt, headers = {}) => {
+  const res = hookRes();
+  await K.kadimaWebhook({ headers }, res, Buffer.from(JSON.stringify(evt)), FARRIER);
+  return res;
+};
+
+test('webhook: a signed "payment created" event records the payment right away', async () => {
+  patch(`farrierSecrets/${FARRIER}`, { kadimaWebhookSecret: 'whsec_test_123' });
+  const inv = newInvoice('inv030');
+  const { ref } = await K.createKadimaPage(CREDS, 'inv030', inv);
+  kadimaPayment(ref, { amount: 100 });
+  const evt = hookEvent(ref);
+  const res = await deliver(evt, { 'webhook-signature': K.kadimaSignature('whsec_test_123', evt) });
+  assert.equal(res.statusCode, 200);
+  assert.equal(get('invoices/inv030').status, 'paid');
+});
+
+test('webhook: a wrong signature is refused and changes nothing', async () => {
+  patch(`farrierSecrets/${FARRIER}`, { kadimaWebhookSecret: 'whsec_test_123' });
+  const inv = newInvoice('inv031');
+  const { ref } = await K.createKadimaPage(CREDS, 'inv031', inv);
+  kadimaPayment(ref, { amount: 100 });
+  const evt = hookEvent(ref);
+  assert.equal((await deliver(evt, { 'webhook-signature': K.kadimaSignature('guess', evt) })).statusCode, 401);
+  assert.equal((await deliver(evt)).statusCode, 401);
+  assert.equal(get('invoices/inv031').status, 'outstanding');
+});
+
+test('webhook: the signature formula matches Kadima docs (sha512 of secret+id+module+action+date)', async () => {
+  const { createHash } = await import('node:crypto');
+  const evt = hookEvent('FTabcdefghijklmnopqr');
+  assert.equal(K.kadimaSignature('s3cret', evt), createHash('sha512').update('s3cret9001transactioncreate2026-11-17 22:40:00').digest('hex'));
+});
+
+test('webhook: a forged event can never mark anything paid (Kadima is always asked)', async () => {
+  const inv = newInvoice('inv032');
+  const { ref } = await K.createKadimaPage(CREDS, 'inv032', inv);
+  // no signature saved, and Kadima has no payment for this form
+  const res = await deliver(hookEvent(ref, { data: { externalId: ref, amount: '100.00', status: { status: 'Approved' } } }));
+  assert.equal(res.statusCode, 200);
+  assert.equal(get('invoices/inv032').status, 'outstanding');
+});
+
+test('webhook: catches a double charge on a tab nobody came back from, and refunds it', async () => {
+  const inv = newInvoice('inv033', { cardPriceRate: 0.03 });
+  const a = await K.createKadimaPage(CREDS, 'inv033', inv);
+  const b = await K.createKadimaPage(CREDS, 'inv033', { ...get('invoices/inv033'), cardFeeWaived: true });
+  patch('invoices/inv033', { cardFeeWaived: true });
+  kadimaPayment(a.ref, { amount: 103 });
+  await deliver(hookEvent(a.ref));
+  const dup = kadimaPayment(b.ref, { amount: 100 });
+  await deliver(hookEvent(b.ref, { id: 9002 }));
+  assert.equal(get('invoices/inv033').status, 'paid');
+  assert.equal(kadima.refunds.length, 1);
+  assert.equal(kadima.refunds[0].id, String(dup.id));
+});
+
+test('webhook: other events are acknowledged and ignored; events without a reference check recent forms', async () => {
+  assert.equal((await deliver({ id: 1, module: 'ach', action: 'create', date: 'x' })).body.ignored, 'ach/create');
+  const inv = newInvoice('inv034');
+  const { ref } = await K.createKadimaPage(CREDS, 'inv034', inv);
+  kadimaPayment(ref, { amount: 100 });
+  await deliver({ id: 2, module: 'transaction', action: 'create', date: 'x', data: {} });
+  assert.equal(get('invoices/inv034').status, 'paid');
+});
+
+test('webhook: unknown farrier or Kadima not connected → 404', async () => {
+  store.delete(`farrierSecrets/${FARRIER}`);
+  assert.equal((await deliver(hookEvent('FTabcdefghijklmnopqr'))).statusCode, 404);
+});
+
+test('webhook: the signature is also accepted upper-case or base64-encoded', async () => {
+  patch(`farrierSecrets/${FARRIER}`, { kadimaWebhookSecret: 'whsec_test_123' });
+  const inv = newInvoice('inv035');
+  const { ref } = await K.createKadimaPage(CREDS, 'inv035', inv);
+  kadimaPayment(ref, { amount: 100 });
+  const evt = hookEvent(ref);
+  const hex = K.kadimaSignature('whsec_test_123', evt);
+  assert.equal((await deliver(evt, { 'webhook-signature': hex.toUpperCase() })).statusCode, 200);
+  assert.equal((await deliver(evt, { 'webhook-signature': Buffer.from(hex, 'hex').toString('base64') })).statusCode, 200);
+  assert.equal(get('invoices/inv035').status, 'paid');
 });

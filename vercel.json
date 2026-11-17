@@ -18,6 +18,10 @@
       "destination": "/api/stripe-payment?iposCallback=:invoiceId"
     },
     {
+      "source": "/api/kadima/webhook/:farrierId",
+      "destination": "/api/stripe-payment?kadimaWebhook=:farrierId"
+    },
+    {
       "source": "/support",
       "destination": "/support.html"
     },

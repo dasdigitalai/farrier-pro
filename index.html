@@ -15679,6 +15679,16 @@ useEffect(() => {
       const [kadima, setKadima] = useState({ token: '', terminalId: '', dbaId: '', mode: userProfile?.kadimaMode || 'sandbox' });
       const [kadimaSaving, setKadimaSaving] = useState(false);
       const [kadimaError, setKadimaError] = useState('');
+      // Kadima webhook (Settings → Kadima Payments, once connected): { webhookUrl, webhookSigned }
+      const [kadimaHook, setKadimaHook] = useState(null);
+      const [kadimaHookSecret, setKadimaHookSecret] = useState('');
+      const [kadimaHookMsg, setKadimaHookMsg] = useState('');
+      React.useEffect(() => {
+        if (!userProfile?.kadimaConnected) { setKadimaHook(null); return; }
+        fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'kadima_status' }) })
+          .then(r => r.json()).then(d => { if (d.success) setKadimaHook({ webhookUrl: d.webhookUrl, webhookSigned: d.webhookSigned }); })
+          .catch(() => {});
+      }, [userProfile?.kadimaConnected]);
       useEffect(() => {
         if (!userProfile?.stripePublishableKey) return;
         fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'status' }) })
@@ -16388,6 +16398,31 @@ useEffect(() => {
                     Kadima connected — terminal {userProfile.kadimaTerminalId || '•••'}{userProfile.kadimaMode === 'production' ? '' : ' (sandbox — test payments only)'}
                   </span>
                 </div>
+                {kadimaHook?.webhookUrl && (
+                  <div style={{border: '1px solid var(--border)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.875rem'}}>
+                    <div style={{fontWeight: 600, marginBottom: '0.35rem'}}>
+                      Payment notifications (webhook) {kadimaHook.webhookSigned ? <span style={{color: '#16a34a'}}>— signature saved ✓</span> : <span style={{color: '#b45309'}}>— recommended</span>}
+                    </div>
+                    <div style={{color: 'var(--text-muted)', marginBottom: '0.5rem'}}>
+                      Lets Kadima tell FarriTech the moment a customer pays, so invoices update right away and a customer who accidentally pays twice is refunded automatically. In your Kadima dashboard go to <strong>Developers → Webhooks → Add Webhook</strong>, paste this URL, pick your DBA, then copy the <strong>Signature</strong> shown there into the box below. Subscribe it to <strong>Payment Transaction Created</strong>.
+                    </div>
+                    <div style={{display: 'flex', gap: '0.5rem', marginBottom: '0.5rem'}}>
+                      <input readOnly value={kadimaHook.webhookUrl} onFocus={(e) => e.target.select()} style={{flex: 1, fontFamily: 'monospace', fontSize: '0.8rem'}} />
+                      <button type="button" className="btn btn-outline" onClick={() => { navigator.clipboard?.writeText(kadimaHook.webhookUrl); setKadimaHookMsg('URL copied'); }}>Copy</button>
+                    </div>
+                    <div style={{display: 'flex', gap: '0.5rem'}}>
+                      <input type="password" autoComplete="off" value={kadimaHookSecret} onChange={(e) => { setKadimaHookSecret(e.target.value); setKadimaHookMsg(''); }}
+                        placeholder={kadimaHook.webhookSigned ? '•••••••• saved — paste a new signature to replace it' : 'Webhook Signature from Kadima'} style={{flex: 1, fontFamily: 'monospace', fontSize: '0.8rem'}} />
+                      <button type="button" className="btn btn-primary" disabled={!kadimaHookSecret.trim()} onClick={async () => {
+                        const res = await fetch('/api/stripe-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'kadima_webhook_secret', secret: kadimaHookSecret.trim() }) });
+                        const r = await res.json().catch(() => ({}));
+                        if (r.success) { setKadimaHook({ ...kadimaHook, webhookSigned: true }); setKadimaHookSecret(''); setKadimaHookMsg('Signature saved'); }
+                        else setKadimaHookMsg(r.error || 'Could not save the signature.');
+                      }}>Save</button>
+                    </div>
+                    {kadimaHookMsg && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.35rem'}}>{kadimaHookMsg}</div>}
+                  </div>
+                )}
                 {(userProfile?.stripePublishableKey || userProfile?.ipospaysConnected) && (
                   <div style={{background: '#fff7ed', border: '1px solid #fdba74', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.875rem'}}>
                     ⚠️ {userProfile?.ipospaysConnected ? 'iPOSpays' : 'Stripe'} is connected too. Disconnect one of them so customers are only ever charged through one.

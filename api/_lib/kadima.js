@@ -39,7 +39,7 @@ const hosts = (mode) => KADIMA_HOSTS[mode === 'production' ? 'production' : 'san
 const TIMEOUT_MS = 20_000;
 const REUSE_DAYS = 6;      // a form older than this isn't reused (Kadima forms don't expire)
 const KEEP_LINKS = 10;     // forms remembered per invoice, so an older one can still be confirmed
-const SECRET_FIELDS = ['kadimaToken', 'kadimaTerminalId', 'kadimaDbaId', 'kadimaMode', 'kadimaConnectedAt'];
+const SECRET_FIELDS = ['kadimaToken', 'kadimaTerminalId', 'kadimaDbaId', 'kadimaMode', 'kadimaConnectedAt', 'kadimaWebhookSecret'];
 
 // 'FT' + 18 random letters/digits: our externalId for one form.
 export function newKadimaRef() {
@@ -437,4 +437,78 @@ async function sendPaidSms(invoice, amountCents) {
       body: JSON.stringify({ to: invoice.customerPhone, body: `Hi ${name}, your payment of ${P.money(amountCents)} for invoice #${invoice.invoiceNumber || ''} has been received. Thank you! Reply STOP to opt out.` }),
     });
   } catch (e) { console.warn('Confirmation SMS error:', e.message); }
+}
+
+// ── Webhook: POST /api/kadima/webhook/{farrierId} (vercel.json → stripe-payment?kadimaWebhook=…) ──
+// The farrier adds this URL in their Kadima dashboard (Developers → Webhooks, event "Payment
+// Transaction Created"), so a payment on ANY of their forms — even a tab nobody returns from —
+// is checked within seconds instead of the next time someone opens the invoice. That's what
+// lets a double charge be refunded right away.
+//
+// A webhook is only a nudge. Kadima's signature covers <secret><id><module><action><date>, not
+// the payment data, so nothing in the body is trusted: syncKadimaInvoice asks Kadima itself.
+// With a signature saved in Settings, events without the matching Webhook-Signature are refused.
+export function kadimaSignature(secret, evt) {
+  return crypto.createHash('sha512').update(`${secret}${evt?.id ?? ''}${evt?.module ?? ''}${evt?.action ?? ''}${evt?.date ?? ''}`).digest('hex');
+}
+
+const RECENT_FORM_DAYS = 8;
+
+export async function kadimaWebhook(req, res, rawBody, farrierId) {
+  if (!/^[A-Za-z0-9_-]{6,128}$/.test(farrierId)) return res.status(400).json({ error: 'Bad farrier id' });
+  let evt = {};
+  try { evt = JSON.parse(rawBody.toString() || '{}'); } catch (e) { return res.status(400).json({ error: 'Not JSON' }); }
+  try {
+    const secrets = await getDoc(`farrierSecrets/${farrierId}`);
+    const creds = await getKadimaCreds(farrierId, secrets);
+    if (!creds) return res.status(404).json({ error: 'Not found' });
+    const secret = String(secrets?.kadimaWebhookSecret || '');
+    if (secret) {
+      const got = String(req.headers?.['webhook-signature'] || '').trim();
+      const hex = kadimaSignature(secret, evt);
+      // Kadima documents a SHA-512 sum; accept it as hex (any case) or base64.
+      const ok = got && (safeEqual(got.toLowerCase(), hex) || safeEqual(got, Buffer.from(hex, 'hex').toString('base64')));
+      if (!ok) {
+        console.warn('Kadima webhook: bad signature for', farrierId, JSON.stringify({ id: evt?.id, module: evt?.module, action: evt?.action, date: evt?.date, header: got ? `${got.slice(0, 12)}… (${got.length} chars)` : 'missing' }));
+        return res.status(401).json({ error: 'Bad signature' });
+      }
+    }
+    // Only new payments matter here; acknowledge everything else so Kadima doesn't retry.
+    if (evt.module !== 'transaction' || !['create', 'reccuring', 'recurring'].includes(evt.action)) {
+      return res.status(200).json({ received: true, ignored: `${evt.module}/${evt.action}` });
+    }
+
+    const ref = String(evt.data?.externalId ?? evt.data?.transaction?.externalId ?? '');
+    const invoices = (await queryIn('invoices', 'farrierId', [farrierId])).filter(inv => {
+      const links = inv.kadimaLinks || {};
+      if (isKadimaRef(ref)) return !!links[ref];
+      // No usable reference in the event: check every invoice with a recent form.
+      return Object.values(links).some(l => Date.now() - new Date(l?.createdAt).getTime() < RECENT_FORM_DAYS * 86400e3);
+    });
+    let recorded = 0, reversed = 0;
+    for (const inv of invoices) {
+      const r = await syncKadimaInvoice(creds, inv.id);
+      recorded += r.recorded; reversed += r.reversed;
+    }
+    console.log(`📥 Kadima webhook ${evt.id} ${evt.module}/${evt.action} for ${farrierId}:`, JSON.stringify({ ref, invoices: invoices.length, recorded, reversed }));
+    return res.status(200).json({ received: true });
+  } catch (err) {
+    console.error('❌ Kadima webhook error:', farrierId, err);
+    return res.status(500).json({ error: 'Webhook failed' });
+  }
+}
+
+// Settings → Kadima: save (or clear) the webhook's Signature from the Kadima dashboard.
+export async function setKadimaWebhookSecret(farrierId, secret) {
+  secret = String(secret || '').trim();
+  if (secret && !/^[\x21-\x7e]{8,200}$/.test(secret)) throw new PaymentError('That doesn’t look like a Kadima webhook signature. Copy it again from the Add Webhook screen.');
+  if (!(await getKadimaCreds(farrierId))) throw new PaymentError('Connect Kadima first.');
+  if (secret) await patchDoc(`farrierSecrets/${farrierId}`, { kadimaWebhookSecret: secret });
+  else await patchDoc(`farrierSecrets/${farrierId}`, {}, ['kadimaWebhookSecret']);
+  return { webhookSigned: !!secret };
+}
+
+function safeEqual(a, b) {
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
