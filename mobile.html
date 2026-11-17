@@ -963,16 +963,15 @@
     <div id="appt-cancelled-banner" style="display:none; background:var(--danger-bg); border:2px solid #fca5a5; color:var(--danger); border-radius:10px; padding:10px 14px; margin-bottom:12px; font-weight:700; font-size:0.85rem;">
       ⚠️ This appointment is cancelled
     </div>
-    <div class="field">
-      <label>Date *</label>
-      <div id="appt-date-chips" class="date-chip-row"></div>
-      <button class="btn-secondary" id="appt-more-dates-btn" onclick="showMoreApptDates()" style="margin-top:8px;">Show Next 5 Days</button>
-      <input type="hidden" id="appt-date">
-    </div>
-    <div class="field">
-      <label>Time *</label>
-      <div id="appt-time-slots" class="service-grid"></div>
-      <input type="hidden" id="appt-time">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div class="field">
+        <label>Date *</label>
+        <input type="date" id="appt-date" style="color-scheme:light;">
+      </div>
+      <div class="field">
+        <label>Time *</label>
+        <input type="time" id="appt-time" style="color-scheme:light;">
+      </div>
     </div>
     <div class="field" id="appt-horses-fallback-wrap"><label>Number of Horses</label><input type="number" id="appt-horses" value="1" min="1"></div>
     <div class="field" id="appt-horses-picker-wrap" style="display:none;">
@@ -5951,8 +5950,7 @@ async function flushPhotoOutbox() {
 }
 
 // ── APPOINTMENT AVAILABILITY / TIME SLOTS ──
-// Mirrors the slot logic on the public customer booking page, so the farrier
-// can't accidentally book themselves outside their own working hours.
+// Default working hours, used by the Settings → Availability screen until the farrier saves their own.
 const DEFAULT_AVAILABILITY = {
   monday:    { enabled: true,  start: '09:00', end: '17:00' },
   tuesday:   { enabled: true,  start: '09:00', end: '17:00' },
@@ -5963,169 +5961,12 @@ const DEFAULT_AVAILABILITY = {
   sunday:    { enabled: false, start: '09:00', end: '17:00' },
 };
 
-// ── APPOINTMENT DATE PICKER ──
-// Only offers days the farrier is actually set up to work, 5 at a time,
-// instead of a native date picker that happily lets them pick a weekend
-// (or any day off) they never work.
-let apptDateWindowOffset = 0;
-let apptDateChips = [];
-
-function isDayAvailable(date) {
-  const dayName = date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-  const availability = state.userProfile?.availability || DEFAULT_AVAILABILITY;
-  const day = availability[dayName];
-  return !!(day && day.enabled);
-}
-
-function computeNextAvailableDates(startOffset, count) {
-  const dates = [];
-  let offset = startOffset;
-  let guard = 0;
-  while (dates.length < count && guard < 400) {
-    const d = new Date();
-    d.setHours(0,0,0,0);
-    d.setDate(d.getDate() + offset);
-    if (isDayAvailable(d)) {
-      dates.push({
-        dateStr: d.toISOString().split('T')[0],
-        dow: d.toLocaleDateString('en-US', { weekday: 'short' }),
-        num: d.getDate(),
-      });
-    }
-    offset++;
-    guard++;
-  }
-  return { dates, nextOffset: offset };
-}
-
-function renderApptDateChips(selectedDate) {
-  const container = document.getElementById('appt-date-chips');
-  if (!apptDateChips.length) {
-    container.innerHTML = `<div style="grid-column:1/-1;color:var(--text-muted);font-size:0.85rem;padding:8px 0;text-align:center;">
-      No working days found — check your Availability in Settings on the main app.
-    </div>`;
-    return;
-  }
-  container.innerHTML = apptDateChips.map(d => `
-    <div class="date-chip${d.dateStr === selectedDate ? ' selected' : ''}" onclick="selectApptDateChip('${d.dateStr}')">
-      <div class="date-chip-dow">${d.dow}</div>
-      <div class="date-chip-num">${d.num}</div>
-    </div>
-  `).join('');
-}
-
-function selectApptDateChip(dateStr) {
-  document.getElementById('appt-date').value = dateStr;
-  renderApptDateChips(dateStr);
-  onApptDateChange();
-}
-
-function showMoreApptDates() {
-  const { dates, nextOffset } = computeNextAvailableDates(apptDateWindowOffset, 5);
-  apptDateChips = dates;
-  apptDateWindowOffset = nextOffset;
-  const sel = dates[0] ? dates[0].dateStr : '';
-  document.getElementById('appt-date').value = sel;
-  renderApptDateChips(sel);
-  onApptDateChange();
-}
-
-// preselectDate: used when editing an appointment, so its saved date is shown
-// even if it falls outside the freshly-computed window (e.g. it's on a day
-// normally marked off, or further out than the first 5 available days).
-function initApptDatePicker(preselectDate) {
-  apptDateWindowOffset = 0;
-  const { dates, nextOffset } = computeNextAvailableDates(0, 5);
-  if (preselectDate && !dates.some(d => d.dateStr === preselectDate)) {
-    const [y, m, dd] = preselectDate.split('-').map(Number);
-    const pd = new Date(y, m - 1, dd);
-    dates.unshift({ dateStr: preselectDate, dow: pd.toLocaleDateString('en-US', { weekday: 'short' }), num: pd.getDate() });
-  }
-  apptDateChips = dates;
-  apptDateWindowOffset = nextOffset;
-  const initialSelection = preselectDate || (dates[0] ? dates[0].dateStr : '');
-  document.getElementById('appt-date').value = initialSelection;
-  renderApptDateChips(initialSelection);
-}
-
-function getAvailableApptSlots(dateStr) {
-  if (!dateStr) return [];
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const dayName = new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-  const availability = state.userProfile?.availability || DEFAULT_AVAILABILITY;
-  const day = availability[dayName];
-  if (!day || !day.enabled) return [];
-  const slots = [];
-  const [startHour, startMin] = (day.start || '09:00').split(':').map(Number);
-  const [endHour, endMin] = (day.end || '17:00').split(':').map(Number);
-  let h = startHour, mi = startMin;
-  while (h < endHour || (h === endHour && mi < endMin)) {
-    slots.push(`${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}`);
-    mi += 120; // 2-hour slots, matching the customer booking page
-    h += Math.floor(mi / 60);
-    mi = mi % 60;
-  }
-  return slots;
-}
-
-let _apptSlotsCache = [];
-let _apptBookedCache = [];
-
-function renderApptTimeSlots(selectedTime) {
-  const container = document.getElementById('appt-time-slots');
-  if (!_apptSlotsCache.length) {
-    container.innerHTML = `<div style="grid-column:1/-1;color:var(--text-muted);font-size:0.85rem;padding:12px 0;text-align:center;">
-      You're not set up to work this day. Change your Availability in Settings on the main app, or pick a different date.
-    </div>`;
-    return;
-  }
-  container.innerHTML = _apptSlotsCache.map(t => {
-    const booked = _apptBookedCache.includes(t);
-    const selected = t === selectedTime;
-    return `<div class="service-chip${selected ? ' selected' : ''}${booked ? ' disabled' : ''}"
-      ${booked ? '' : `onclick="selectApptTimeSlot('${t}')"`}>
-      <div>${fmtTime(t)}</div>
-      ${booked ? '<div class="service-chip-price">Booked</div>' : ''}
-    </div>`;
-  }).join('');
-}
-
-function selectApptTimeSlot(time) {
-  document.getElementById('appt-time').value = time;
-  renderApptTimeSlots(time);
-}
-
-async function onApptDateChange(preselectTime = null) {
-  const dateStr = document.getElementById('appt-date').value;
-  document.getElementById('appt-time').value = preselectTime || '';
-  _apptSlotsCache = [];
-  _apptBookedCache = [];
-  const container = document.getElementById('appt-time-slots');
-  if (!dateStr) { container.innerHTML = ''; return; }
-
-  container.innerHTML = '<div style="grid-column:1/-1;color:var(--text-muted);font-size:0.85rem;padding:8px 0;">Loading times…</div>';
-
-  let slots = getAvailableApptSlots(dateStr);
-  // If editing an appointment whose saved time doesn't line up with a generated
-  // slot (e.g. set from the desktop app, or from before this feature existed),
-  // still offer it so editing never silently discards the original time.
-  if (preselectTime && !slots.includes(preselectTime)) slots = [...slots, preselectTime].sort();
-
-  let bookedTimes = [];
-  try {
-    const snap = await db.collection('appointments')
-      .where('farrierId', '==', bizId())
-      .where('requestedDate', '==', dateStr)
-      .get();
-    bookedTimes = snap.docs
-      .filter(d => d.id !== state.editingApptId && d.data().status !== 'cancelled')
-      .map(d => d.data().requestedTime)
-      .filter(Boolean);
-  } catch(e) { console.warn('Could not check existing bookings:', e); }
-
-  _apptSlotsCache = slots;
-  _apptBookedCache = bookedTimes;
-  renderApptTimeSlots(preselectTime);
+// ── APPOINTMENT DATE / TIME ──
+// Plain date + time inputs, same as the desktop app's New Appointment form —
+// any date and any time can be entered (no availability-slot restriction).
+function setApptDateTime(date, time) {
+  document.getElementById('appt-date').value = date || '';
+  document.getElementById('appt-time').value = time || '';
 }
 
 // ── NEW / EDIT APPOINTMENT ──
@@ -6143,8 +5984,7 @@ function startNewAppointment() {
   const prefillAddr = [state.customer.address, state.customer.city, state.customer.state].filter(Boolean).join(', ');
   document.getElementById('appt-notes').value = '';
   renderServiceGrid('appt-service-grid');
-  initApptDatePicker(null);
-  onApptDateChange();
+  setApptDateTime('', '');
   goTo('screen-new-appt');
   // Initialize PAC widget (safe to call multiple times — it guards internally)
   _apptPac = null; // reset so it re-mounts fresh each time
@@ -6175,7 +6015,7 @@ function startEditAppointment(appt) {
   document.getElementById('appt-view-customer-btn').style.display = 'inline-block';
   document.getElementById('appt-customer-name').textContent = state.customer.name;
   document.getElementById('appt-customer-farm').textContent = state.customer.farmName || '';
-  initApptDatePicker(appt.requestedDate || null);
+  setApptDateTime(appt.requestedDate || '', appt.requestedTime || '');
   document.getElementById('appt-horses').value = appt.numberOfHorses || 1;
   document.getElementById('appt-notes').value = appt.comments || '';
   renderServiceGrid('appt-service-grid');
@@ -6206,7 +6046,6 @@ function startEditAppointment(appt) {
       .catch(e => console.error(e));
   }
 
-  onApptDateChange(appt.requestedTime || null);
   goTo('screen-new-appt');
   _apptPac = null;
   _apptPacTries = 0;
@@ -6220,7 +6059,7 @@ function startEditAppointment(appt) {
 async function saveNewAppointment() {
   const date = document.getElementById('appt-date').value;
   const time = document.getElementById('appt-time').value;
-  if (!date) { showToast('Date is required', 'error'); return; }
+  if (!date || !time) { showToast('Date and Time are required', 'error'); return; }
   const btn = document.getElementById('appt-save-btn');
   const editingId = state.editingApptId;
   btn.disabled = true; btn.textContent = 'Saving…';
