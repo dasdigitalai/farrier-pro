@@ -41,12 +41,17 @@ mock.module('../api/_lib/firebase-rest.js', {
 });
 
 // ── Fake Kadima (and a tripwire for every other host) ──
-const kadima = { payments: [], forms: [], refunds: [], requests: [], tokenOk: true, nextId: 500000 };
+const kadima = { payments: [], forms: [], refunds: [], requests: [], texts: [], tokenOk: true, nextId: 500000 };
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 globalThis.fetch = async (input, init = {}) => {
   const url = new URL(String(input));
   const body = init.body ? JSON.parse(init.body) : undefined;
   kadima.requests.push({ method: init.method || 'GET', host: url.host, path: url.pathname, query: Object.fromEntries(url.searchParams), body, auth: init.headers?.Authorization });
+  // Customer texts go to FarriTech's own /api/send-sms: captured here, never sent.
+  if (url.host === 'app.farritech.com' && url.pathname === '/api/send-sms') {
+    kadima.texts.push(body);
+    return json(200, { success: true });
+  }
   if (!['sandbox-gateway.kadimadashboard.com', 'sandbox.kadimadashboard.com'].includes(url.host)) {
     throw new Error(`test tried to reach ${url.host}`);
   }
@@ -101,7 +106,7 @@ function fakeRes() {
 
 beforeEach(() => {
   store.clear();
-  Object.assign(kadima, { payments: [], forms: [], refunds: [], requests: [], tokenOk: true });
+  Object.assign(kadima, { payments: [], forms: [], refunds: [], requests: [], texts: [], tokenOk: true });
   store.set(`farrierSecrets/${FARRIER}`, { ...secrets });
 });
 
@@ -303,9 +308,9 @@ test('a payment whose return never arrived is found before a second form is offe
   assert.equal(kadima.forms.length, 1);
 });
 
-test('no request ever left for a host other than the Kadima sandbox', () => {
+test('no request ever left for a host other than the Kadima sandbox (or the captured text endpoint)', () => {
   // (the fetch stub throws for any other host; this documents it)
-  assert.ok(kadima.requests.every(r => r.host.endsWith('kadimadashboard.com')));
+  assert.ok(kadima.requests.every(r => r.host.endsWith('kadimadashboard.com') || r.path === '/api/send-sms'));
 });
 
 // ── Double charges (what happened in the sandbox on 2026-11-17: two forms, both paid) ──
@@ -509,4 +514,40 @@ test('clear declines are still reported as declines', async () => {
     const r = await K.syncKadimaPayment(CREDS, 'inv041', ref);
     assert.deepEqual([status, r.declined, r.message], [status, true, 'Do not honor']);
   }
+});
+
+
+// ── Receipt link + receipt page ──
+test('the "payment received" text links to the receipt', async () => {
+  const inv = newInvoice('inv050', { customerPhone: '+15615550100', customerName: 'Jane Smith' });
+  const { ref } = await K.createKadimaPage(CREDS, 'inv050', inv);
+  kadimaPayment(ref, { amount: 100 });
+  await K.syncKadimaInvoice(CREDS, 'inv050');
+  assert.equal(kadima.texts.length, 1);
+  assert.equal(kadima.texts[0].to, '+15615550100');
+  assert.match(kadima.texts[0].body, /^Hi Jane, your payment of \$100\.00 for invoice #1001 has been received\. View your receipt: https:\/\/app\.farritech\.com\/pay\/inv050 /);
+  await K.syncKadimaInvoice(CREDS, 'inv050');
+  assert.equal(kadima.texts.length, 1); // once only
+});
+
+test('a paid invoice\'s pay link shows the receipt: business, lines, total, card, PAID', async () => {
+  store.set(`farriers/${FARRIER}`, { businessName: 'Spatz Farrier Co' });
+  const inv = newInvoice('inv051', { customerName: 'Jane Smith', items: [
+    { description: 'Full Set', horseName: 'Bella', unitPrice: 180, qty: 1, amount: 180 },
+    { description: 'Trim', horseName: 'Duke', unitPrice: 50, qty: 1, amount: 50 },
+  ], total: 230 });
+  const { ref } = await K.createKadimaPage(CREDS, 'inv051', inv);
+  kadimaPayment(ref, { amount: 230 });
+  await K.syncKadimaInvoice(CREDS, 'inv051');
+  const res = fakeRes();
+  await payPage({ query: { invoice: 'inv051' } }, res);
+  for (const want of ['Invoice paid', 'Spatz Farrier Co', 'Invoice #1001', 'Jane Smith', 'Full Set', 'Bella', 'Trim', 'Duke', '$230.00', 'Visa ending 1111', '>PAID<', 'pay-logo.png']) {
+    assert.ok(res.body.includes(want), `receipt should include ${want}`);
+  }
+  // HTML in invoice data is escaped, never rendered.
+  patch('invoices/inv051', { customerName: '<script>alert(1)</script>' });
+  const res2 = fakeRes();
+  await payPage({ query: { invoice: 'inv051' } }, res2);
+  assert.ok(!res2.body.includes('<script>alert(1)</script>'));
+  assert.ok(res2.body.includes('&lt;script&gt;'));
 });

@@ -7,19 +7,8 @@
 // its signing secret lives in farrierSecrets/{farrierId}.stripeWebhookSecret.
 import Stripe from 'stripe';
 import { getDoc, getStripeSecretKey, serverAuth } from './firebase-rest.js';
-import { recordCheckoutSession, APP_URL } from './invoice-payments.js';
+import { recordCheckoutSession, sendPaymentReceivedSms } from './invoice-payments.js';
 
-async function sendPaidSms(to, name, amountCents, invoiceNumber) {
-  if (!to) return;
-  try {
-    const { idToken } = await serverAuth();
-    await fetch(`${APP_URL}/api/send-sms`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ to, body: `Hi ${name || 'there'}, your payment of $${(amountCents / 100).toFixed(2)} for invoice #${invoiceNumber} has been received. Thank you! Reply STOP to opt out.` }),
-    });
-  } catch (e) { console.warn('Confirmation SMS error:', e.message); }
-}
 
 // Records a completed Checkout Session from a webhook (this one, or FarriTech's own account
 // webhook in stripe-payment.js) and texts the customer the first time it's recorded. The
@@ -28,7 +17,10 @@ export async function recordWebhookSession(stripe, farrierId, session) {
   const result = await recordCheckoutSession(stripe, farrierId, session);
   console.log(`📥 checkout.session.completed ${session.id} for ${farrierId}:`, JSON.stringify({ invoiceId: result.invoiceId, status: result.status, ignored: result.ignored, duplicate: result.duplicate, alreadyPaid: result.alreadyPaid }));
   if (result.status && !result.duplicate && !result.alreadyPaid) {
-    await sendPaidSms(session.customer_details?.phone, session.customer_details?.name, session.amount_total || 0, result.invoice?.invoiceNumber || '');
+    await sendPaymentReceivedSms({
+      to: session.customer_details?.phone || result.invoice?.customerPhone, name: session.customer_details?.name || result.invoice?.customerName,
+      amountCents: session.amount_total || 0, invoiceNumber: result.invoice?.invoiceNumber || '', invoiceId: result.invoiceId,
+    });
   }
   return result;
 }

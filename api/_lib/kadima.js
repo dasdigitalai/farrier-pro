@@ -26,7 +26,7 @@
 import crypto from 'crypto';
 import '../../lib/pricing.js';
 import { getDoc, patchDoc, queryIn, serverAuth } from './firebase-rest.js';
-import { applyPayment, payUrlFor, PaymentError, APP_URL } from './invoice-payments.js';
+import { applyPayment, payUrlFor, PaymentError, APP_URL, sendPaymentReceivedSms } from './invoice-payments.js';
 
 const P = globalThis.FarriPricing;
 
@@ -350,7 +350,7 @@ export async function syncKadimaInvoice(creds, invoiceId) {
     s.paidCents += amountCents;
     out.recorded++;
     await patchDoc(`invoices/${invoiceId}`, { kadimaTransactionId: String(t.id) });
-    await sendPaidSms(invoice, amountCents);
+    await sendPaymentReceivedSms({ to: invoice.customerPhone, name: invoice.customerName, amountCents, invoiceNumber: invoice.invoiceNumber, invoiceId });
   }
   if (out.recorded && invoice.kadimaOpenRef) {
     const after = await getDoc(`invoices/${invoiceId}`);
@@ -438,18 +438,6 @@ export async function refundKadimaPayment(creds, invoiceId, invoice, cents) {
   return { kind, amountCents: cents, refundId: String(r.data.id || '') };
 }
 
-async function sendPaidSms(invoice, amountCents) {
-  if (!invoice.customerPhone) return;
-  try {
-    const { idToken } = await serverAuth();
-    const name = String(invoice.customerName || '').split(' ')[0] || 'there';
-    await fetch(`${APP_URL}/api/send-sms`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ to: invoice.customerPhone, body: `Hi ${name}, your payment of ${P.money(amountCents)} for invoice #${invoice.invoiceNumber || ''} has been received. Thank you! Reply STOP to opt out.` }),
-    });
-  } catch (e) { console.warn('Confirmation SMS error:', e.message); }
-}
 
 // ── Webhook: POST /api/kadima/webhook/{farrierId} (vercel.json → stripe-payment?kadimaWebhook=…) ──
 // The farrier adds this URL in their Kadima dashboard (Developers → Webhooks, event "Payment

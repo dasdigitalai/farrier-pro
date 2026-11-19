@@ -295,6 +295,22 @@ export async function removeWebhook(stripe, farrierId) {
 
 // Texts and/or emails the customer the (unchanged) pay link with the new amount.
 // Deliberately says nothing about a removed or added card price.
+// Texts the customer that their card payment was received, with a link to their receipt
+// (/pay/{invoiceId} shows the paid invoice). Never throws: a failed text mustn't fail a payment.
+export async function sendPaymentReceivedSms({ to, name, amountCents, invoiceNumber, invoiceId }) {
+  if (!to) return;
+  try {
+    const { idToken } = await serverAuth();
+    const first = String(name || '').trim().split(/\s+/)[0] || 'there';
+    const receipt = invoiceId ? ` View your receipt: ${payUrlFor(invoiceId)}` : '';
+    await fetch(`${APP_URL}/api/send-sms`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      body: JSON.stringify({ to, body: `Hi ${first}, your payment of ${P.money(amountCents)} for invoice #${invoiceNumber || ''} has been received.${receipt} Thank you! Reply STOP to opt out.` }),
+    });
+  } catch (e) { console.warn('Confirmation SMS error:', e.message); }
+}
+
 export async function sendUpdatedPayLink(invoice, invoiceId, amountCents) {
   const farrier = await getDoc(`farriers/${invoice.farrierId}`).catch(() => null);
   const biz = farrier?.businessName || 'Your Farrier';
