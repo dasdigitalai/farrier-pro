@@ -4,7 +4,7 @@
 //   2. Confirmation to the customer (booking received)
 // Uses Resend REST API directly (no npm package needed)
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const FROM = 'FarriTech <hello@farritech.com>';
+const FROM = 'FarriTech <noreply@farritech.com>';
 
 const sendEmail = async ({ to, subject, html, replyTo }) => {
   const res = await fetch('https://api.resend.com/emails', {
