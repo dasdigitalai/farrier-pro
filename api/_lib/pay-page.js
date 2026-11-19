@@ -21,6 +21,34 @@ import { getKadimaCreds, isKadimaRef, syncKadimaPayment, syncKadimaInvoice, crea
 
 const P = globalThis.FarriPricing;
 
+// The farrier's business at the top of their customers' pages (like the PDF invoice):
+// logo (set by FarriTech support), name, address, phone, email. FarriTech stays in the footer.
+// Pages that belong to no farrier (e.g. "Invoice not found") show the FarriTech logo instead.
+async function farrierBrand(farrierId) {
+  const f = farrierId ? await getDoc(`farriers/${farrierId}`).catch(() => null) : null;
+  if (!f) return null;
+  const cityLine = [f.city, [f.state, f.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  return {
+    name: String(f.businessName || f.contactName || '').trim(),
+    logoUrl: /^https:\/\//i.test(String(f.logoUrl || '')) ? String(f.logoUrl) : '',
+    address: [f.address, cityLine].filter(Boolean).join(', '),
+    phone: String(f.phone || '').trim(),
+    email: String(f.email || '').trim(),
+  };
+}
+
+function brandHeader(b) {
+  if (!b || (!b.name && !b.logoUrl)) {
+    return '<picture><source srcset="/public/pay-logo-dark.png" media="(prefers-color-scheme: dark)"><img class="logo" src="/public/pay-logo.png" alt="FarriTech" width="240" height="47"></picture>';
+  }
+  const tel = b.phone.replace(/[^\d+]/g, '');
+  const contact = [
+    b.address ? escapeHtml(b.address) : '',
+    [b.phone ? `<a href="tel:${escapeHtml(tel)}">${escapeHtml(b.phone)}</a>` : '', b.email ? `<a href="mailto:${escapeHtml(b.email)}">${escapeHtml(b.email)}</a>` : ''].filter(Boolean).join(' · '),
+  ].filter(Boolean).map(l => `<div>${l}</div>`).join('');
+  return `<div class="brand">${b.logoUrl ? `<img class="flogo" src="${escapeHtml(b.logoUrl)}" alt="${escapeHtml(b.name || 'Logo')}">` : ''}${b.name ? `<div class="bname">${escapeHtml(b.name)}</div>` : ''}${contact ? `<div class="bcontact">${contact}</div>` : ''}</div>`;
+}
+
 function page(res, status, title, message, extra = '') {
   res.status(status).setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
@@ -35,6 +63,11 @@ function page(res, status, title, message, extra = '') {
   a.btn { display:inline-block; margin-top:1rem; background:var(--accent); color:#fff; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:700; }
   .foot { margin-top:2rem; font-size:.75rem; color:var(--muted); }
   .logo { display:block; margin:0 auto 1.25rem; width:240px; max-width:70%; height:auto; }
+  .brand { margin:0 0 1.25rem; padding-bottom:1rem; border-bottom:1px solid rgba(100,116,139,.25); }
+  .flogo { display:block; margin:0 auto .6rem; max-width:180px; max-height:72px; width:auto; height:auto; }
+  .bname { font-size:1.15rem; font-weight:800; }
+  .bcontact { font-size:.8rem; color:var(--muted); line-height:1.5; margin-top:.25rem; }
+  .bcontact a { color:inherit; text-decoration:none; }
   .rcpt { margin-top:1.5rem; text-align:left; border-top:1px solid rgba(100,116,139,.25); padding-top:1rem; }
   .rh { display:flex; justify-content:space-between; align-items:flex-start; gap:.75rem; margin-bottom:.75rem; }
   .biz { font-weight:700; } .sub { font-size:.8rem; color:var(--muted); line-height:1.4; }
@@ -43,7 +76,7 @@ function page(res, status, title, message, extra = '') {
   .rcpt td { padding:.45rem 0; border-bottom:1px solid rgba(100,116,139,.15); vertical-align:top; }
   .rcpt td.r { text-align:right; white-space:nowrap; padding-left:.75rem; }
   .rcpt tr.tot td { font-weight:700; }
-</style></head><body><div class="card"><picture><source srcset="/public/pay-logo-dark.png" media="(prefers-color-scheme: dark)"><img class="logo" src="/public/pay-logo.png" alt="FarriTech" width="240" height="47"></picture><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p>${extra}<div class="foot">Powered by FarriTech</div></div></body></html>`);
+</style></head><body><div class="card">${brandHeader(res._brand)}<h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p>${extra}<div class="foot">Powered by FarriTech</div></div></body></html>`);
 }
 
 // ── Receipt: what /pay/{id} shows once the invoice is paid (the link in the "payment received" text) ──
@@ -60,6 +93,7 @@ async function receiptHtml(invoiceId) {
   if (!inv) return '';
   const farrier = await getDoc(`farriers/${inv.farrierId}`).catch(() => null);
   const tz = farrier?.timezone || farrier?.timeZone;
+  const dated = fmtDate(inv.date || inv.createdAt, tz);
   const items = Array.isArray(inv.items) ? inv.items : [];
   const rows = items.map((item) => {
     let svc = String(item?.serviceNameSnapshot || item?.description || 'Service').trim();
@@ -78,8 +112,8 @@ async function receiptHtml(invoiceId) {
   const owed = Number(inv.balanceDue) > 0 && inv.status !== 'paid' && inv.status !== 'refunded'
     ? `<tr class="tot"><td>Balance due</td><td class="r">${escapeHtml(dollars(inv.balanceDue))}</td></tr>` : '';
   return `<div class="rcpt">
-  <div class="rh"><div><div class="biz">${escapeHtml(farrier?.businessName || 'Your Farrier')}</div>
-  <div class="sub">Invoice #${escapeHtml(inv.invoiceNumber || '')}${fmtDate(inv.date || inv.createdAt, tz) ? ` · ${escapeHtml(fmtDate(inv.date || inv.createdAt, tz))}` : ''}${inv.customerName ? `<br>${escapeHtml(inv.customerName)}` : ''}</div></div>
+  <div class="rh"><div><div class="biz">Invoice #${escapeHtml(inv.invoiceNumber || '')}</div>
+  <div class="sub">${dated ? escapeHtml(dated) : ''}${inv.customerName ? `${dated ? '<br>' : ''}Bill to: ${escapeHtml(inv.customerName)}` : ''}</div></div>
   ${status ? `<span class="badge" style="color:${status[1]};border-color:${status[1]}">${status[0]}</span>` : ''}</div>
   <table>${rows}<tr class="tot"><td>Total</td><td class="r">${escapeHtml(dollars(inv.total))}</td></tr>${payments}${refunds}${owed}</table>
 </div>`;
@@ -97,6 +131,7 @@ export async function payPage(req, res) {
   try {
     const invoice = await getDoc(`invoices/${invoiceId}`);
     if (!invoice) return page(res, 404, 'Invoice not found', 'This payment link is not valid. Please contact your farrier.');
+    res._brand = await farrierBrand(invoice.farrierId);
     const number = invoice.invoiceNumber || '';
     const key = await getStripeSecretKey(invoice.farrierId);
 

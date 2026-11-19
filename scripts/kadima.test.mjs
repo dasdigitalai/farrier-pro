@@ -531,7 +531,8 @@ test('the "payment received" text links to the receipt', async () => {
 });
 
 test('a paid invoice\'s pay link shows the receipt: business, lines, total, card, PAID', async () => {
-  store.set(`farriers/${FARRIER}`, { businessName: 'Spatz Farrier Co' });
+  store.set(`farriers/${FARRIER}`, { businessName: 'Spatz Farrier Co', phone: '(561) 555-0199', email: 'shoes@spatzfarrier.com',
+    address: '100 Barn Rd', city: 'Wellington', state: 'FL', zip: '33414', logoUrl: 'https://cdn.example.com/spatz-logo.png' });
   const inv = newInvoice('inv051', { customerName: 'Jane Smith', items: [
     { description: 'Full Set', horseName: 'Bella', unitPrice: 180, qty: 1, amount: 180 },
     { description: 'Trim', horseName: 'Duke', unitPrice: 50, qty: 1, amount: 50 },
@@ -541,13 +542,31 @@ test('a paid invoice\'s pay link shows the receipt: business, lines, total, card
   await K.syncKadimaInvoice(CREDS, 'inv051');
   const res = fakeRes();
   await payPage({ query: { invoice: 'inv051' } }, res);
-  for (const want of ['Invoice paid', 'Spatz Farrier Co', 'Invoice #1001', 'Jane Smith', 'Full Set', 'Bella', 'Trim', 'Duke', '$230.00', 'Visa ending 1111', '>PAID<', 'pay-logo.png']) {
+  for (const want of ['Invoice paid', 'Spatz Farrier Co', '100 Barn Rd, Wellington, FL 33414', '(561) 555-0199', 'tel:5615550199', 'shoes@spatzfarrier.com',
+    'https://cdn.example.com/spatz-logo.png', 'Invoice #1001', 'Bill to: Jane Smith', 'Full Set', 'Bella', 'Trim', 'Duke', '$230.00', 'Visa ending 1111', '>PAID<', 'Powered by FarriTech']) {
     assert.ok(res.body.includes(want), `receipt should include ${want}`);
   }
+  // The farrier's business is at the top, not FarriTech's logo.
+  assert.ok(!res.body.includes('pay-logo.png'));
+  const body = res.body.slice(res.body.indexOf('<body>'));
+  assert.ok(body.indexOf('Spatz Farrier Co') < body.indexOf('<h1>Invoice paid'));
+  // Only https logos are shown.
+  patch(`farriers/${FARRIER}`, { logoUrl: 'javascript:alert(1)' });
+  const res3 = fakeRes();
+  await payPage({ query: { invoice: 'inv051' } }, res3);
+  assert.ok(!res3.body.includes('javascript:alert'));
   // HTML in invoice data is escaped, never rendered.
   patch('invoices/inv051', { customerName: '<script>alert(1)</script>' });
   const res2 = fakeRes();
   await payPage({ query: { invoice: 'inv051' } }, res2);
   assert.ok(!res2.body.includes('<script>alert(1)</script>'));
   assert.ok(res2.body.includes('&lt;script&gt;'));
+});
+
+
+test('pages that belong to no farrier still show the FarriTech logo', async () => {
+  const res = fakeRes();
+  await payPage({ query: { invoice: 'doesNotExist01' } }, res);
+  assert.match(res.body, /Invoice not found/);
+  assert.ok(res.body.includes('pay-logo.png'));
 });
