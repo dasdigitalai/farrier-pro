@@ -73,7 +73,7 @@ export async function applyPayment(invoiceId, {
     };
 
     if (inv.status === 'paid' || inv.status === 'cancelled') {
-      if (source !== 'stripe' && source !== 'ipospays') throw new PaymentError(inv.status === 'paid' ? 'This invoice is already paid.' : 'This invoice is cancelled.', 409);
+      if (!['stripe', 'ipospays', 'kadima'].includes(source)) throw new PaymentError(inv.status === 'paid' ? 'This invoice is already paid.' : 'This invoice is cancelled.', 409);
       // The processor already has the money (e.g. the customer paid online at the same moment the
       // farrier recorded cash). Keep a record so the farrier can refund it.
       tx.create(`invoices/${invoiceId}/payments/${paymentId}`, { ...paymentDoc, creditCents: 0, unapplied: true });

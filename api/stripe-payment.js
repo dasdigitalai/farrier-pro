@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import crypto from 'crypto';
 import '../lib/pricing.js';
-import { callerFromRequest, getDoc, patchDoc, listDocs, getStripeSecretKey, setStripeSecretKey, getGoogleRefreshToken } from './_lib/firebase-rest.js';
+import { callerFromRequest, getDoc, patchDoc, listDocs, getStripeSecretKey, setStripeSecretKey, getGoogleRefreshToken, isSupportAdmin } from './_lib/firebase-rest.js';
 import {
   applyPayment, cardDetails, closeOnlinePayment, closeStripeCheckouts, createCheckoutSession, recordCheckoutSession,
   removeWebhook, sendUpdatedPayLink, setupWebhook, PaymentError,
@@ -11,8 +11,11 @@ import { farrierWebhook, recordWebhookSession } from './_lib/farrier-webhook.js'
 import { businessFor, requireRole, teamAccept, teamInvite, teamRemove, teamSetRole, teamStatus } from './_lib/team.js';
 import { askAI } from './_lib/ask-ai.js';
 import { closeIposPages, connectIpospays, createIposPage, disconnectIpospays, getIposCreds, iposCallback, refundIposPayment, syncIposPayment } from './_lib/ipospays.js';
+import { closeKadimaPages, connectKadima, createKadimaPage, disconnectKadima, getKadimaCreds, isKadimaRef, kadimaWebhook, refundKadimaPayment, setKadimaWebhookSecret, syncKadimaPayment } from './_lib/kadima.js';
 
 const P = globalThis.FarriPricing;
+// Where this deployment is reached (the live app, or a branch preview while testing).
+const APP_BASE = (req) => `https://${String(req.headers?.['x-forwarded-host'] || req.headers?.host || 'app.farritech.com').split(',')[0].trim()}`;
 const SECRET_KEY_RE = /^(sk|rk)_(live|test)_/;
 // A farrier takes card payments through one processor at a time, so a payment can't be
 // split across two or left on one they've stopped watching.
@@ -127,6 +130,8 @@ export default async function handler(req, res) {
   if (req.query?.webhookFarrier) return farrierWebhook(req, res, rawBody, String(req.query.webhookFarrier));
   // iPOSpays payment callback (/api/ipospays/callback/:invoiceId, see vercel.json)
   if (req.query?.iposCallback) return iposCallback(req, res, rawBody, String(req.query.iposCallback));
+  // Kadima payment webhook (/api/kadima/webhook/:farrierId, see vercel.json)
+  if (req.query?.kadimaWebhook) return kadimaWebhook(req, res, rawBody, String(req.query.kadimaWebhook));
   if (req.headers['stripe-signature']) return handleWebhook(req, res, rawBody);
 
   try {
@@ -191,6 +196,8 @@ export default async function handler(req, res) {
         await closeOnlinePayment(stripe, inv);
         const ipos = await getIposCreds(farrierId);
         if (ipos) await closeIposPages(ipos, inv.id, inv);
+        const kadima = await getKadimaCreds(farrierId);
+        if (kadima) await closeKadimaPages(kadima, inv.id, inv);
       }
       return res.status(200).json({ success: true, transactionId: pi.id, amount: amountCents / 100, ...card });
     }
@@ -210,11 +217,13 @@ export default async function handler(req, res) {
       });
     }
 
-    // ── Admin: clear a farrier's forgotten manager password so they can set a new one ──
+    // ── Admin / support staff: clear a farrier's forgotten manager password so they can set a
+    // new one (Support → farrier → Reset manager password). Only clears it; never sets one. ──
     if (action === 'reset_manager_password') {
-      if (!ADMIN_EMAILS.includes(caller.email)) return res.status(403).json({ success: false, error: 'Admins only.' });
-      if (!body.farrierId) return res.status(400).json({ success: false, error: 'Missing farrierId.' });
+      if (!ADMIN_EMAILS.includes(caller.email) && !(await isSupportAdmin(caller.uid))) return res.status(403).json({ success: false, error: 'Admins and FarriTech support only.' });
+      if (!/^[A-Za-z0-9_-]{6,128}$/.test(String(body.farrierId || ''))) return res.status(400).json({ success: false, error: 'Missing farrierId.' });
       await patchDoc(`farrierSecrets/${body.farrierId}`, {}, ['managerPasswordHash']);
+      console.log(`🔑 Manager password cleared for ${body.farrierId} by ${caller.email || caller.uid}`);
       return res.status(200).json({ success: true });
     }
 
@@ -238,14 +247,15 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, ...await askAI({ caller, biz, body }) });
     }
 
-    const OWNER_ONLY =['ipospays_connect', 'ipospays_disconnect', 'connect', 'validate', 'disconnect', 'set_manager_password', 'deactivate_link'];
-    const MANAGERS = ['ipospays_refund', 'refund', 'waive_card_price'];
+    const OWNER_ONLY =['ipospays_connect', 'ipospays_disconnect', 'kadima_connect', 'kadima_disconnect', 'kadima_webhook_secret', 'connect', 'validate', 'disconnect', 'set_manager_password', 'deactivate_link'];
+    const MANAGERS = ['ipospays_refund', 'kadima_refund', 'refund', 'waive_card_price'];
     if (OWNER_ONLY.includes(action)) requireRole(biz, ['owner'], 'change payment settings');
     if (MANAGERS.includes(action)) requireRole(biz, ['owner', 'manager'], action === 'waive_card_price' ? 'waive the card price' : 'issue refunds');
 
     // ── iPOSpays (Settings → iPOSpays Payments) ──
     if (action === 'ipospays_connect') {
       if (await getStripeSecretKey(farrierId)) throw new PaymentError(ONE_PROCESSOR('Stripe', 'iPOSpays'), 409);
+      if (await getKadimaCreds(farrierId)) throw new PaymentError(ONE_PROCESSOR('Kadima', 'iPOSpays'), 409);
       const { tpn, apiKey, secretKey, ecomToken, mode } = body;
       const result = await connectIpospays(farrierId, { tpn, apiKey, secretKey, ecomToken, mode });
       return res.status(200).json({ success: true, ...result });
@@ -296,6 +306,69 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, connected: !!ipos, mode: ipos?.mode || '', tpnLast4: ipos ? ipos.tpn.slice(-4) : '' });
     }
 
+    // ── Kadima Payments (Settings → Kadima Payments, _lib/kadima.js) ──
+    if (action === 'kadima_connect') {
+      if (await getStripeSecretKey(farrierId)) throw new PaymentError(ONE_PROCESSOR('Stripe', 'Kadima'), 409);
+      if (await getIposCreds(farrierId)) throw new PaymentError(ONE_PROCESSOR('iPOSpays', 'Kadima'), 409);
+      const { token, terminalId, dbaId, mode } = body;
+      const result = await connectKadima(farrierId, { token, terminalId, dbaId, mode });
+      return res.status(200).json({ success: true, ...result });
+    }
+    if (action === 'kadima_disconnect') {
+      const result = await disconnectKadima(farrierId);
+      return res.status(200).json({ success: true, ...result });
+    }
+    if (action === 'kadima_status') {
+      const secrets = await getDoc(`farrierSecrets/${farrierId}`);
+      const kadima = await getKadimaCreds(farrierId, secrets);
+      return res.status(200).json({
+        success: true, connected: !!kadima, mode: kadima?.mode || '', terminalId: kadima?.terminalId || null, dbaId: kadima?.dbaId || null,
+        webhookUrl: kadima ? `${APP_BASE(req)}/api/kadima/webhook/${farrierId}` : '', webhookSigned: !!secrets?.kadimaWebhookSecret,
+        webhookLast: secrets?.kadimaWebhookLast || null,
+      });
+    }
+    if (action === 'kadima_webhook_secret') {
+      const result = await setKadimaWebhookSecret(farrierId, body.secret);
+      return res.status(200).json({ success: true, ...result });
+    }
+    if (action === 'kadima_refund') {
+      const { invoiceId, amount, refundPassword } = body;
+      const secrets = await getDoc(`farrierSecrets/${farrierId}`);
+      if (!secrets?.managerPasswordHash) return res.status(400).json({ success: false, error: 'Set a Manager Password in Settings before issuing refunds.' });
+      if (!checkManagerPassword(refundPassword, secrets.managerPasswordHash)) return res.status(403).json({ success: false, error: 'Incorrect manager password.' });
+      const kadima = await getKadimaCreds(farrierId, secrets);
+      if (!kadima) return res.status(400).json({ success: false, error: 'Kadima isn’t connected. Reconnect it in Settings, or refund in the Kadima dashboard.' });
+      const invoice = await ownInvoice(invoiceId, farrierId);
+      const result = await refundKadimaPayment(kadima, invoiceId, invoice, Math.round(parseFloat(amount) * 100));
+      return res.status(200).json({ success: true, recorded: true, ...result, amount: result.amountCents / 100 });
+    }
+    // Keyed card: a Kadima payment form for the farrier to type the card into (shown inside the
+    // app), for `applyAmount` of the cash-price balance (default: all of it). The app then asks
+    // kadima_check until Kadima says it went through or was declined.
+    if (action === 'kadima_keyed') {
+      const { invoiceId, applyAmount } = body;
+      const kadima = await getKadimaCreds(farrierId);
+      if (!kadima) return res.status(400).json({ success: false, error: 'Kadima isn’t connected. Connect it in Settings → Kadima Payments.' });
+      const invoice = await ownInvoice(invoiceId, farrierId);
+      if (invoice.status === 'paid' || invoice.status === 'cancelled') return res.status(400).json({ success: false, error: `This invoice is ${invoice.status}.` });
+      const applyCents = applyAmount ? P.toCents(applyAmount) : 0;
+      if (applyAmount && applyCents <= 0) return res.status(400).json({ success: false, error: 'Enter a valid amount.' });
+      const { url, ref, chargeCents } = await createKadimaPage(kadima, invoiceId, invoice, { method: 'card_keyed', applyCents });
+      return res.status(200).json({ success: true, url, ref, amount: chargeCents / 100 });
+    }
+    if (action === 'kadima_check') {
+      const { invoiceId, ref } = body;
+      if (!isKadimaRef(ref)) return res.status(400).json({ success: false, error: 'Bad reference.' });
+      const kadima = await getKadimaCreds(farrierId);
+      if (!kadima) return res.status(400).json({ success: false, error: 'Kadima isn’t connected.' });
+      await ownInvoice(invoiceId, farrierId);
+      const result = await syncKadimaPayment(kadima, invoiceId, String(ref));
+      return res.status(200).json({
+        success: true, paid: !!result.paid, declined: !!result.declined, message: result.message || '',
+        amount: result.paid ? result.amountCents / 100 : 0, status: result.status || '',
+      });
+    }
+
     // Pay links go through iPOSpays while it's connected.
     const ipos = ['payment_link', 'waive_card_price'].includes(action) ? await getIposCreds(farrierId) : null;
     if (ipos && action === 'payment_link') {
@@ -319,10 +392,34 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, paymentUrl, amount: chargeCents / 100, sentVia });
     }
 
+    // ...and through Kadima while it's connected.
+    const kadimaLinks = ['payment_link', 'waive_card_price'].includes(action) ? await getKadimaCreds(farrierId) : null;
+    if (kadimaLinks && action === 'payment_link') {
+      const invoice = await ownInvoice(body.invoiceId, farrierId);
+      if (invoice.status === 'paid' || invoice.status === 'cancelled') return res.status(400).json({ success: false, error: `This invoice is ${invoice.status}.` });
+      const { paymentUrl, chargeCents, cashCents } = await createKadimaPage(kadimaLinks, body.invoiceId, invoice);
+      return res.status(200).json({ success: true, paymentUrl, amount: chargeCents / 100, cashAmount: cashCents / 100 });
+    }
+    if (kadimaLinks && action === 'waive_card_price') {
+      const { invoiceId, waive = true } = body;
+      const invoice = await ownInvoice(invoiceId, farrierId);
+      if (invoice.status === 'paid' || invoice.status === 'cancelled') return res.status(400).json({ success: false, error: `This invoice is ${invoice.status}.` });
+      const changes = waive
+        ? { cardFeeWaived: true, cardFeeWaivedBy: caller.email || caller.uid, cardFeeWaivedAt: new Date() }
+        : { cardFeeWaived: false, cardFeeWaivedBy: '', cardFeeWaivedAt: null };
+      // createKadimaPage checks the open form first (and stops if the customer just paid it).
+      const updated = { ...invoice, ...changes };
+      const { paymentUrl, chargeCents } = await createKadimaPage(kadimaLinks, invoiceId, updated);
+      await patchDoc(`invoices/${invoiceId}`, changes);
+      const sentVia = await sendUpdatedPayLink(updated, invoiceId, chargeCents);
+      return res.status(200).json({ success: true, paymentUrl, amount: chargeCents / 100, sentVia });
+    }
+
     if (action === 'connect' || action === 'validate') {
       const { stripeSecretKey } = body;
       if (!stripeSecretKey || !SECRET_KEY_RE.test(stripeSecretKey)) return res.status(400).json({ success: false, error: 'Secret key must start with sk_live_, sk_test_, rk_live_ or rk_test_' });
       if (await getIposCreds(farrierId)) throw new PaymentError(ONE_PROCESSOR('iPOSpays', 'Stripe'), 409);
+      if (await getKadimaCreds(farrierId)) throw new PaymentError(ONE_PROCESSOR('Kadima', 'Stripe'), 409);
       const stripe = new Stripe(stripeSecretKey);
       let accountName = 'Stripe Account';
       try {
@@ -372,6 +469,8 @@ export default async function handler(req, res) {
       if (key) await closeOnlinePayment(new Stripe(key), invoice);
       const iposCreds = await getIposCreds(farrierId);
       if (iposCreds) await closeIposPages(iposCreds, invoiceId, invoice);
+      const kadimaCreds = await getKadimaCreds(farrierId);
+      if (kadimaCreds) await closeKadimaPages(kadimaCreds, invoiceId, invoice);
       return res.status(200).json({ success: true, status: result.status, balance: (result.balanceCents || 0) / 100 });
     }
 
