@@ -791,10 +791,9 @@
         <div class="card" style="background:#EBF4FF; border:2px solid #bfdbfe;">
           <div id="ipos-card-msg" style="font-size:0.85rem; color:var(--text-muted);">Tap the Charge button.</div>
           <iframe id="ipos-card-frame" title="iPOSpays card form" allow="payment" style="display:none; width:100%; height:640px; margin-top:12px; border:1px solid var(--border); border-radius:10px; background:#fff;"></iframe>
-          <div id="ipos-card-wait" style="display:none; margin-top:12px; gap:8px; flex-wrap:wrap;">
-            <a id="ipos-card-link" href="#" target="_blank" rel="noreferrer" class="btn btn-outline" style="flex:1; text-align:center;">Open in new tab</a>
-            <button type="button" class="btn btn-outline" style="flex:1;" onclick="iposKeyedCheckNow()">Check now</button>
-            <button type="button" class="btn btn-outline" style="flex:1;" onclick="iposKeyedStop()">Stop waiting</button>
+          <div id="ipos-card-wait" style="display:none; margin-top:12px; flex-direction:column; gap:10px;">
+            <button type="button" class="btn btn-outline" style="width:100%;" onclick="iposKeyedStop()">Cancel</button>
+            <a id="ipos-card-link" href="#" target="_blank" rel="noreferrer" style="font-size:0.8rem; text-align:center; color:var(--text-muted);">Card form not showing? Open it in a new tab</a>
           </div>
         </div>
       </div>
@@ -6407,7 +6406,6 @@ function chargeCardViaIpos(inv, applyCents) {
     _iposWait = { check, stop: () => finish(false) };
   });
 }
-function iposKeyedCheckNow() { _iposWait?.check(true); }
 // The payment can still go through after this; it's recorded when iPOSpays reports it.
 function iposKeyedStop() { _iposWait?.stop(); }
 
