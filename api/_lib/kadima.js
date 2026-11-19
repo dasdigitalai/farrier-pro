@@ -261,6 +261,12 @@ export async function findKadimaPayments(creds, refs) {
 }
 
 const approved = (t) => t?.status?.status === 'Approved' && t.captured === true;
+// Only a definite decline counts as one. Right after the customer presses Pay, Kadima can
+// briefly report the payment in an in-between state (not yet approved/captured) — treating
+// that as a decline told a farrier "the card didn't go through" for a card that was charged
+// a second later (417342, 2026-11-19). Anything that isn't clearly declined is still pending.
+const DECLINE_RE = /^(declin|fail|error|reject)/i;
+const declinedTx = (t) => !approved(t) && t?.captured !== true && DECLINE_RE.test(String(t?.status?.status || ''));
 
 // Asks Kadima about every form this invoice has had and records each approved payment (oldest
 // first) — exactly once, keyed by Kadima's payment id. A payment that lands on an invoice a
@@ -285,7 +291,7 @@ export async function syncKadimaInvoice(creds, invoiceId) {
   for (const t of mine) {
     out.touchedRefs.add(t.externalId);
     const s = (out.byRef[t.externalId] ||= { paidCents: 0, reversedCents: 0, declined: false, message: '' });
-    if (!approved(t) && t?.status?.status && t.status.status !== 'Approved') {
+    if (declinedTx(t)) {
       s.declined = true;
       s.message = t.status.reason || t.status.status || '';
     }
