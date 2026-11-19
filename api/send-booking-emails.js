@@ -3,8 +3,10 @@
 //   1. Notification to the farrier (new appointment request)
 //   2. Confirmation to the customer (booking received)
 // Uses Resend REST API directly (no npm package needed)
+import { withNoReplyNotice } from './_lib/no-reply-notice.js';
+
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const FROM = 'FarriTech <welcome@contact.dasdigitalai.com>';
+const FROM = 'FarriTech <noreply@farritech.com>';
 
 const sendEmail = async ({ to, subject, html, replyTo }) => {
   const res = await fetch('https://api.resend.com/emails', {
@@ -13,7 +15,7 @@ const sendEmail = async ({ to, subject, html, replyTo }) => {
       'Authorization': `Bearer ${RESEND_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ from: FROM, to: Array.isArray(to) ? to : [to], subject, html, ...(replyTo ? { reply_to: replyTo } : {}) }),
+    body: JSON.stringify({ from: FROM, to: Array.isArray(to) ? to : [to], subject, html: withNoReplyNotice(html, replyTo), ...(replyTo ? { reply_to: replyTo } : {}) }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || 'Resend API error');

@@ -1,6 +1,7 @@
 // api/send-signin-link.js
 // Generates a Firebase email sign-in link via REST API and sends it via Resend.
 // Requires env vars: FIREBASE_WEB_API_KEY, RESEND_API_KEY
+import { withNoReplyNotice } from './_lib/no-reply-notice.js';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY;
@@ -95,7 +96,7 @@ export default async function handler(req, res) {
         from: FROM,
         to: [email],
         subject: 'Your FarriTech Sign-In Link',
-        html,
+        html: withNoReplyNotice(html),
       }),
     });
 

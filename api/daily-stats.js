@@ -16,7 +16,7 @@
 const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'farrier-pro';
 const BASE_URL   = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 const RESEND_KEY = process.env.RESEND_API_KEY;
-const FROM       = 'FarriTech Stats <welcome@contact.dasdigitalai.com>';
+const FROM       = 'FarriTech Stats <noreply@farritech.com>';
 const TO         = process.env.STATS_EMAIL_TO || 'david@dasdigitalai.com';
 
 // ─── FIRESTORE HELPERS ───────────────────────────────────────────────────────
