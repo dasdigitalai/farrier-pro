@@ -4,7 +4,7 @@ import '../lib/pricing.js';
 import { callerFromRequest, getDoc, patchDoc, listDocs, getStripeSecretKey, setStripeSecretKey, getGoogleRefreshToken, isSupportAdmin } from './_lib/firebase-rest.js';
 import {
   applyPayment, cardDetails, closeOnlinePayment, closeStripeCheckouts, createCheckoutSession, recordCheckoutSession,
-  removeWebhook, sendUpdatedPayLink, setupWebhook, PaymentError,
+  removeWebhook, sendPaymentReceivedSms, sendUpdatedPayLink, setupWebhook, PaymentError,
 } from './_lib/invoice-payments.js';
 import { payPage } from './_lib/pay-page.js';
 import { farrierWebhook, recordWebhookSession } from './_lib/farrier-webhook.js';
@@ -531,6 +531,9 @@ export default async function handler(req, res) {
         paymentIntentId: pi.id, last4: card.last4, brand: card.brand, paidVia: 'stripe_card', recordedBy: caller.email || caller.uid,
       });
       await closeOnlinePayment(stripe, invoice);
+      if (!result.duplicate && !result.alreadyPaid) {
+        await sendPaymentReceivedSms({ to: invoice.customerPhone, name: invoice.customerName, amountCents, invoiceNumber, invoiceId });
+      }
       return res.status(200).json({ success: true, transactionId: pi.id, amount: amountCents / 100, status: result.status, ...card });
     }
 

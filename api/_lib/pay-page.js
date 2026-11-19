@@ -35,7 +35,59 @@ function page(res, status, title, message, extra = '') {
   a.btn { display:inline-block; margin-top:1rem; background:var(--accent); color:#fff; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:700; }
   .foot { margin-top:2rem; font-size:.75rem; color:var(--muted); }
   .logo { display:block; margin:0 auto 1.25rem; width:240px; max-width:70%; height:auto; }
+  .rcpt { margin-top:1.5rem; text-align:left; border-top:1px solid rgba(100,116,139,.25); padding-top:1rem; }
+  .rh { display:flex; justify-content:space-between; align-items:flex-start; gap:.75rem; margin-bottom:.75rem; }
+  .biz { font-weight:700; } .sub { font-size:.8rem; color:var(--muted); line-height:1.4; }
+  .badge { border:2px solid; border-radius:6px; padding:2px 8px; font-weight:800; font-size:.75rem; letter-spacing:.05em; white-space:nowrap; }
+  .rcpt table { width:100%; border-collapse:collapse; font-size:.9rem; }
+  .rcpt td { padding:.45rem 0; border-bottom:1px solid rgba(100,116,139,.15); vertical-align:top; }
+  .rcpt td.r { text-align:right; white-space:nowrap; padding-left:.75rem; }
+  .rcpt tr.tot td { font-weight:700; }
 </style></head><body><div class="card"><picture><source srcset="/public/pay-logo-dark.png" media="(prefers-color-scheme: dark)"><img class="logo" src="/public/pay-logo.png" alt="FarriTech" width="240" height="47"></picture><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p>${extra}<div class="foot">Powered by FarriTech</div></div></body></html>`);
+}
+
+// ── Receipt: what /pay/{id} shows once the invoice is paid (the link in the "payment received" text) ──
+const fmtDate = (v, tz) => {
+  const d = v ? new Date(v) : null;
+  if (!d || isNaN(d)) return '';
+  try { return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: tz || 'America/New_York' }); }
+  catch (e) { return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+};
+const dollars = (n) => P.money(Math.round((Number(n) || 0) * 100));
+
+async function receiptHtml(invoiceId) {
+  const inv = await getDoc(`invoices/${invoiceId}`).catch(() => null);
+  if (!inv) return '';
+  const farrier = await getDoc(`farriers/${inv.farrierId}`).catch(() => null);
+  const tz = farrier?.timezone || farrier?.timeZone;
+  const items = Array.isArray(inv.items) ? inv.items : [];
+  const rows = items.map((item) => {
+    let svc = String(item?.serviceNameSnapshot || item?.description || 'Service').trim();
+    if (svc === 'Custom Service (enter manually)') svc = 'Custom Service';
+    const horse = P.itemHorseLabel(item);
+    const qty = P.itemQty(item);
+    const unit = P.itemUnitPrice(item);
+    const line = P.lineAmount(unit, qty);
+    return `<tr><td>${escapeHtml(svc)}${horse ? `<div class="sub">${escapeHtml(horse)}</div>` : ''}${qty > 1 ? `<div class="sub">${horse.includes('×') ? `${escapeHtml(dollars(unit))} each` : `${qty} × ${escapeHtml(dollars(unit))}`}</div>` : ''}</td><td class="r">${escapeHtml(dollars(line))}</td></tr>`;
+  }).join('');
+  const payments = (Array.isArray(inv.payments) ? inv.payments : []).map(p =>
+    `<tr><td>Paid ${escapeHtml(fmtDate(p.date, tz))}<div class="sub">${escapeHtml(p.memo || p.method || '')}</div></td><td class="r">${escapeHtml(dollars(p.amount))}</td></tr>`).join('');
+  const refunds = (Array.isArray(inv.refunds) ? inv.refunds : []).map(r =>
+    `<tr><td>Refunded ${escapeHtml(fmtDate(r.date, tz))}</td><td class="r">−${escapeHtml(dollars(r.amount))}</td></tr>`).join('');
+  const status = inv.status === 'refunded' ? ['REFUNDED', '#b45309'] : inv.status === 'paid' ? ['PAID', '#059669'] : inv.status === 'partial' ? ['PARTIALLY PAID', '#b45309'] : null;
+  const owed = Number(inv.balanceDue) > 0 && inv.status !== 'paid' && inv.status !== 'refunded'
+    ? `<tr class="tot"><td>Balance due</td><td class="r">${escapeHtml(dollars(inv.balanceDue))}</td></tr>` : '';
+  return `<div class="rcpt">
+  <div class="rh"><div><div class="biz">${escapeHtml(farrier?.businessName || 'Your Farrier')}</div>
+  <div class="sub">Invoice #${escapeHtml(inv.invoiceNumber || '')}${fmtDate(inv.date || inv.createdAt, tz) ? ` · ${escapeHtml(fmtDate(inv.date || inv.createdAt, tz))}` : ''}${inv.customerName ? `<br>${escapeHtml(inv.customerName)}` : ''}</div></div>
+  ${status ? `<span class="badge" style="color:${status[1]};border-color:${status[1]}">${status[0]}</span>` : ''}</div>
+  <table>${rows}<tr class="tot"><td>Total</td><td class="r">${escapeHtml(dollars(inv.total))}</td></tr>${payments}${refunds}${owed}</table>
+</div>`;
+}
+
+// "Payment received" / "Invoice paid" with the receipt underneath.
+async function paidPage(res, invoiceId, title, message) {
+  return page(res, 200, title, message, await receiptHtml(invoiceId).catch(() => ''));
 }
 
 export async function payPage(req, res) {
@@ -59,7 +111,7 @@ export async function payPage(req, res) {
       if (session?.payment_status === 'paid') {
         const result = await recordCheckoutSession(stripe, invoice.farrierId, session).catch(() => null);
         if (result?.invoiceId === invoiceId) {
-          return page(res, 200, 'Payment received', `Thank you! Your payment of ${P.money(session.amount_total)} for Invoice #${number} has been received.`);
+          return paidPage(res, invoiceId, 'Payment received', `Thank you! Your payment of ${P.money(session.amount_total)} for Invoice #${number} has been received.`);
         }
       }
     }
@@ -69,7 +121,7 @@ export async function payPage(req, res) {
     const kadima = await getKadimaCreds(invoice.farrierId);
     if (kadima) return await kadimaPayPage(req, res, invoiceId, invoice, kadima);
 
-    if (invoice.status === 'paid') return page(res, 200, 'Invoice paid', `Invoice #${number} has already been paid. Thank you!`);
+    if (invoice.status === 'paid') return paidPage(res, invoiceId, 'Invoice paid', `Invoice #${number} has been paid. Thank you!`);
     if (invoice.status === 'cancelled') return page(res, 200, 'Invoice cancelled', `Invoice #${number} was cancelled. Please contact your farrier with any questions.`);
     if (!key) return page(res, 200, 'Online payment unavailable', 'Your farrier is not set up for online payments right now. Please contact them to pay.');
 
@@ -82,7 +134,7 @@ export async function payPage(req, res) {
       const current = await stripe.checkout.sessions.retrieve(invoice.checkoutSessionId).catch(() => null);
       if (current?.status === 'complete' && current.payment_status === 'paid') {
         await recordCheckoutSession(stripe, invoice.farrierId, current);
-        return page(res, 200, 'Invoice paid', `Invoice #${number} has already been paid. Thank you!`);
+        return paidPage(res, invoiceId, 'Invoice paid', `Invoice #${number} has been paid. Thank you!`);
       }
       if (current?.status === 'open' && current.amount_total === expected && current.url && !req.query?.canceled) {
         res.setHeader('Cache-Control', 'no-store');
@@ -111,7 +163,7 @@ async function iposPayPage(req, res, invoiceId, invoice, creds) {
   const ref = (String(req.query?.ipos_ref || '').match(/^[A-Za-z0-9]{1,20}/) || [''])[0];
   if (ref) {
     const result = await syncIposPayment(creds, invoiceId, ref);
-    if (result.paid) return page(res, 200, 'Payment received', `Thank you! Your payment of ${P.money(result.amountCents)} for Invoice #${number} has been received.`);
+    if (result.paid) return paidPage(res, invoiceId, 'Payment received', `Thank you! Your payment of ${P.money(result.amountCents)} for Invoice #${number} has been received.`);
     const fresh = await getDoc(`invoices/${invoiceId}`);
     if (result.declined && fresh?.status !== 'paid') {
       return page(res, 200, 'Payment not completed', `Your card payment for Invoice #${number} didn't go through${result.message ? ` (${result.message})` : ''}. You can try again with another card.`, retry(P.getChargeCents(fresh, 'card_link')));
@@ -132,12 +184,12 @@ async function iposPayPage(req, res, invoiceId, invoice, creds) {
       .slice(0, 3).map(([r]) => r);
     for (const r of recent) {
       const result = await syncIposPayment(creds, invoiceId, r);
-      if (result.paid) return page(res, 200, 'Payment received', `Thank you! Your payment of ${P.money(result.amountCents)} for Invoice #${number} has been received.`);
+      if (result.paid) return paidPage(res, invoiceId, 'Payment received', `Thank you! Your payment of ${P.money(result.amountCents)} for Invoice #${number} has been received.`);
     }
     invoice = (await getDoc(`invoices/${invoiceId}`)) || invoice;
   }
 
-  if (invoice.status === 'paid') return page(res, 200, 'Invoice paid', `Invoice #${number} has already been paid. Thank you!`);
+  if (invoice.status === 'paid') return paidPage(res, invoiceId, 'Invoice paid', `Invoice #${number} has been paid. Thank you!`);
   if (invoice.status === 'cancelled') return page(res, 200, 'Invoice cancelled', `Invoice #${number} was cancelled. Please contact your farrier with any questions.`);
   const expected = P.getChargeCents(invoice, 'card_link');
   if (expected <= 0) return page(res, 200, "Nothing owed", `There's no balance due on Invoice #${number}.`);
@@ -150,7 +202,7 @@ async function iposPayPage(req, res, invoiceId, invoice, creds) {
     const { url } = await createIposPage(creds, invoiceId, invoice);
     return res.redirect(303, url);
   } catch (err) {
-    if (err instanceof PaymentError && err.status === 409) return page(res, 200, 'Invoice paid', `Invoice #${number} has already been paid. Thank you!`);
+    if (err instanceof PaymentError && err.status === 409) return paidPage(res, invoiceId, 'Invoice paid', `Invoice #${number} has been paid. Thank you!`);
     throw err;
   }
 }
@@ -160,15 +212,15 @@ async function iposPayPage(req, res, invoiceId, invoice, creds) {
 async function kadimaPayPage(req, res, invoiceId, invoice, creds) {
   const number = invoice.invoiceNumber || '';
   const retry = (cents) => `<a class="btn" href="/pay/${encodeURIComponent(invoiceId)}">Pay ${P.money(cents)}</a>`;
-  const paidPage = (cents) => page(res, 200, 'Payment received', `Thank you! Your payment of ${P.money(cents)} for Invoice #${number} has been received.`);
+  const receivedPage = (cents) => paidPage(res, invoiceId, 'Payment received', `Thank you! Your payment of ${P.money(cents)} for Invoice #${number} has been received.`);
 
   // Back from Kadima
   const ref = String(req.query?.externalId || '');
   if (isKadimaRef(ref)) {
     const result = await syncKadimaPayment(creds, invoiceId, ref);
-    if (result.paid) return paidPage(result.amountCents);
+    if (result.paid) return receivedPage(result.amountCents);
     const fresh = (await getDoc(`invoices/${invoiceId}`)) || invoice;
-    if (fresh.status === 'paid') return page(res, 200, 'Invoice paid', `Invoice #${number} has already been paid. Thank you!`);
+    if (fresh.status === 'paid') return paidPage(res, invoiceId, 'Invoice paid', `Invoice #${number} has been paid. Thank you!`);
     if (result.declined) {
       return page(res, 200, 'Payment not completed', `Your card payment for Invoice #${number} didn't go through${result.message ? ` (${result.message})` : ''}. You can try again with another card.`, retry(P.getChargeCents(fresh, 'card_link')));
     }
@@ -185,10 +237,10 @@ async function kadimaPayPage(req, res, invoiceId, invoice, creds) {
   if (invoice.status !== 'paid' && invoice.kadimaLinks) {
     const synced = await syncKadimaInvoice(creds, invoiceId);
     invoice = (await getDoc(`invoices/${invoiceId}`)) || invoice;
-    if (synced.recorded && invoice.status === 'paid') return page(res, 200, 'Payment received', `Thank you! Your payment for Invoice #${number} has been received.`);
+    if (synced.recorded && invoice.status === 'paid') return paidPage(res, invoiceId, 'Payment received', `Thank you! Your payment for Invoice #${number} has been received.`);
   }
 
-  if (invoice.status === 'paid') return page(res, 200, 'Invoice paid', `Invoice #${number} has already been paid. Thank you!`);
+  if (invoice.status === 'paid') return paidPage(res, invoiceId, 'Invoice paid', `Invoice #${number} has been paid. Thank you!`);
   if (invoice.status === 'cancelled') return page(res, 200, 'Invoice cancelled', `Invoice #${number} was cancelled. Please contact your farrier with any questions.`);
   const expected = P.getChargeCents(invoice, 'card_link');
   if (expected <= 0) return page(res, 200, 'Nothing owed', `There's no balance due on Invoice #${number}.`);
@@ -200,7 +252,7 @@ async function kadimaPayPage(req, res, invoiceId, invoice, creds) {
     const { url } = await createKadimaPage(creds, invoiceId, invoice);
     return res.redirect(303, url);
   } catch (err) {
-    if (err instanceof PaymentError && err.status === 409) return page(res, 200, 'Invoice paid', `Invoice #${number} has already been paid. Thank you!`);
+    if (err instanceof PaymentError && err.status === 409) return paidPage(res, invoiceId, 'Invoice paid', `Invoice #${number} has been paid. Thank you!`);
     throw err;
   }
 }
