@@ -211,6 +211,7 @@ export async function createKadimaPage(creds, invoiceId, invoice, { method = 'ca
       // the whole window anyway — so one form serves both.
       returnUrlNavigation: 'self',
       sendReceipt: 'No',               // FarriTech texts its own "payment received"
+      useLogo: 'Yes',                  // the logo uploaded on the farrier's Kadima DBA
     },
   });
   if (!r.ok || !r.data?.url) {

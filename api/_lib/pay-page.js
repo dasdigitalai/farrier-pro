@@ -34,7 +34,8 @@ function page(res, status, title, message, extra = '') {
   h1 { font-size:1.4rem; margin:0 0 .5rem; } p { color:var(--muted); line-height:1.5; }
   a.btn { display:inline-block; margin-top:1rem; background:var(--accent); color:#fff; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:700; }
   .foot { margin-top:2rem; font-size:.75rem; color:var(--muted); }
-</style></head><body><div class="card"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p>${extra}<div class="foot">Powered by FarriTech</div></div></body></html>`);
+  .logo { display:block; margin:0 auto 1.25rem; width:240px; max-width:70%; height:auto; }
+</style></head><body><div class="card"><picture><source srcset="/public/pay-logo-dark.png" media="(prefers-color-scheme: dark)"><img class="logo" src="/public/pay-logo.png" alt="FarriTech" width="240" height="47"></picture><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p>${extra}<div class="foot">Powered by FarriTech</div></div></body></html>`);
 }
 
 export async function payPage(req, res) {
