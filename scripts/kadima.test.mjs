@@ -570,3 +570,23 @@ test('pages that belong to no farrier still show the FarriTech logo', async () =
   assert.match(res.body, /Invoice not found/);
   assert.ok(res.body.includes('pay-logo.png'));
 });
+
+test('a refunded invoice\'s link shows its receipt marked REFUNDED (never offers to pay again)', async () => {
+  store.set(`farriers/${FARRIER}`, { businessName: 'Spatz Farrier Co' });
+  newInvoice('inv060', { status: 'refunded', payments: [{ amount: 100, memo: 'Visa ending 1111', date: '2026-11-19T18:00:00Z' }], refunds: [{ amount: 100, date: '2026-11-19T19:00:00Z' }] });
+  const res = fakeRes();
+  await payPage({ query: { invoice: 'inv060' } }, res);
+  assert.match(res.body, /Invoice refunded/);
+  assert.match(res.body, />REFUNDED</);
+  assert.equal(kadima.forms.length, 0);
+});
+
+test('the app\'s Receipt screen gets the compact view; the customer link gets the full page', async () => {
+  newInvoice('inv061', { status: 'paid' });
+  const inApp = fakeRes();
+  await payPage({ query: { invoice: 'inv061', view: 'receipt' } }, inApp);
+  assert.match(inApp.body, /<body class="embed">/);
+  const customer = fakeRes();
+  await payPage({ query: { invoice: 'inv061' } }, customer);
+  assert.match(customer.body, /<body>/);
+});

@@ -76,7 +76,8 @@ function page(res, status, title, message, extra = '') {
   .rcpt td { padding:.45rem 0; border-bottom:1px solid rgba(100,116,139,.15); vertical-align:top; }
   .rcpt td.r { text-align:right; white-space:nowrap; padding-left:.75rem; }
   .rcpt tr.tot td { font-weight:700; }
-</style></head><body><div class="card">${brandHeader(res._brand)}<h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p>${extra}<div class="foot">Powered by FarriTech</div></div></body></html>`);
+  body.embed { padding:8px; } body.embed .card { margin:0 auto; box-shadow:none; padding:20px 16px; }
+</style></head><body${res._embed ? ' class="embed"' : ''}><div class="card">${brandHeader(res._brand)}<h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p>${extra}<div class="foot">Powered by FarriTech</div></div></body></html>`);
 }
 
 // ── Receipt: what /pay/{id} shows once the invoice is paid (the link in the "payment received" text) ──
@@ -132,7 +133,9 @@ export async function payPage(req, res) {
     const invoice = await getDoc(`invoices/${invoiceId}`);
     if (!invoice) return page(res, 404, 'Invoice not found', 'This payment link is not valid. Please contact your farrier.');
     res._brand = await farrierBrand(invoice.farrierId);
+    res._embed = req.query?.view === 'receipt'; // shown inside the FarriTech app's Receipt screen
     const number = invoice.invoiceNumber || '';
+    if (invoice.status === 'refunded') return paidPage(res, invoiceId, 'Invoice refunded', `Invoice #${number} was refunded.`);
     const key = await getStripeSecretKey(invoice.farrierId);
 
     // Back from Stripe: a Checkout Session, or an old Stripe Payment Link (those redirected to
