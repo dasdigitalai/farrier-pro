@@ -7,9 +7,11 @@
 import { authorizeSender } from './_lib/firebase-rest.js';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const FROM = 'FarriTech <welcome@contact.dasdigitalai.com>';
+const FROM = 'FarriTech <hello@farritech.com>';
+// Invoices go out from their own address so billing mail builds its own sender reputation.
+const FROM_BILLING = 'FarriTech Billing <billing@farritech.com>';
 
-const sendEmail = async ({ to, subject, html, replyTo }) => {
+const sendEmail = async ({ to, subject, html, replyTo, from }) => {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -17,7 +19,7 @@ const sendEmail = async ({ to, subject, html, replyTo }) => {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: FROM,
+      from: from || FROM,
       to: Array.isArray(to) ? to : [to],
       subject,
       html,
@@ -184,7 +186,8 @@ export default async function handler(req, res) {
       const { to, subject, html } = body;
       if (!to) return res.status(400).json({ ok: false, error: 'Missing to' });
       if (!html) return res.status(400).json({ ok: false, error: 'Missing html' });
-      await sendEmail({ to, subject: subject || 'Message from FarriTech', html });
+      const isInvoice = /^\s*invoice\b/i.test(subject || '');
+      await sendEmail({ to, subject: subject || 'Message from FarriTech', html, from: isInvoice ? FROM_BILLING : undefined });
       return res.status(200).json({ ok: true });
     }
 
