@@ -1071,6 +1071,9 @@
       const [selectedInvoices, setSelectedInvoices] = useState({});
       const [showMultiPayModal, setShowMultiPayModal] = useState(false);
       const [farrierStripeKey, setFarrierStripeKey] = useState('');
+      // iPOSpays or Kadima connected: card payments go through the invoice's /pay page (their
+      // secure hosted form) instead of the Stripe form below.
+      const [farrierHostedPay, setFarrierHostedPay] = useState(false);
       const [dateFilter, setDateFilter] = useState('all'); // all, thisMonth, lastMonth, ytd, unpaid, custom
       const [customStart, setCustomStart] = useState('');
       const [customEnd, setCustomEnd] = useState('');
@@ -1152,6 +1155,7 @@
                     const fd = farrierDoc.data();
                     setFarrierBusinessName(fd.businessName || '');
                     setFarrierStripeKey(fd.stripePublishableKey || '');
+                    setFarrierHostedPay(!!(fd.ipospaysConnected || fd.kadimaConnected));
                   }
                 } catch(e) {}
               }
@@ -1769,6 +1773,7 @@
             <PaymentModal
               invoice={selectedInvoice}
               stripePublishableKey={farrierStripeKey}
+              hostedPay={farrierHostedPay}
               onClose={() => { setShowPaymentModal(false); setSelectedInvoice(null); }}
               onSuccess={() => { setShowPaymentModal(false); setSelectedInvoice(null); loadData(); }}
             />
@@ -1778,6 +1783,7 @@
             <MultiPayModal
               invoices={Object.values(selectedInvoices).filter(Boolean)}
               stripePublishableKey={farrierStripeKey}
+              hostedPay={farrierHostedPay}
               onClose={() => setShowMultiPayModal(false)}
               onSuccess={() => { setShowMultiPayModal(false); setSelectedInvoices({}); loadData(); }}
             />
@@ -1863,7 +1869,7 @@
     }
 
     // Single invoice PaymentModal
-    function PaymentModal({ invoice, stripePublishableKey, onClose, onSuccess }) {
+    function PaymentModal({ invoice, stripePublishableKey, hostedPay, onClose, onSuccess }) {
       const [processing, setProcessing] = useState(false);
       const [error, setError] = useState('');
 
@@ -1911,6 +1917,10 @@
             {error && <div className="alert alert-error" style={{marginBottom: '1rem'}}>{error}</div>}
             {stripePublishableKey ? (
               <StripeCardForm stripePublishableKey={stripePublishableKey} onToken={handleToken} processing={processing} />
+            ) : hostedPay ? (
+              <a className="btn btn-primary" style={{display: 'block', width: '100%', textAlign: 'center', textDecoration: 'none'}} href={`/pay/${encodeURIComponent(invoice.id)}`}>
+                🔒 Continue to secure payment
+              </a>
             ) : (
               <div style={{textAlign: 'center', color: 'var(--text-muted)', padding: '2rem'}}>Payment not configured. Please contact your farrier.</div>
             )}
@@ -1921,7 +1931,7 @@
     }
 
     // Multi-invoice PaymentModal
-    function MultiPayModal({ invoices, stripePublishableKey, onClose, onSuccess }) {
+    function MultiPayModal({ invoices, stripePublishableKey, hostedPay, onClose, onSuccess }) {
       const [processing, setProcessing] = useState(false);
       const [error, setError] = useState('');
       const total = invoices.reduce((sum, inv) => sum + FarriPricing.getChargeCents(inv, 'card_link'), 0) / 100;
@@ -1980,6 +1990,16 @@
             {error && <div className="alert alert-error" style={{marginBottom: '1rem'}}>{error}</div>}
             {stripePublishableKey ? (
               <StripeCardForm stripePublishableKey={stripePublishableKey} onToken={handleToken} processing={processing} />
+            ) : hostedPay ? (
+              <div>
+                <div style={{fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.75rem'}}>Each invoice is paid on its own secure payment page.</div>
+                {invoices.map(inv => (
+                  <a key={inv.id} className="btn btn-primary" style={{display: 'block', width: '100%', textAlign: 'center', textDecoration: 'none', marginBottom: '0.5rem'}}
+                    href={`/pay/${encodeURIComponent(inv.id)}`} target="_blank" rel="noopener noreferrer">
+                    🔒 Pay {inv.invoiceNumber || 'invoice'} — {FarriPricing.money(FarriPricing.getChargeCents(inv, 'card_link'))}
+                  </a>
+                ))}
+              </div>
             ) : (
               <div style={{textAlign: 'center', color: 'var(--text-muted)', padding: '2rem'}}>Payment not configured. Please contact your farrier.</div>
             )}
