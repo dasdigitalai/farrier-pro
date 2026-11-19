@@ -481,3 +481,32 @@ test('webhook: Settings can show when the last notification came and whether it 
   await deliver(evt, { 'webhook-signature': K.kadimaSignature('whsec_test_123', evt) });
   assert.equal(get(`farrierSecrets/${FARRIER}`).kadimaWebhookLast.result, 'ok');
 });
+
+test('a payment still in progress is NOT reported as a decline (417342 on 2026-11-19)', async () => {
+  const inv = newInvoice('inv040');
+  const { ref } = await K.createKadimaPage(CREDS, 'inv040', inv, { method: 'card_keyed' });
+  // The keyed-card poll catches the payment before Kadima has approved and captured it.
+  for (const status of ['Pending', 'Processing', 'In Progress', 'Approved']) {
+    kadima.payments = [];
+    kadimaPayment(ref, { amount: 100, status, captured: false });
+    const r = await K.syncKadimaPayment(CREDS, 'inv040', ref);
+    assert.deepEqual([status, r.paid, !!r.declined], [status, false, false]);
+  }
+  // A second later it's approved and captured: recorded as paid.
+  kadima.payments = [];
+  kadimaPayment(ref, { amount: 100 });
+  const r = await K.syncKadimaPayment(CREDS, 'inv040', ref);
+  assert.equal(r.paid, true);
+  assert.equal(get('invoices/inv040').status, 'paid');
+});
+
+test('clear declines are still reported as declines', async () => {
+  for (const status of ['Decline', 'Declined', 'Failed', 'Error']) {
+    store.clear(); store.set(`farrierSecrets/${FARRIER}`, { ...secrets }); kadima.payments = [];
+    const inv = newInvoice('inv041');
+    const { ref } = await K.createKadimaPage(CREDS, 'inv041', inv);
+    kadimaPayment(ref, { amount: 100, status, captured: false, reason: 'Do not honor' });
+    const r = await K.syncKadimaPayment(CREDS, 'inv041', ref);
+    assert.deepEqual([status, r.declined, r.message], [status, true, 'Do not honor']);
+  }
+});
