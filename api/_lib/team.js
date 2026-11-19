@@ -16,6 +16,7 @@
 import crypto from 'crypto';
 import { getDoc, patchDoc, deleteDoc, queryIn } from './firebase-rest.js';
 import { PaymentError } from './invoice-payments.js';
+import { withNoReplyNotice } from './no-reply-notice.js';
 
 const API_KEY = process.env.FIREBASE_WEB_API_KEY || 'AIzaSyAQ1LaWG9lE9j5h6X0T0YQKa_j04vJZHE4';
 const IDT = 'https://identitytoolkit.googleapis.com/v1';
@@ -162,7 +163,7 @@ async function sendInviteEmail({ email, name, businessName, role, newLogin }) {
   </div></body></html>`;
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: 'FarriTech <noreply@farritech.com>', to: [email], subject: `You've been added to ${businessName} on FarriTech`, html }),
+    body: JSON.stringify({ from: 'FarriTech <noreply@farritech.com>', to: [email], subject: `You've been added to ${businessName} on FarriTech`, html: withNoReplyNotice(html) }),
   });
   if (!r.ok) throw new Error(`Resend ${r.status}`);
 }

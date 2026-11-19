@@ -5,6 +5,7 @@
 // Appointment emails use the same body fields as the individual handlers did.
 
 import { authorizeSender } from './_lib/firebase-rest.js';
+import { withNoReplyNotice } from './_lib/no-reply-notice.js';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM = 'FarriTech <noreply@farritech.com>';
@@ -20,7 +21,7 @@ const sendEmail = async ({ to, subject, html, replyTo }) => {
       from: FROM,
       to: Array.isArray(to) ? to : [to],
       subject,
-      html,
+      html: withNoReplyNotice(html, replyTo),
       ...(replyTo ? { reply_to: replyTo } : {}),
     }),
   });
