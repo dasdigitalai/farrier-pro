@@ -461,6 +461,30 @@
 </div>
 
 <!-- ══════════════════════════════════════════ -->
+<!-- SCREEN: RECEIPT (a paid invoice)           -->
+<!-- ══════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-receipt">
+  <div class="header">
+    <button class="back-btn" onclick="goBack()">‹</button>
+    <div class="header-title" id="receipt-title">Receipt</div>
+  </div>
+  <div class="scroll-body" style="padding-top:12px;">
+    <iframe id="receipt-frame" title="Receipt" style="width:100%; height:60vh; border:1px solid var(--border); border-radius:10px; background:#fff;"></iframe>
+    <div style="display:flex; gap:8px; margin-top:12px;">
+      <button class="btn-secondary" id="receipt-sms-btn" style="flex:1;" onclick="openReceiptSend('sms')">💬 Text receipt</button>
+      <button class="btn-secondary" id="receipt-email-btn" style="flex:1;" onclick="openReceiptSend('email')">✉️ Email receipt</button>
+    </div>
+    <div id="receipt-send-panel" class="card" style="display:none; margin-top:12px;">
+      <div class="field">
+        <label id="receipt-to-label">Send to</label>
+        <input id="receipt-to-input" type="tel" autocomplete="off">
+      </div>
+      <button class="btn-primary" id="receipt-send-btn" onclick="sendReceipt()">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
 <!-- SCREEN: HORSE SEARCH                      -->
 <!-- ══════════════════════════════════════════ -->
 <div class="screen hidden" id="screen-horse-search">
@@ -2278,6 +2302,7 @@ async function loadOpenInvoices(status = 'outstanding') {
     // (same approach as the customer screen's invoice query).
     const invs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a,b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    if (status === 'paid') state.paidInvoices = Object.fromEntries(invs.map(i => [i.id, i]));
     if (!invs.length) {
       list.innerHTML = status === 'paid'
         ? `<div class="empty-state"><div class="empty-state-icon">🧾</div><div class="empty-state-text">No paid invoices yet</div></div>`
@@ -2299,12 +2324,12 @@ async function loadOpenInvoices(status = 'outstanding') {
     const grand = custs.reduce((sum, c) => sum + c.total, 0);
     const invRow = paid
       ? inv => `
-          <div class="invoice-row paid">
+          <div class="invoice-row paid" onclick="openReceipt('${String(inv.id).replace(/[^A-Za-z0-9_-]/g, '')}')">
             <div class="invoice-row-top">
               <div class="invoice-row-num">#${inv.invoiceNumber}</div>
               <div class="invoice-row-amount">$${(inv.total||0).toFixed(2)}</div>
             </div>
-            <div class="invoice-row-bottom">${fmtDate(inv.paidAt || inv.createdAt)} · <span class="badge badge-success">paid</span></div>
+            <div class="invoice-row-bottom">${fmtDate(inv.paidAt || inv.createdAt)} · <span class="badge badge-success">paid</span> · Tap to view receipt</div>
           </div>`
       : inv => `
           <div class="invoice-row outstanding" onclick="openInvoicePayment(${JSON.stringify(inv).replace(/"/g,'&quot;')})">
@@ -2468,7 +2493,7 @@ async function loadCustomerDetail(c) {
       document.getElementById('cust-inv-section').style.display = 'block';
       state.customerInvoices = Object.fromEntries(all.map(inv => [inv.id, inv]));
       document.getElementById('cust-inv-list').innerHTML = all.map(inv => `
-        <div class="invoice-row ${inv.status}">
+        <div class="invoice-row ${inv.status}"${inv.status === 'paid' || inv.status === 'refunded' ? ` onclick="openReceipt('${String(inv.id).replace(/[^A-Za-z0-9_-]/g, '')}')"` : ''}>
           <div class="invoice-row-top">
             <div class="invoice-row-num">#${inv.invoiceNumber}</div>
             <div class="invoice-row-amount">$${(inv.total||0).toFixed(2)}</div>
@@ -5170,6 +5195,91 @@ function openResend(channel) {
   document.getElementById('resend-sms-btn').classList.toggle('selected', isSms);
   document.getElementById('resend-email-btn').classList.toggle('selected', !isSms);
   input.focus();
+}
+
+// ── RECEIPT (a paid invoice): view it, then text or email the link to the customer ──
+// The receipt is the customer's own pay link, which shows the paid invoice (farrier's
+// business at the top, lines, total, payment, PAID) — so what you see is what they get.
+function receiptUrl(inv) {
+  return `${location.origin}/pay/${encodeURIComponent(inv.id)}`;
+}
+
+function openReceipt(invoiceId) {
+  const inv = state.paidInvoices?.[invoiceId] || state.customerInvoices?.[invoiceId];
+  if (!inv) return;
+  if (!netState.online) { showToast('Viewing a receipt needs an internet connection', 'error'); return; }
+  state.receiptInvoice = inv;
+  state.receiptChannel = null;
+  document.getElementById('receipt-title').textContent = `Invoice #${inv.invoiceNumber || ''}`;
+  document.getElementById('receipt-frame').src = `${receiptUrl(inv)}?view=receipt`;
+  document.getElementById('receipt-send-panel').style.display = 'none';
+  document.getElementById('receipt-sms-btn').classList.remove('selected');
+  document.getElementById('receipt-email-btn').classList.remove('selected');
+  goTo('screen-receipt');
+}
+
+function openReceiptSend(channel) {
+  const inv = state.receiptInvoice;
+  if (!inv) return;
+  const isSms = channel === 'sms';
+  state.receiptChannel = channel;
+  document.getElementById('receipt-send-panel').style.display = 'block';
+  document.getElementById('receipt-to-label').textContent = isSms ? '💬 Text receipt to mobile number' : '✉️ Email receipt to';
+  const input = document.getElementById('receipt-to-input');
+  input.type = isSms ? 'tel' : 'email';
+  input.placeholder = isSms ? '(555) 555-5555' : 'name@example.com';
+  input.value = (isSms ? inv.customerPhone : inv.customerEmail) || '';
+  document.getElementById('receipt-sms-btn').classList.toggle('selected', isSms);
+  document.getElementById('receipt-email-btn').classList.toggle('selected', !isSms);
+  input.focus();
+}
+
+async function sendReceipt() {
+  const inv = state.receiptInvoice;
+  const channel = state.receiptChannel;
+  if (!inv || !channel) return;
+  if (!netState.online) { showToast('Sending needs an internet connection', 'error'); return; }
+  const isSms = channel === 'sms';
+  const to = document.getElementById('receipt-to-input').value.trim();
+  if (!to) { showToast(isSms ? 'Enter a mobile number' : 'Enter an email address', 'error'); return; }
+  if (!isSms && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) { showToast('Enter a valid email address', 'error'); return; }
+  const btn = document.getElementById('receipt-send-btn');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  const bizName = state.userProfile?.businessName || 'Your Farrier';
+  const firstName = String(inv.customerName || '').trim().split(/\s+/)[0] || 'there';
+  const url = receiptUrl(inv);
+  try {
+    let ok, error;
+    if (isSms) {
+      const data = await (await fetch('/api/send-sms', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, body: `Hi ${firstName}, here's your receipt for invoice #${inv.invoiceNumber || ''} from ${bizName}: ${url} Thank you! Reply STOP to opt out.` }),
+      })).json();
+      ok = data.success; error = data.error;
+    } else {
+      const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:520px;margin:0 auto;padding:20px;color:#333;">
+        <h2 style="color:#1a365d;margin:0 0 12px;">Receipt for invoice #${escapeHtml(inv.invoiceNumber || '')}</h2>
+        <p>Hi ${escapeHtml(firstName)},</p>
+        <p>Thank you for your payment to <strong>${escapeHtml(bizName)}</strong>. Your receipt is ready:</p>
+        <p style="margin:24px 0;"><a href="${escapeHtml(url)}" style="background:#059669;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;">View receipt</a></p>
+        <p style="color:#6b7280;font-size:13px;">Or open this link: ${escapeHtml(url)}</p>
+      </div>`;
+      const data = await (await fetch('/api/send-email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, subject: `Receipt for invoice #${inv.invoiceNumber || ''} from ${bizName}`, html }),
+      })).json();
+      ok = data.ok; error = data.error;
+    }
+    if (ok) {
+      showToast(`Receipt ${isSms ? 'texted' : 'emailed'} to ${to}`);
+      document.getElementById('receipt-send-panel').style.display = 'none';
+    } else {
+      showToast(`${isSms ? 'Text' : 'Email'} failed: ${error || 'Unknown error'}`, 'error');
+    }
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+  btn.disabled = false; btn.textContent = 'Send';
 }
 
 function closeResend() {
